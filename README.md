@@ -5,6 +5,7 @@ An IBC v2 relayer in Rust. Plain traits, no frameworks.
 ## Status
 
 Early development.
+Currently in design/architecture phase.
 
 ## Why
 
