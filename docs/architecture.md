@@ -55,19 +55,14 @@ pub trait HasIbcTypes<Counterparty: HasChainTypes>: HasChainTypes {
 ## Crate Layout
 
 ```
-mercury-chain-traits     Pure trait definitions, no_std compatible
+mercury-core             Error types, runtime (trait + tokio), encoding traits
         |
-mercury-tx-traits        Transaction submission traits
-        |
-mercury-relay-traits     Relay orchestration traits
+mercury-chain-traits     Chain types, messaging, queries, tx traits, relay traits
         |
 mercury-cosmos           Cosmos SDK implementation (RPC, protobuf, tx signing)
-        |
 mercury-relay            Concrete relay logic, generic over chain traits
         |
-mercury-runtime          Tokio-based runtime
-        |
-mercury-cli              CLI binary wiring everything together
+mercury-cli              CLI binary
 ```
 
 ## Data Flow: Relaying a Packet

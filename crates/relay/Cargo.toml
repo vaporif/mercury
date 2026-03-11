@@ -1,0 +1,15 @@
+[package]
+name = "mercury-relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mercury-core = { workspace = true }
+mercury-chain-traits = { workspace = true }
+
+async-trait = { workspace = true }
+tracing = { workspace = true }

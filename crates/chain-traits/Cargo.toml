@@ -1,0 +1,12 @@
+[package]
+name = "mercury-chain-traits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mercury-core = { workspace = true }
+async-trait = { workspace = true }
