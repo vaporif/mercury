@@ -4,10 +4,10 @@ use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
 use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
 use mercury_chain_traits::queries::{CanQueryChainStatus, CanQueryClientState};
+use mercury_chain_traits::relay::client::CanUpdateClient;
 use mercury_chain_traits::types::{
     HasChainStatusType, HasIbcTypes, HasMessageTypes, HasPacketTypes,
 };
-use mercury_chain_traits::relay::client::CanUpdateClient;
 use mercury_core::error::Result;
 
 use crate::context::RelayContext;

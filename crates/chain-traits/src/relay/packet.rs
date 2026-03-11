@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use mercury_core::error::Result;
 
-use crate::types::HasPacketTypes;
 use super::context::Relay;
+use crate::types::HasPacketTypes;
 
 #[async_trait]
 pub trait CanRelayReceivePacket: Relay {

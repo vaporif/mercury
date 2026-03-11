@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use mercury_core::error::Result;
 
-use crate::types::HasChainTypes;
 use super::context::Relay;
+use crate::types::HasChainTypes;
 
 #[async_trait]
 pub trait CanRelayEvents: Relay {

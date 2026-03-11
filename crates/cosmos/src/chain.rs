@@ -4,8 +4,8 @@ use std::time::Duration;
 use ibc::core::host::types::identifiers::ChainId;
 use ibc_client_tendermint::types::ClientState as TendermintClientState;
 use ibc_client_tendermint::types::ConsensusState as TendermintConsensusState;
-use tendermint::block::Height as TmHeight;
 use tendermint::Time as TmTime;
+use tendermint::block::Height as TmHeight;
 use tendermint_rpc::HttpClient;
 use tokio::sync::Mutex;
 

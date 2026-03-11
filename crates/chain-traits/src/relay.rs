@@ -1,8 +1,8 @@
-pub mod context;
-pub mod packet;
-pub mod client;
-pub mod event;
 pub mod birelay;
+pub mod client;
+pub mod context;
+pub mod event;
+pub mod packet;
 
-pub use context::Relay;
 pub use birelay::BiRelay;
+pub use context::Relay;

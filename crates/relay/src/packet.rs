@@ -1,8 +1,10 @@
 use async_trait::async_trait;
 
 use mercury_chain_traits::messaging::CanSendMessages;
+use mercury_chain_traits::relay::packet::{
+    CanRelayAckPacket, CanRelayReceivePacket, CanRelayTimeoutPacket,
+};
 use mercury_chain_traits::types::{HasIbcTypes, HasMessageTypes, HasPacketTypes};
-use mercury_chain_traits::relay::packet::{CanRelayAckPacket, CanRelayReceivePacket, CanRelayTimeoutPacket};
 use mercury_core::error::Result;
 
 use crate::context::RelayContext;

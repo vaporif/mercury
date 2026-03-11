@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 
-use mercury_chain_traits::tx::{CanEstimateFee, CanPollTxResponse, CanQueryNonce, CanSubmitTx, HasTxTypes};
+use mercury_chain_traits::tx::{
+    CanEstimateFee, CanPollTxResponse, CanQueryNonce, CanSubmitTx, HasTxTypes,
+};
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;

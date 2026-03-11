@@ -1,5 +1,5 @@
-use mercury_chain_traits::relay::birelay::BiRelay;
 use mercury_chain_traits::relay::Relay;
+use mercury_chain_traits::relay::birelay::BiRelay;
 
 pub struct BiRelayContext<R1: Relay, R2: Relay> {
     pub relay_a_to_b: R1,

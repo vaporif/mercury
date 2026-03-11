@@ -9,7 +9,9 @@ pub trait CanQueryChainStatus: HasChainStatusType {
 }
 
 #[async_trait]
-pub trait CanQueryClientState<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Counterparty> {
+pub trait CanQueryClientState<Counterparty: HasChainTypes + ?Sized>:
+    HasIbcTypes<Counterparty>
+{
     async fn query_client_state(
         &self,
         client_id: &Self::ClientId,
@@ -18,7 +20,9 @@ pub trait CanQueryClientState<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes
 }
 
 #[async_trait]
-pub trait CanQueryConsensusState<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Counterparty> {
+pub trait CanQueryConsensusState<Counterparty: HasChainTypes + ?Sized>:
+    HasIbcTypes<Counterparty>
+{
     async fn query_consensus_state(
         &self,
         client_id: &Self::ClientId,

@@ -1,5 +1,5 @@
-use crate::error::Result;
 use crate::ThreadSafe;
+use crate::error::Result;
 
 pub trait Encoding: ThreadSafe {
     type Encoded: AsRef<[u8]> + ThreadSafe;
