@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use tracing::{info, warn};
+use tracing::info;
 
 use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::tx::{CanEstimateFee, CanPollTxResponse, CanQueryNonce, CanSubmitTx};
@@ -17,50 +17,19 @@ impl CanSendMessages for CosmosChain {
             return Ok(vec![]);
         }
 
-        let mut retry = false;
+        // Nonce is queried fresh each time rather than cached. This is safe because
+        // TxWorker is the sole submitter per chain, so there are no concurrent submissions
+        // that could cause sequence conflicts.
+        let nonce = self.query_nonce(&self.signer).await?;
+        let fee = self.estimate_fee(&self.signer, &messages).await?;
+        let tx_hash = self
+            .submit_tx(&self.signer, &nonce, &fee, messages)
+            .await?;
 
-        loop {
-            let mut nonce_guard = self.nonce_mutex.lock().await;
+        info!("tx submitted: {tx_hash}");
 
-            let nonce = if let Some(n) = nonce_guard.as_ref() {
-                n.clone()
-            } else {
-                let n = self.query_nonce(&self.signer).await?;
-                *nonce_guard = Some(n.clone());
-                n
-            };
+        let response = self.poll_tx_response(&tx_hash).await?;
 
-            let fee = self.estimate_fee(&self.signer, &messages).await?;
-
-            let tx_hash = match self
-                .submit_tx(&self.signer, &nonce, &fee, messages.clone())
-                .await
-            {
-                Ok(hash) => hash,
-                Err(e) => {
-                    let err_str = format!("{e:?}");
-                    if !retry && err_str.contains("sequence") {
-                        warn!("sequence mismatch, re-querying nonce");
-                        *nonce_guard = None;
-                        drop(nonce_guard);
-                        retry = true;
-                        continue;
-                    }
-                    return Err(e);
-                }
-            };
-
-            info!("tx submitted: {tx_hash}");
-
-            let response = self.poll_tx_response(&tx_hash).await?;
-
-            if let Some(ref mut n) = *nonce_guard {
-                n.sequence += 1;
-            }
-
-            drop(nonce_guard);
-
-            return Ok(vec![response]);
-        }
+        Ok(vec![response])
     }
 }

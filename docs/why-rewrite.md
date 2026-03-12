@@ -1,4 +1,18 @@
-# Why Not CGP
+# Why Rewrite
+
+There are two existing IBC relayers in Rust: the [original Hermes](https://github.com/informalsystems/hermes) and its intended successor [Hermes SDK](https://github.com/informalsystems/hermes-sdk). Hermes has been reliable production software for years, but its architecture makes certain improvements difficult. Hermes SDK attempted to address this through CGP, which introduced its own problems. Mercury takes a different path.
+
+## Hermes: Architectural Constraints
+
+Hermes was designed around a synchronous, thread-based model. The `ChainHandle` trait defines ~65 synchronous methods, each dispatched through crossbeam channels to a `ChainRuntime` running a `crossbeam_channel::select!` loop in a dedicated OS thread. Async operations (gRPC, RPC) are executed through a `block_on` bridge — tokio exists only as an internal detail while all orchestration remains synchronous.
+
+This means each IBC channel gets its own worker thread communicating via crossbeam. Operators relaying many channels end up spawning hundreds of OS threads instead of lightweight async tasks — a [known scalability concern](https://github.com/informalsystems/hermes/issues/121) that's hard to fix without rearchitecting the core.
+
+The chain abstractions are also tightly coupled to Cosmos SDK semantics, making non-Cosmos chain support harder than it needs to be.
+
+These aren't things that can be fixed incrementally — the sync-first threading model is load-bearing. The existence of hermes-sdk as a separate ground-up effort suggests the team reached the same conclusion.
+
+## Hermes SDK: CGP Complexity
 
 [Hermes SDK](https://github.com/informalsystems/hermes-sdk) was built on [Context-Generic Programming](https://github.com/contextgeneric/cgp) (CGP), a custom Rust framework that provides compile-time polymorphism without runtime dispatch. In practice, it made the codebase difficult to contribute to.
 

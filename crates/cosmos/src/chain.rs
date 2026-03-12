@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use ibc::core::host::types::identifiers::ChainId;
@@ -7,11 +6,9 @@ use ibc_client_tendermint::types::ConsensusState as TendermintConsensusState;
 use tendermint::Time as TmTime;
 use tendermint::block::Height as TmHeight;
 use tendermint_rpc::HttpClient;
-use tokio::sync::Mutex;
 
 use crate::config::CosmosChainConfig;
 use crate::keys::Secp256k1KeyPair;
-use crate::tx::CosmosNonce;
 use crate::types::{
     CosmosChainStatus, CosmosEvent, CosmosMessage, CosmosPacket, CosmosTxResponse, MerkleProof,
     PacketAcknowledgement, PacketCommitment, PacketReceipt,
@@ -28,7 +25,6 @@ pub struct CosmosChain {
     pub grpc_channel: tonic::transport::Channel,
     pub signer: Secp256k1KeyPair,
     pub block_time: Duration,
-    pub nonce_mutex: Arc<Mutex<Option<CosmosNonce>>>,
 }
 
 impl CosmosChain {
@@ -81,7 +77,6 @@ impl CosmosChain {
             rpc_client,
             grpc_channel,
             signer,
-            nonce_mutex: Arc::new(Mutex::new(None)),
         })
     }
 }

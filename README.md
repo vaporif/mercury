@@ -11,7 +11,7 @@ Active development phase.
 
 ## Docs
 
-- [Why not CGP?](./docs/cgp.md)
+- [Why rewrite?](./docs/why-rewrite.md)
 - [Architecture](./docs/architecture.md)  
 - [IBC v2](./docs/ibc-v2.md)
 
