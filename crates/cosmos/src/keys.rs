@@ -1,11 +1,22 @@
-use mercury_core::error::{Error, Result};
-use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use std::fmt;
 
-#[derive(Clone, Debug)]
+use mercury_core::error::{Error, Result};
+use secp256k1::{PublicKey, Secp256k1, SecretKey, ecdsa::Signature};
+
+#[derive(Clone)]
 pub struct Secp256k1KeyPair {
-    pub secret_key: SecretKey,
+    secret_key: SecretKey,
     pub public_key: PublicKey,
     pub account_prefix: String,
+}
+
+impl fmt::Debug for Secp256k1KeyPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Secp256k1KeyPair")
+            .field("public_key", &self.public_key)
+            .field("account_prefix", &self.account_prefix)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Secp256k1KeyPair {
@@ -18,6 +29,12 @@ impl Secp256k1KeyPair {
             public_key,
             account_prefix: account_prefix.to_string(),
         }
+    }
+
+    #[must_use]
+    pub fn sign(&self, msg: secp256k1::Message) -> Signature {
+        let secp = Secp256k1::signing_only();
+        secp.sign_ecdsa(msg, &self.secret_key)
     }
 
     pub fn account_address(&self) -> Result<String> {

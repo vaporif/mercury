@@ -108,9 +108,8 @@ fn build_tx_bytes(
     let sign_doc_bytes = sign_doc.encode_to_vec();
     let hash = Sha256::digest(&sign_doc_bytes);
 
-    let secp = secp256k1::Secp256k1::signing_only();
     let msg = secp256k1::Message::from_digest(hash.into());
-    let sig = secp.sign_ecdsa(msg, &signer.secret_key);
+    let sig = signer.sign(msg);
     let sig_bytes = sig.serialize_compact().to_vec();
 
     let tx_raw = TxRaw {

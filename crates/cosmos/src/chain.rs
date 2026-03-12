@@ -61,12 +61,14 @@ impl CosmosChain {
         }
 
         let key_contents = std::fs::read_to_string(&config.key_file).map_err(Error::report)?;
-        let secret_key_bytes = hex::decode(key_contents.trim()).map_err(Error::report)?;
+        let mut secret_key_bytes = hex::decode(key_contents.trim()).map_err(Error::report)?;
         let secret_key_array: [u8; 32] = secret_key_bytes
+            .as_slice()
             .try_into()
             .map_err(|_| Error::report(eyre::eyre!("secret key must be 32 bytes")))?;
         let secret_key =
             secp256k1::SecretKey::from_byte_array(secret_key_array).map_err(Error::report)?;
+        zeroize::Zeroize::zeroize(&mut secret_key_bytes);
         let signer = Secp256k1KeyPair::from_secret_key(secret_key, &config.account_prefix);
 
         Ok(Self {
