@@ -4,17 +4,13 @@ There are two existing IBC relayers in Rust: the [original Hermes](https://githu
 
 ## Hermes: Architectural Constraints
 
-The sync-first design was a reasonable choice in 2020. Rust had no native `async fn` in traits (stabilized in late 2023), tokio 1.0 hadn't shipped yet, and the async runtime ecosystem was fragmented. The team [explicitly chose](https://github.com/informalsystems/hermes/issues/121) to start synchronous — get the relaying logic correct and testable before introducing concurrency. Synchronous code was easier to reason about for multi-step relay workflows involving cancellation and complex state transitions.
+Hermes was designed around a synchronous, thread-based model — a [reasonable choice in 2020](https://github.com/informalsystems/hermes/issues/121). Rust had no native `async fn` in traits (stabilized in late 2023), tokio 1.0 hadn't shipped yet, and the async runtime ecosystem was fragmented. The team explicitly chose to start synchronous — get the relaying logic correct and testable before introducing concurrency. Synchronous code was easier to reason about for multi-step relay workflows involving cancellation and complex state transitions.
 
-The problem is that by the time async Rust matured, the sync model was load-bearing and too costly to retrofit. Mercury benefits from starting in 2026, where stable async traits, a mature tokio, and battle-tested async patterns are the default.
-
-Hermes was designed around a synchronous, thread-based model. The `ChainHandle` trait defines ~65 synchronous methods, each dispatched through crossbeam channels to a `ChainRuntime` running a `crossbeam_channel::select!` loop in a dedicated OS thread. Async operations (gRPC, RPC) are executed through a `block_on` bridge — tokio exists only as an internal detail while all orchestration remains synchronous.
-
-This means each IBC channel gets its own worker thread communicating via crossbeam. Operators relaying many channels end up spawning hundreds of OS threads instead of lightweight async tasks — a [known scalability concern](https://github.com/informalsystems/hermes/issues/121) that's hard to fix without rearchitecting the core.
+In practice, this means the `ChainHandle` trait defines ~65 synchronous methods, each dispatched through crossbeam channels to a `ChainRuntime` running a `crossbeam_channel::select!` loop in a dedicated OS thread. Async operations (gRPC, RPC) are executed through a `block_on` bridge — tokio exists only as an internal detail while all orchestration remains synchronous. Each IBC channel gets its own worker thread, so operators relaying many channels end up spawning hundreds of OS threads instead of lightweight async tasks.
 
 The chain abstractions are also tightly coupled to Cosmos SDK semantics, making non-Cosmos chain support harder than it needs to be.
 
-These aren't things that can be fixed incrementally — the sync-first threading model is load-bearing. The existence of hermes-sdk as a separate ground-up effort suggests the team reached the same conclusion.
+By the time async Rust matured, the sync model was load-bearing and too costly to retrofit. The existence of hermes-sdk as a separate ground-up effort suggests the team reached the same conclusion. Mercury benefits from starting in 2026, where stable async traits, a mature tokio, and battle-tested async patterns are the default.
 
 ## Hermes SDK: CGP Complexity
 
