@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/vaporif/mercury/actions/workflows/check.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/check.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Rust 1.85.1+](https://img.shields.io/badge/rust-1.85.1%2B-orange.svg)](https://www.rust-lang.org)
+[![Rust 1.86+](https://img.shields.io/badge/rust-1.86%2B-orange.svg)](https://www.rust-lang.org)
 
 An IBC v2 relayer in Rust. Plain traits, no frameworks.
 
@@ -28,7 +28,7 @@ Each relay direction (A→B, B→A) runs its own set of workers connected by `to
 
 | Crate | Description |
 |-------|-------------|
-| `mercury-cli` | CLI binary — `mercury start`, `mercury status` |
+| `mercury-relayer` | CLI binary — `mercury-relayer start`, `mercury-relayer status` |
 | `mercury-cosmos` | Cosmos chain implementation — RPC, protobuf, tx signing |
 | `mercury-relay` | Worker pipeline, generic over chain traits |
 | `mercury-chain-traits` | Chain types, messaging, queries, relay traits |
@@ -43,10 +43,10 @@ Each relay direction (A→B, B→A) runs its own set of workers connected by `to
 
 ```bash
 # Start the relayer
-mercury start --config relayer.toml
+mercury-relayer start --config relayer.toml
 
 # Query chain status
-mercury status --config relayer.toml --chain cosmoshub-4
+mercury-relayer status --config relayer.toml --chain cosmoshub-4
 ```
 
 See [`examples/relayer.toml`](./examples/relayer.toml) for a full config example.
