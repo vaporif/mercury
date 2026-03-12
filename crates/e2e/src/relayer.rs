@@ -136,10 +136,23 @@ dst_client_id = "{client_b}"
         );
         std::fs::write(&config_path, config)?;
 
-        let child = Command::new(
-            std::env::var("CARGO_BIN_EXE_mercury-relayer")
-                .unwrap_or_else(|_| "mercury-relayer".to_string()),
-        )
+        let binary = std::env::var("MERCURY_RELAYER_BIN").unwrap_or_else(|_| {
+            let output = Command::new("cargo")
+                .args(["build", "-p", "mercury-cli", "--message-format=json"])
+                .output()
+                .expect("failed to run cargo build");
+            assert!(output.status.success(), "cargo build failed");
+            String::from_utf8(output.stdout)
+                .expect("invalid utf8")
+                .lines()
+                .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                .filter(|v| v.get("executable").and_then(|e| e.as_str()).is_some())
+                .last()
+                .and_then(|v| v.get("executable").and_then(|e| e.as_str()).map(String::from))
+                .expect("no executable found in cargo build output")
+        });
+
+        let child = Command::new(&binary)
         .args(["start", "--config", &config_path.to_string_lossy()])
         .spawn()
         .wrap_err("spawning mercury-relayer")?;
