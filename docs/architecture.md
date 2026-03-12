@@ -60,7 +60,7 @@ This keeps where clauses focused on only the *additional* bounds each context ne
 
 ### Trait Groups (~35 total)
 
-- **Type traits** (5) — `HasChainTypes`, `HasMessageTypes`, `HasIbcTypes<C>`, `HasPacketTypes<C>`, `HasChainStatusType`
+- **Type traits** (6) — `HasChainTypes`, `HasMessageTypes`, `HasIbcTypes<C>`, `HasPacketTypes<C>`, `HasChainStatusType`, `HasRevisionNumber`
 - **Query traits** (7) — chain status, client state, consensus state, client latest height, trusting period, block events, packet commitments/receipts/acks
 - **Message builders** (7) — create/update client, register counterparty, recv/ack/timeout packets
 - **Payload builders** (2) — create/update client payloads (counterparty side)
@@ -83,18 +83,22 @@ mercury-cli              CLI binary
 
 ## Data Flow: Relaying a Packet
 
-Four workers connected by `tokio::mpsc` channels form the relay pipeline. Each relay direction (A→B, B→A) runs its own set of workers. Shutdown propagates via `CancellationToken` — first worker to exit cancels the rest.
+Five workers connected by `tokio::mpsc` channels form the relay pipeline. Each relay direction (A→B, B→A) runs its own set of workers. Shutdown propagates via `CancellationToken` — first worker to exit cancels the rest.
 
 ```
-EventWatcher ──Vec<IbcEvent>──► PacketWorker ──TxRequest──► TxWorker
-                                                    ▲
-ClientRefreshWorker ────────────TxRequest────────────┘
+                                              ┌──DstTxRequest──► TxWorker (dst chain)
+EventWatcher ──Vec<IbcEvent>──► PacketWorker ──┤
+                                              └──SrcTxRequest──► SrcTxWorker (src chain)
+                                                        ▲
+ClientRefreshWorker ────────────DstTxRequest─────────────┘
 ```
 
-1. **EventWatcher** polls source chain block-by-block for `SendPacket` and `WriteAck` events, batches per block, sends `Vec<IbcEvent>` downstream
-2. **PacketWorker** receives event batches, filters timed-out packets, queries proofs concurrently, builds `MsgUpdateClient` + recv/ack messages, sends `TxRequest` downstream
-3. **ClientRefreshWorker** periodically refreshes the destination client before it expires (sleeps for 1/3 of the trusting period), sends `MsgUpdateClient` via `TxRequest`
-4. **TxWorker** accumulates messages, submits batched transactions to destination chain
+1. **EventWatcher** polls source chain block-by-block for `SendPacket` and `WriteAck` events, batches per block, sends `Vec<IbcEvent>` downstream. Tolerates transient RPC failures without dying.
+2. **PacketWorker** receives event batches, classifies packets as live or timed-out using the destination chain's timestamp, queries proofs concurrently with retries, then:
+   - Recv/ack messages → `DstTxRequest` → **TxWorker** (destination chain)
+   - Timeout messages → `SrcTxRequest` → **SrcTxWorker** (source chain)
+3. **ClientRefreshWorker** periodically refreshes the destination client before it expires (sleeps for 1/3 of the trusting period), sends `MsgUpdateClient` via `DstTxRequest`
+4. **TxWorker** / **SrcTxWorker** accumulate messages, submit batched transactions to their respective chain. Both share the same `run_tx_loop` implementation with semaphore-bounded concurrency (`MAX_IN_FLIGHT=3`) and consecutive failure tracking
 
 ## Error Handling
 
