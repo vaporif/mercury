@@ -27,7 +27,8 @@ impl Secp256k1KeyPair {
         let sha_hash = Sha256::digest(pub_key_bytes);
         let address_bytes = &sha_hash[..20];
         let hrp = Hrp::parse(&self.account_prefix).map_err(Error::report)?;
-        let encoded = bech32::encode::<bech32::Bech32>(hrp, address_bytes).map_err(Error::report)?;
+        let encoded =
+            bech32::encode::<bech32::Bech32>(hrp, address_bytes).map_err(Error::report)?;
         Ok(encoded)
     }
 }
