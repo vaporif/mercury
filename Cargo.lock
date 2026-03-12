@@ -2202,7 +2202,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "mercury-chain-traits"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
  "eyre",
@@ -2211,7 +2211,7 @@ dependencies = [
 
 [[package]]
 name = "mercury-cli"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "clap",
  "color-eyre",
@@ -2230,7 +2230,7 @@ dependencies = [
 
 [[package]]
 name = "mercury-core"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
  "eyre",
@@ -2240,7 +2240,7 @@ dependencies = [
 
 [[package]]
 name = "mercury-cosmos"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
  "bech32",
@@ -2271,7 +2271,7 @@ dependencies = [
 
 [[package]]
 name = "mercury-e2e"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
  "eyre",
@@ -2303,7 +2303,7 @@ dependencies = [
 
 [[package]]
 name = "mercury-relay"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
  "eyre",
