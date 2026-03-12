@@ -1,0 +1,3 @@
+[[profile.default.overrides]]
+filter = "package(mercury-e2e)"
+threads-required = 4

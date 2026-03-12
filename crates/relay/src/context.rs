@@ -111,9 +111,7 @@ where
     <Dst as HasPacketTypes<Src>>::Acknowledgement:
         Borrow<<Src as HasPacketTypes<Dst>>::Acknowledgement>,
 {
-    pub async fn run(self: Arc<Self>) -> Result<()> {
-        let token = CancellationToken::new();
-
+    pub async fn run_with_token(self: Arc<Self>, token: CancellationToken) -> Result<()> {
         let (event_tx, event_rx) = mpsc::channel(CHANNEL_BUFFER);
         let (tx_req_tx, tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
         let (src_tx_req_tx, src_tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
@@ -170,5 +168,9 @@ where
             Ok(worker_result) => worker_result,
             Err(join_err) => Err(mercury_core::error::Error::report(join_err)),
         }
+    }
+
+    pub async fn run(self: Arc<Self>) -> Result<()> {
+        self.run_with_token(CancellationToken::new()).await
     }
 }

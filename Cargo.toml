@@ -7,6 +7,7 @@ members = [
     "crates/chains/cosmos",
     "crates/relay",
     "crates/cli",
+    "crates/e2e",
 ]
 
 [workspace.package]
@@ -37,7 +38,7 @@ color-eyre = "0.6"
 tracing = "0.1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
-futures = { version = "0.3", default-features = false }
+futures = "0.3"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -65,3 +66,4 @@ bech32 = "0.11"
 hex = "0.4"
 toml = "0.8"
 zeroize = "1"
+testcontainers = "0.24"
