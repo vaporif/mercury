@@ -11,7 +11,7 @@ Mercury relays packets between IBC-connected blockchains. Unlike [hermes-sdk](ht
 
 ## Status
 
-Early active development. Core IBC v2 relay pipeline is implemented with CI checks (clippy, fmt, MSRV, cross-compilation) and Docker-based E2E tests for Cosmos-to-Cosmos relaying. Not yet tested against live chains — use at your own risk.
+Early active development. Core IBC v2 relay pipeline and Docker base transfer E2E test for Cosmos-to-Cosmos relaying. Not yet tested against live chains — use at your own risk.
 
 ## How it works
 
