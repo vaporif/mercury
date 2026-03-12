@@ -50,31 +50,32 @@ pub trait HasIbcTypes<Counterparty: HasChainTypes>: HasChainTypes {
 - **Payload builders** (2) — create/update client payloads (counterparty side)
 - **Transaction traits** (4) — submit, estimate fee, query nonce, poll response
 - **Relay traits** (6) — packet relay, client update, event relay, bidirectional relay
-- **Infrastructure** (2) — runtime, encoding
+- **Infrastructure** (3) — runtime, encoding, worker
 
 ## Crate Layout
 
 ```
-mercury-core             Error types, runtime (trait + tokio), encoding traits
+mercury-core             Error types, runtime (trait + tokio), encoding, worker trait
         |
-mercury-chain-traits     Chain types, messaging, queries, tx traits, relay traits
+mercury-chain-traits     Chain types, messaging, queries, tx traits, relay traits, IbcEvent
         |
 mercury-cosmos           Cosmos SDK implementation (RPC, protobuf, tx signing)
-mercury-relay            Concrete relay logic, generic over chain traits
+mercury-relay            Worker pipeline (EventWatcher → PacketWorker → TxWorker), generic over chain traits
         |
 mercury-cli              CLI binary
 ```
 
 ## Data Flow: Relaying a Packet
 
-1. **Event loop** watches source chain for `SendPacket` events
-2. **Extract** packet data from the event
-3. **Update client** on destination with source chain's latest state
-4. **Query proof** of packet commitment on source chain
-5. **Build** `MsgRecvPacket` on destination chain (packet + proof)
-6. **Submit** the message to destination chain
-7. **Watch** for acknowledgement on destination
-8. **Relay ack** back to source chain (ack + proof)
+Three workers connected by `tokio::mpsc` channels form the relay pipeline. Each relay direction (A→B, B→A) runs its own pipeline. Shutdown propagates via `CancellationToken` — first worker to exit cancels the rest.
+
+```
+EventWatcher ──Vec<IbcEvent>──► PacketWorker ──TxRequest──► TxWorker
+```
+
+1. **EventWatcher** watches source chain for `SendPacket` events, batches per block, sends `Vec<IbcEvent>` downstream
+2. **PacketWorker** receives event batches, queries proofs, builds update client + recv/ack/timeout messages, sends `TxRequest` downstream
+3. **TxWorker** accumulates messages, submits batched transactions to destination chain
 
 ## Error Handling
 
