@@ -39,6 +39,7 @@ Each relay direction (A→B, B→A) runs its own set of workers connected by `to
 
 - [Why rewrite?](./docs/why-rewrite.md)
 - [IBC v2](./docs/ibc-v2.md)
+- [Adding a new chain](./docs/adding-a-chain.md)
 
 ## Usage
 
