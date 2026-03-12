@@ -20,9 +20,9 @@ use tendermint_rpc::{Client, Paging};
 use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
 
-const TRUSTING_PERIOD: Duration = Duration::from_secs(14 * 24 * 3600);
-const UNBONDING_PERIOD: Duration = Duration::from_secs(21 * 24 * 3600);
-const MAX_CLOCK_DRIFT: Duration = Duration::from_secs(40);
+const DEFAULT_TRUSTING_PERIOD: Duration = Duration::from_secs(14 * 24 * 3600);
+const DEFAULT_UNBONDING_PERIOD: Duration = Duration::from_secs(21 * 24 * 3600);
+const DEFAULT_MAX_CLOCK_DRIFT: Duration = Duration::from_secs(40);
 const HEADER_FETCH_CONCURRENCY: usize = 8;
 
 #[derive(Clone, Debug)]
@@ -52,12 +52,25 @@ impl<S: CosmosSigner> CanBuildCreateClientPayload<Self> for CosmosChain<S> {
         let ibc_height = Height::new(self.chain_id.revision_number(), latest_height.value())
             .map_err(|e| Error::report(eyre::eyre!("{e}")))?;
 
+        let trusting_period = self
+            .config
+            .trusting_period
+            .unwrap_or(DEFAULT_TRUSTING_PERIOD);
+        let unbonding_period = self
+            .config
+            .unbonding_period
+            .unwrap_or(DEFAULT_UNBONDING_PERIOD);
+        let max_clock_drift = self
+            .config
+            .max_clock_drift
+            .unwrap_or(DEFAULT_MAX_CLOCK_DRIFT);
+
         let client_state = TendermintClientState::new(
             self.chain_id.clone(),
             TrustThreshold::ONE_THIRD,
-            TRUSTING_PERIOD,
-            UNBONDING_PERIOD,
-            MAX_CLOCK_DRIFT,
+            trusting_period,
+            unbonding_period,
+            max_clock_drift,
             ibc_height,
             ProofSpecs::cosmos(),
             vec!["upgrade".to_string(), "upgradedIBCState".to_string()],

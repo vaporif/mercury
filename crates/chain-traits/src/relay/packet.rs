@@ -25,9 +25,11 @@ pub trait CanBuildAckPacketMessages: Relay {
 
 #[async_trait]
 pub trait CanBuildTimeoutPacketMessages: Relay {
+    /// Build timeout messages to submit to the **source** chain.
+    /// The proof of non-receipt comes from the destination chain.
     async fn build_timeout_packet_messages(
         &self,
         packet: &<Self::SrcChain as HasPacketTypes<Self::DstChain>>::Packet,
         proof_height: &<Self::DstChain as HasChainTypes>::Height,
-    ) -> Result<Vec<<Self::DstChain as HasMessageTypes>::Message>>;
+    ) -> Result<Vec<<Self::SrcChain as HasMessageTypes>::Message>>;
 }

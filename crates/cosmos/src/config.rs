@@ -16,6 +16,12 @@ pub struct CosmosChainConfig {
     pub block_time: Duration,
     #[serde(default = "default_max_msg_num")]
     pub max_msg_num: usize,
+    #[serde(default)]
+    pub trusting_period: Option<Duration>,
+    #[serde(default)]
+    pub unbonding_period: Option<Duration>,
+    #[serde(default)]
+    pub max_clock_drift: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

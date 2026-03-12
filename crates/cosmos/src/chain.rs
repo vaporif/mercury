@@ -15,6 +15,7 @@ use crate::types::{
 };
 use mercury_chain_traits::types::{
     HasChainStatusType, HasChainTypes, HasIbcTypes, HasMessageTypes, HasPacketTypes,
+    HasRevisionNumber,
 };
 
 #[derive(Clone, Debug)]
@@ -89,6 +90,12 @@ impl<S: CosmosSigner> HasPacketTypes<Self> for CosmosChain<S> {
     }
 }
 
+impl<S: CosmosSigner> HasRevisionNumber for CosmosChain<S> {
+    fn revision_number(&self) -> u64 {
+        self.chain_id.revision_number()
+    }
+}
+
 impl<S: CosmosSigner> HasChainStatusType for CosmosChain<S> {
     type ChainStatus = CosmosChainStatus;
 
@@ -98,5 +105,9 @@ impl<S: CosmosSigner> HasChainStatusType for CosmosChain<S> {
 
     fn chain_status_timestamp(status: &Self::ChainStatus) -> &Self::Timestamp {
         &status.timestamp
+    }
+
+    fn chain_status_timestamp_secs(status: &Self::ChainStatus) -> u64 {
+        status.timestamp.unix_timestamp().try_into().unwrap_or(0)
     }
 }

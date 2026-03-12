@@ -39,7 +39,13 @@ where
                 () = tokio::time::sleep(POLL_INTERVAL) => {}
             }
 
-            let latest = src.query_latest_height().await?;
+            let latest = match src.query_latest_height().await {
+                Ok(h) => h,
+                Err(e) => {
+                    warn!(error = %e, "failed to query latest height, will retry");
+                    continue;
+                }
+            };
             if latest <= last_height {
                 continue;
             }
@@ -50,7 +56,13 @@ where
                     break;
                 }
 
-                let block_events = src.query_block_events(&h).await?;
+                let block_events = match src.query_block_events(&h).await {
+                    Ok(events) => events,
+                    Err(e) => {
+                        warn!(height = %h, error = %e, "failed to query block events, will retry from this height");
+                        break;
+                    }
+                };
 
                 let mut ibc_events = Vec::new();
                 for event in &block_events {
@@ -68,15 +80,15 @@ where
                 if !ibc_events.is_empty() {
                     debug!(height = %h, count = ibc_events.len(), "extracted IBC events");
                     if self.sender.send(ibc_events).await.is_err() {
-                        warn!("packet_worker channel closed");
-                        break;
+                        warn!("packet_worker channel closed, cancelling relay");
+                        self.token.cancel();
+                        return Ok(());
                     }
                 }
 
+                last_height = h.clone();
                 maybe_h = R::SrcChain::increment_height(&h);
             }
-
-            last_height = latest;
         }
 
         Ok(())

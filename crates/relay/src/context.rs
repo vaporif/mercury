@@ -4,17 +4,19 @@ use std::sync::Arc;
 use mercury_chain_traits::events::CanQueryBlockEvents;
 use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
 use mercury_chain_traits::packet_builders::{
-    CanBuildAckPacketMessage, CanBuildReceivePacketMessage,
+    CanBuildAckPacketMessage, CanBuildReceivePacketMessage, CanBuildTimeoutPacketMessage,
 };
 use mercury_chain_traits::packet_queries::{
-    CanQueryPacketAcknowledgement, CanQueryPacketCommitment,
+    CanQueryPacketAcknowledgement, CanQueryPacketCommitment, CanQueryPacketReceipt,
 };
 use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
 use mercury_chain_traits::queries::{
     CanQueryClientState, HasClientLatestHeight, HasTrustingPeriod,
 };
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::{Chain, HasChainTypes, HasIbcTypes, HasPacketTypes};
+use mercury_chain_traits::types::{
+    Chain, HasChainTypes, HasIbcTypes, HasPacketTypes, HasRevisionNumber,
+};
 use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
@@ -23,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 use crate::workers::client_refresh::ClientRefreshWorker;
 use crate::workers::event_watcher::EventWatcher;
 use crate::workers::packet_worker::PacketWorker;
-use crate::workers::tx_worker::TxWorker;
+use crate::workers::tx_worker::{SrcTxWorker, TxWorker};
 
 const CHANNEL_BUFFER: usize = 256;
 
@@ -69,21 +71,38 @@ where
         + CanQueryBlockEvents
         + CanBuildUpdateClientPayload<Dst>
         + CanQueryPacketCommitment<Dst>
-        + CanQueryPacketAcknowledgement<Dst>,
+        + CanQueryPacketAcknowledgement<Dst>
+        + HasRevisionNumber
+        // Timeout: src needs to query its client of dst, build update + timeout msgs
+        + CanQueryClientState<Dst>
+        + HasClientLatestHeight<Dst>
+        + CanBuildUpdateClientMessage<Dst>
+        + CanBuildTimeoutPacketMessage<Dst>,
     Dst: Chain<Src>
         + CanQueryClientState<Src>
         + HasClientLatestHeight<Src>
         + HasTrustingPeriod<Src>
         + CanBuildUpdateClientMessage<Src>
         + CanBuildReceivePacketMessage<Src>
-        + CanBuildAckPacketMessage<Src>,
+        + CanBuildAckPacketMessage<Src>
+        + HasRevisionNumber
+        // Timeout: dst provides receipt proof + update client payload for src
+        + CanQueryPacketReceipt<Src>
+        + CanBuildUpdateClientPayload<Src>,
     <Dst as CanBuildReceivePacketMessage<Src>>::ReceivePacketPayload: From<(
         <Src as HasIbcTypes<Dst>>::CommitmentProof,
         <Src as HasChainTypes>::Height,
+        u64,
     )>,
     <Dst as CanBuildAckPacketMessage<Src>>::AckPacketPayload: From<(
         <Src as HasIbcTypes<Dst>>::CommitmentProof,
         <Src as HasChainTypes>::Height,
+        u64,
+    )>,
+    <Src as CanBuildTimeoutPacketMessage<Dst>>::TimeoutPacketPayload: From<(
+        <Dst as HasIbcTypes<Src>>::CommitmentProof,
+        <Dst as HasChainTypes>::Height,
+        u64,
     )>,
     <Src as HasPacketTypes<Dst>>::Packet: Borrow<<Dst as HasPacketTypes<Src>>::Packet>,
     <Src as HasPacketTypes<Dst>>::Acknowledgement:
@@ -96,6 +115,7 @@ where
 
         let (event_tx, event_rx) = mpsc::channel(CHANNEL_BUFFER);
         let (tx_req_tx, tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
+        let (src_tx_req_tx, src_tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
 
         let event_watcher = EventWatcher {
             relay: Arc::clone(&self),
@@ -113,6 +133,7 @@ where
             relay: Arc::clone(&self),
             receiver: event_rx,
             sender: tx_req_tx,
+            src_sender: src_tx_req_tx,
             token: token.clone(),
         };
 
@@ -122,15 +143,23 @@ where
             token: token.clone(),
         };
 
+        let src_tx_worker = SrcTxWorker {
+            relay: Arc::clone(&self),
+            receiver: src_tx_req_rx,
+            token: token.clone(),
+        };
+
         let event_watcher_handle = spawn_worker(event_watcher);
         let packet_worker_handle = spawn_worker(packet_worker);
         let tx_worker_handle = spawn_worker(tx_worker);
+        let src_tx_worker_handle = spawn_worker(src_tx_worker);
         let client_refresh_handle = spawn_worker(client_refresh);
 
         let result = tokio::select! {
             res = event_watcher_handle => res,
             res = packet_worker_handle => res,
             res = tx_worker_handle => res,
+            res = src_tx_worker_handle => res,
             res = client_refresh_handle => res,
         };
 

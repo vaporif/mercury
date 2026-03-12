@@ -154,16 +154,14 @@ impl<S: CosmosSigner> CanQueryNonce for CosmosChain<S> {
     }
 }
 
-#[async_trait]
-impl<S: CosmosSigner> CanEstimateFee for CosmosChain<S> {
-    async fn estimate_fee(
+impl<S: CosmosSigner> CosmosChain<S> {
+    pub async fn estimate_fee_with_nonce(
         &self,
-        signer: &Self::Signer,
-        messages: &[Self::Message],
-    ) -> Result<Self::Fee> {
+        signer: &S,
+        nonce: &CosmosNonce,
+        messages: &[crate::types::CosmosMessage],
+    ) -> Result<CosmosFee> {
         use ibc_proto::cosmos::tx::v1beta1::{SimulateRequest, SimulateResponse};
-
-        let nonce = self.query_nonce(signer).await?;
 
         let dummy_fee = CosmosFee {
             amount: 0,
@@ -173,7 +171,7 @@ impl<S: CosmosSigner> CanEstimateFee for CosmosChain<S> {
         let tx_bytes = build_tx_bytes(
             &self.chain_id.to_string(),
             signer,
-            &nonce,
+            nonce,
             &dummy_fee,
             messages,
         )
@@ -223,6 +221,18 @@ impl<S: CosmosSigner> CanEstimateFee for CosmosChain<S> {
             denom: gas_price.denom.clone(),
             gas_limit,
         })
+    }
+}
+
+#[async_trait]
+impl<S: CosmosSigner> CanEstimateFee for CosmosChain<S> {
+    async fn estimate_fee(
+        &self,
+        signer: &Self::Signer,
+        messages: &[Self::Message],
+    ) -> Result<Self::Fee> {
+        let nonce = self.query_nonce(signer).await?;
+        self.estimate_fee_with_nonce(signer, &nonce, messages).await
     }
 }
 

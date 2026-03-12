@@ -16,13 +16,13 @@ use mercury_chain_traits::types::HasChainStatusType;
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
-use crate::workers::TxRequest;
+use crate::workers::DstTxRequest;
 
 const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_secs(300);
 
 pub struct ClientRefreshWorker<R: Relay> {
     pub relay: Arc<R>,
-    pub sender: mpsc::Sender<TxRequest<R>>,
+    pub sender: mpsc::Sender<DstTxRequest<R>>,
     pub token: CancellationToken,
 }
 
@@ -44,39 +44,48 @@ where
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
+        let mut check_interval = DEFAULT_REFRESH_INTERVAL;
+
         loop {
-            // Query client state to determine check interval
-            let dst_status = self.relay.dst_chain().query_chain_status().await?;
-            let dst_height = DstChain::<R>::chain_status_height(&dst_status).clone();
-
-            let client_state = self
-                .relay
-                .dst_chain()
-                .query_client_state(self.relay.dst_client_id(), &dst_height)
-                .await?;
-
-            let check_interval = DstChain::<R>::trusting_period(&client_state)
-                .map_or(DEFAULT_REFRESH_INTERVAL, |tp| tp / 3);
-
             // Sleep (cancellation-aware)
             tokio::select! {
                 () = self.token.cancelled() => break,
                 () = tokio::time::sleep(check_interval) => {}
             }
 
-            // Re-query to see if client was updated by PacketWorker
-            let dst_status = self.relay.dst_chain().query_chain_status().await?;
-            let dst_height = DstChain::<R>::chain_status_height(&dst_status).clone();
-            let client_state = self
-                .relay
-                .dst_chain()
-                .query_client_state(self.relay.dst_client_id(), &dst_height)
-                .await?;
+            // Query client state to determine next check interval
+            let (_dst_height, client_state) = match async {
+                let dst_status = self.relay.dst_chain().query_chain_status().await?;
+                let dst_height = DstChain::<R>::chain_status_height(&dst_status).clone();
+                let cs = self
+                    .relay
+                    .dst_chain()
+                    .query_client_state(self.relay.dst_client_id(), &dst_height)
+                    .await?;
+                Ok::<_, mercury_core::error::Error>((dst_height, cs))
+            }
+            .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(error = %e, "client refresh: failed to query chain/client state, will retry");
+                    continue;
+                }
+            };
+
+            check_interval = DstChain::<R>::trusting_period(&client_state)
+                .map_or(DEFAULT_REFRESH_INTERVAL, |tp| tp / 3);
+
             let current_trusted = DstChain::<R>::client_latest_height(&client_state);
 
             // Get src chain latest height
-            let src_status = self.relay.src_chain().query_chain_status().await?;
-            let target_height = SrcChain::<R>::chain_status_height(&src_status).clone();
+            let target_height = match self.relay.src_chain().query_chain_status().await {
+                Ok(status) => SrcChain::<R>::chain_status_height(&status).clone(),
+                Err(e) => {
+                    warn!(error = %e, "client refresh: failed to query src chain status, will retry");
+                    continue;
+                }
+            };
 
             if target_height <= current_trusted {
                 debug!("client already up to date, skipping refresh");
@@ -84,21 +93,29 @@ where
             }
 
             // Build and send MsgUpdateClient
-            let payload = self
-                .relay
-                .src_chain()
-                .build_update_client_payload(&current_trusted, &target_height)
-                .await?;
-            let messages = self
-                .relay
-                .dst_chain()
-                .build_update_client_message(self.relay.dst_client_id(), payload)
-                .await?;
-
-            info!("refreshing client");
-            if self.sender.send(TxRequest { messages }).await.is_err() {
-                warn!("tx_worker channel closed");
-                break;
+            match async {
+                let payload = self
+                    .relay
+                    .src_chain()
+                    .build_update_client_payload(&current_trusted, &target_height)
+                    .await?;
+                self.relay
+                    .dst_chain()
+                    .build_update_client_message(self.relay.dst_client_id(), payload)
+                    .await
+            }
+            .await
+            {
+                Ok(messages) => {
+                    info!("refreshing client");
+                    if self.sender.send(DstTxRequest { messages }).await.is_err() {
+                        warn!("tx_worker channel closed");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, "client refresh: failed to build update client messages, will retry");
+                }
             }
         }
 

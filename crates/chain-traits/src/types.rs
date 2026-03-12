@@ -59,4 +59,9 @@ pub trait HasChainStatusType: HasChainTypes {
     type ChainStatus: ThreadSafe;
     fn chain_status_height(status: &Self::ChainStatus) -> &Self::Height;
     fn chain_status_timestamp(status: &Self::ChainStatus) -> &Self::Timestamp;
+    fn chain_status_timestamp_secs(status: &Self::ChainStatus) -> u64;
+}
+
+pub trait HasRevisionNumber: HasChainTypes {
+    fn revision_number(&self) -> u64;
 }

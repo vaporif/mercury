@@ -16,46 +16,20 @@ use crate::keys::CosmosSigner;
 use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgement};
 
 #[derive(Clone, Debug)]
-pub struct CosmosReceivePacketPayload {
+pub struct CosmosProofPayload {
     pub proof: MerkleProof,
     pub proof_height: tendermint::block::Height,
+    pub proof_revision_number: u64,
 }
 
-#[derive(Clone, Debug)]
-pub struct CosmosAckPacketPayload {
-    pub proof: MerkleProof,
-    pub proof_height: tendermint::block::Height,
-}
-
-#[derive(Clone, Debug)]
-pub struct CosmosTimeoutPacketPayload {
-    pub proof: MerkleProof,
-    pub proof_height: tendermint::block::Height,
-}
-
-impl From<(MerkleProof, tendermint::block::Height)> for CosmosReceivePacketPayload {
-    fn from((proof, proof_height): (MerkleProof, tendermint::block::Height)) -> Self {
+impl From<(MerkleProof, tendermint::block::Height, u64)> for CosmosProofPayload {
+    fn from(
+        (proof, proof_height, proof_revision_number): (MerkleProof, tendermint::block::Height, u64),
+    ) -> Self {
         Self {
             proof,
             proof_height,
-        }
-    }
-}
-
-impl From<(MerkleProof, tendermint::block::Height)> for CosmosAckPacketPayload {
-    fn from((proof, proof_height): (MerkleProof, tendermint::block::Height)) -> Self {
-        Self {
-            proof,
-            proof_height,
-        }
-    }
-}
-
-impl From<(MerkleProof, tendermint::block::Height)> for CosmosTimeoutPacketPayload {
-    fn from((proof, proof_height): (MerkleProof, tendermint::block::Height)) -> Self {
-        Self {
-            proof,
-            proof_height,
+            proof_revision_number,
         }
     }
 }
@@ -74,7 +48,7 @@ fn cosmos_packet_to_v2(packet: &CosmosPacket) -> V2Packet {
                 destination_port: p.dest_port.clone(),
                 version: p.version.clone(),
                 encoding: p.encoding.clone(),
-                value: p.data.clone(), // proto `value` = our `data`
+                value: p.data.clone(),
             })
             .collect(),
     }
@@ -89,7 +63,7 @@ fn to_proto_height(revision_number: u64, h: tendermint::block::Height) -> ProtoH
 
 #[async_trait]
 impl<S: CosmosSigner> CanBuildReceivePacketMessage<Self> for CosmosChain<S> {
-    type ReceivePacketPayload = CosmosReceivePacketPayload;
+    type ReceivePacketPayload = CosmosProofPayload;
 
     async fn build_receive_packet_message(
         &self,
@@ -100,7 +74,7 @@ impl<S: CosmosSigner> CanBuildReceivePacketMessage<Self> for CosmosChain<S> {
             packet: Some(cosmos_packet_to_v2(packet)),
             proof_commitment: payload.proof.proof_bytes,
             proof_height: Some(to_proto_height(
-                self.chain_id.revision_number(),
+                payload.proof_revision_number,
                 payload.proof_height,
             )),
             signer: self.signer.account_address()?,
@@ -111,7 +85,7 @@ impl<S: CosmosSigner> CanBuildReceivePacketMessage<Self> for CosmosChain<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> CanBuildAckPacketMessage<Self> for CosmosChain<S> {
-    type AckPacketPayload = CosmosAckPacketPayload;
+    type AckPacketPayload = CosmosProofPayload;
 
     async fn build_ack_packet_message(
         &self,
@@ -131,7 +105,7 @@ impl<S: CosmosSigner> CanBuildAckPacketMessage<Self> for CosmosChain<S> {
             acknowledgement: Some(acknowledgement),
             proof_acked: payload.proof.proof_bytes,
             proof_height: Some(to_proto_height(
-                self.chain_id.revision_number(),
+                payload.proof_revision_number,
                 payload.proof_height,
             )),
             signer: self.signer.account_address()?,
@@ -142,7 +116,7 @@ impl<S: CosmosSigner> CanBuildAckPacketMessage<Self> for CosmosChain<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> CanBuildTimeoutPacketMessage<Self> for CosmosChain<S> {
-    type TimeoutPacketPayload = CosmosTimeoutPacketPayload;
+    type TimeoutPacketPayload = CosmosProofPayload;
 
     async fn build_timeout_packet_message(
         &self,
@@ -153,7 +127,7 @@ impl<S: CosmosSigner> CanBuildTimeoutPacketMessage<Self> for CosmosChain<S> {
             packet: Some(cosmos_packet_to_v2(packet)),
             proof_unreceived: payload.proof.proof_bytes,
             proof_height: Some(to_proto_height(
-                self.chain_id.revision_number(),
+                payload.proof_revision_number,
                 payload.proof_height,
             )),
             signer: self.signer.account_address()?,
