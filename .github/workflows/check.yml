@@ -145,3 +145,23 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: EmbarkStudios/cargo-deny-action@v2
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: e2e
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: E2E tests
+        run: cargo nextest run -p mercury-e2e --run-ignored all
+        timeout-minutes: 15
