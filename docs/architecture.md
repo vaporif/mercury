@@ -73,7 +73,7 @@ This keeps where clauses focused on only the *additional* bounds each context ne
 ```mermaid
 graph TD
     CLI[mercury-cli<br/><i>CLI binary</i>]
-    COSMOS[mercury-cosmos<br/><i>Cosmos SDK: RPC, protobuf, tx signing</i>]
+    COSMOS[mercury-cosmos<br/><i>chains/cosmos — RPC, protobuf, tx signing</i>]
     RELAY[mercury-relay<br/><i>Worker pipeline, generic over chain traits</i>]
     TRAITS[mercury-chain-traits<br/><i>Chain types, messaging, queries, relay traits</i>]
     CORE[mercury-core<br/><i>Error types, encoding, worker trait</i>]

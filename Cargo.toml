@@ -4,7 +4,7 @@ resolver = "2"
 members = [
     "crates/core",
     "crates/chain-traits",
-    "crates/cosmos",
+    "crates/chains/cosmos",
     "crates/relay",
     "crates/cli",
 ]
@@ -44,7 +44,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 mercury-core = { path = "crates/core" }
 mercury-chain-traits = { path = "crates/chain-traits" }
-mercury-cosmos = { path = "crates/cosmos" }
+mercury-cosmos = { path = "crates/chains/cosmos" }
 mercury-relay = { path = "crates/relay" }
 mercury-cli = { path = "crates/cli" }
 

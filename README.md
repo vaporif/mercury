@@ -6,7 +6,7 @@ Mercury relays packets between IBC-connected blockchains. Unlike [hermes-sdk](ht
 
 ## Status
 
-Early active development phase.
+Early active development. Core IBC v2 relay pipeline is implemented but **not yet tested against live chains**. No unit or integration tests yet. Use at your own risk.
 
 ## Docs
 
