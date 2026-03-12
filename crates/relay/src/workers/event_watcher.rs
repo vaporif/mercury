@@ -54,7 +54,8 @@ where
 
             let mut maybe_h = R::SrcChain::increment_height(&last_height);
             while let Some(h) = maybe_h {
-                if h > latest {
+                // Stay 1 block behind tip so proof queries at (height - 1) see the commitment.
+                if h >= latest {
                     break;
                 }
 

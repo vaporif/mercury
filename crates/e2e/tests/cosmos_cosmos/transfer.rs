@@ -9,7 +9,7 @@ use super::setup_context;
 #[ignore = "requires Docker"]
 async fn ibc_transfer() {
     tracing_subscriber::fmt()
-        .with_env_filter("info,mercury_relay=debug,mercury_cosmos::events=debug")
+        .with_env_filter("info,mercury_relay=debug,mercury_cosmos::events=debug,mercury_e2e=debug")
         .init();
 
     let ctx = setup_context().await.expect("IBC setup");

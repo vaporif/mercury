@@ -171,18 +171,30 @@ impl TestContext {
         address: &str,
         denom: &str,
     ) -> Result<u64> {
+        // Query all balances and filter — `--denom` returns exit code 1
+        // when the denom doesn't exist on some simd versions.
         let cmd = format!(
-            "simd query bank balances {address} --denom {denom} \
+            "simd query bank balances {address} \
              --home /root/.simapp --output json 2>/dev/null"
         );
         let output = handle.exec_cmd(&cmd).await?;
-        // Parse JSON: {"amount":"1000","denom":"..."}
         let parsed: serde_json::Value =
             serde_json::from_str(output.trim()).unwrap_or(serde_json::Value::Null);
-        let amount_str = parsed.get("amount").and_then(|v| v.as_str()).unwrap_or("0");
-        amount_str
-            .parse::<u64>()
-            .map_err(|e| eyre::eyre!("parse balance amount: {e}"))
+        let empty = Vec::new();
+        let balances = parsed
+            .get("balances")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&empty);
+        for bal in balances {
+            let d = bal.get("denom").and_then(|v| v.as_str()).unwrap_or("");
+            if d == denom {
+                let amount_str = bal.get("amount").and_then(|v| v.as_str()).unwrap_or("0");
+                return amount_str
+                    .parse::<u64>()
+                    .map_err(|e| eyre::eyre!("parse balance amount: {e}"));
+            }
+        }
+        Ok(0)
     }
 
     /// Poll a chain handle for expected balance, with timeout.
@@ -219,6 +231,7 @@ impl TestContext {
                     tracing::debug!(
                         actual = actual,
                         expected = expected_amount,
+                        denom = %denom,
                         "balance not yet sufficient, polling..."
                     );
                 }
