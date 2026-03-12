@@ -49,6 +49,22 @@ impl CosmosChain {
             .map_err(Error::report)?;
 
         let key_bytes = std::fs::read_to_string(&config.key_file).map_err(Error::report)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(meta) = std::fs::metadata(&config.key_file) {
+                let mode = meta.permissions().mode();
+                if mode & 0o077 != 0 {
+                    tracing::warn!(
+                        path = %config.key_file.display(),
+                        mode = format!("{mode:o}"),
+                        "key file is accessible by group/others — consider chmod 600"
+                    );
+                }
+            }
+        }
+
         let key_hex = key_bytes.trim();
         let secret_key_bytes = hex::decode(key_hex).map_err(Error::report)?;
         let secret_key_array: [u8; 32] = secret_key_bytes
@@ -67,16 +83,6 @@ impl CosmosChain {
             signer,
             nonce_mutex: Arc::new(Mutex::new(None)),
         })
-    }
-
-    #[must_use]
-    pub const fn chain_id(&self) -> &ChainId {
-        &self.chain_id
-    }
-
-    #[must_use]
-    pub const fn block_time(&self) -> Duration {
-        self.block_time
     }
 }
 

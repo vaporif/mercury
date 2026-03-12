@@ -17,7 +17,6 @@ impl CanSendMessages for CosmosChain {
             return Ok(vec![]);
         }
 
-        let msg_count = messages.len();
         let mut retry = false;
 
         loop {
@@ -61,10 +60,7 @@ impl CanSendMessages for CosmosChain {
 
             drop(nonce_guard);
 
-            let responses: Vec<Self::MessageResponse> =
-                std::iter::repeat_n(response, msg_count).collect();
-
-            return Ok(responses);
+            return Ok(vec![response]);
         }
     }
 }

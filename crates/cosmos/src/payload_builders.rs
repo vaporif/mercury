@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use ibc::core::client::types::Height;
 use ibc::core::commitment_types::specs::ProofSpecs;
 use ibc_client_tendermint::types::{
@@ -18,6 +19,11 @@ use tendermint::validator::Set as ValidatorSet;
 use tendermint_rpc::{Client, Paging};
 
 use crate::chain::CosmosChain;
+
+const TRUSTING_PERIOD: Duration = Duration::from_secs(14 * 24 * 3600);
+const UNBONDING_PERIOD: Duration = Duration::from_secs(21 * 24 * 3600);
+const MAX_CLOCK_DRIFT: Duration = Duration::from_secs(40);
+const HEADER_FETCH_CONCURRENCY: usize = 8;
 
 #[derive(Clone, Debug)]
 pub struct CosmosCreateClientPayload {
@@ -49,9 +55,9 @@ impl CanBuildCreateClientPayload<Self> for CosmosChain {
         let client_state = TendermintClientState::new(
             self.chain_id.clone(),
             TrustThreshold::ONE_THIRD,
-            Duration::from_secs(14 * 24 * 3600), // 14 days trusting period
-            Duration::from_secs(21 * 24 * 3600), // 21 days unbonding period
-            Duration::from_secs(40),             // 40s max clock drift
+            TRUSTING_PERIOD,
+            UNBONDING_PERIOD,
+            MAX_CLOCK_DRIFT,
             ibc_height,
             ProofSpecs::cosmos(),
             vec!["upgrade".to_string(), "upgradedIBCState".to_string()],
@@ -95,7 +101,6 @@ impl CanBuildUpdateClientPayload<Self> for CosmosChain {
             )));
         }
 
-        // Fetch the trusted validators (next_validator_set at trusted height)
         let trusted_validators_response = self
             .rpc_client
             .validators(*trusted_height, Paging::All)
@@ -108,36 +113,40 @@ impl CanBuildUpdateClientPayload<Self> for CosmosChain {
         let ibc_trusted_height = Height::new(self.chain_id.revision_number(), trusted_height_value)
             .map_err(|e| Error::report(eyre::eyre!("{e}")))?;
 
-        let mut headers = Vec::new();
+        let heights: Vec<u64> = ((trusted_height_value + 1)..=target_height_value).collect();
 
-        // Build a header for each height from trusted_height+1 to target_height
-        for h in (trusted_height_value + 1)..=target_height_value {
-            let height = TmHeight::try_from(h).map_err(Error::report)?;
+        let headers: Vec<Vec<u8>> = stream::iter(heights)
+            .map(|h| {
+                let rpc = &self.rpc_client;
+                let trusted_vs = &trusted_next_validator_set;
+                async move {
+                    let height = TmHeight::try_from(h).map_err(Error::report)?;
 
-            let commit_response = self
-                .rpc_client
-                .commit(height)
-                .await
-                .map_err(Error::report)?;
+                    let (commit_response, validators_response) = tokio::try_join!(
+                        async { rpc.commit(height).await.map_err(Error::report) },
+                        async {
+                            rpc.validators(height, Paging::All)
+                                .await
+                                .map_err(Error::report)
+                        },
+                    )?;
 
-            let validators_response = self
-                .rpc_client
-                .validators(height, Paging::All)
-                .await
-                .map_err(Error::report)?;
+                    let validator_set = ValidatorSet::new(validators_response.validators, None);
 
-            let validator_set = ValidatorSet::new(validators_response.validators, None);
+                    let header = TmIbcHeader {
+                        signed_header: commit_response.signed_header,
+                        validator_set,
+                        trusted_height: ibc_trusted_height,
+                        trusted_next_validator_set: trusted_vs.clone(),
+                    };
 
-            let header = TmIbcHeader {
-                signed_header: commit_response.signed_header,
-                validator_set,
-                trusted_height: ibc_trusted_height,
-                trusted_next_validator_set: trusted_next_validator_set.clone(),
-            };
-
-            let header_any: Any = header.into();
-            headers.push(header_any.encode_to_vec());
-        }
+                    let header_any: Any = header.into();
+                    Ok(header_any.encode_to_vec())
+                }
+            })
+            .buffered(HEADER_FETCH_CONCURRENCY)
+            .try_collect()
+            .await?;
 
         Ok(CosmosUpdateClientPayload { headers })
     }

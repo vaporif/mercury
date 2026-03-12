@@ -32,7 +32,10 @@ pub trait HasPacketTypes<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Coun
 }
 
 pub trait Chain<Counterparty: HasChainTypes + ?Sized>:
-    HasMessageTypes + HasPacketTypes<Counterparty> + CanSendMessages + CanExtractPacketEvents<Counterparty>
+    HasMessageTypes
+    + HasPacketTypes<Counterparty>
+    + CanSendMessages
+    + CanExtractPacketEvents<Counterparty>
 {
 }
 

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 
+use ibc::core::host::types::identifiers::ChainId;
 use ibc_proto::ibc::core::channel::v1::{
     MsgAcknowledgement, MsgRecvPacket, MsgTimeout, Packet as ProtoPacket,
 };
@@ -31,6 +32,9 @@ pub struct CosmosTimeoutPacketPayload {
     pub proof_height: tendermint::block::Height,
 }
 
+// Maps v2 multi-payload packet to v1 single-payload proto. Only the first
+// payload is used — v2 multi-payload relay requires v2 channel protos which
+// ibc-proto 0.52 does not yet provide.
 fn cosmos_packet_to_proto(packet: &CosmosPacket) -> ProtoPacket {
     let (source_port, destination_port, data) = packet
         .payloads
@@ -50,9 +54,9 @@ fn cosmos_packet_to_proto(packet: &CosmosPacket) -> ProtoPacket {
     }
 }
 
-fn to_proto_height(h: tendermint::block::Height) -> ProtoHeight {
+fn to_proto_height(chain_id: &ChainId, h: tendermint::block::Height) -> ProtoHeight {
     ProtoHeight {
-        revision_number: 0,
+        revision_number: chain_id.revision_number(),
         revision_height: h.value(),
     }
 }
@@ -69,7 +73,7 @@ impl CanBuildReceivePacketMessage<Self> for CosmosChain {
         let msg = MsgRecvPacket {
             packet: Some(cosmos_packet_to_proto(packet)),
             proof_commitment: payload.proof.proof_bytes,
-            proof_height: Some(to_proto_height(payload.proof_height)),
+            proof_height: Some(to_proto_height(&self.chain_id, payload.proof_height)),
             signer: self.signer.account_address()?,
         };
         Ok(to_any(&msg))
@@ -90,7 +94,7 @@ impl CanBuildAckPacketMessage<Self> for CosmosChain {
             packet: Some(cosmos_packet_to_proto(packet)),
             acknowledgement: ack.0.clone(),
             proof_acked: payload.proof.proof_bytes,
-            proof_height: Some(to_proto_height(payload.proof_height)),
+            proof_height: Some(to_proto_height(&self.chain_id, payload.proof_height)),
             signer: self.signer.account_address()?,
         };
         Ok(to_any(&msg))
@@ -109,7 +113,7 @@ impl CanBuildTimeoutPacketMessage<Self> for CosmosChain {
         let msg = MsgTimeout {
             packet: Some(cosmos_packet_to_proto(packet)),
             proof_unreceived: payload.proof.proof_bytes,
-            proof_height: Some(to_proto_height(payload.proof_height)),
+            proof_height: Some(to_proto_height(&self.chain_id, payload.proof_height)),
             next_sequence_recv: packet.sequence,
             signer: self.signer.account_address()?,
         };

@@ -17,18 +17,28 @@ fn get_attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
 fn parse_payloads(attrs: &[(String, String)]) -> Vec<PacketPayload> {
     let mut payloads = Vec::new();
     let mut idx = 0u32;
+    let mut key_buf = String::with_capacity(48);
     loop {
         let prefix = format!("packet_payload_{idx}_");
-        let source_port = get_attr(attrs, &format!("{prefix}source_port"));
-        let dest_port = get_attr(attrs, &format!("{prefix}dest_port"));
-        let version = get_attr(attrs, &format!("{prefix}version"));
-        let encoding = get_attr(attrs, &format!("{prefix}encoding"));
-        let data = get_attr(attrs, &format!("{prefix}data"));
+        let mut attr = |suffix: &str| -> Option<&str> {
+            key_buf.clear();
+            key_buf.push_str(&prefix);
+            key_buf.push_str(suffix);
+            get_attr(attrs, &key_buf)
+        };
+        let source_port = attr("source_port");
+        let dest_port = attr("dest_port");
+        let version = attr("version");
+        let encoding = attr("encoding");
+        let data = attr("data");
 
         if let (Some(sp), Some(dp), Some(v), Some(enc), Some(d)) =
             (source_port, dest_port, version, encoding, data)
         {
-            let data_bytes = hex::decode(d).unwrap_or_else(|_| d.as_bytes().to_vec());
+            let data_bytes = hex::decode(d).unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "failed to hex-decode packet payload data, using raw bytes");
+                d.as_bytes().to_vec()
+            });
             payloads.push(PacketPayload {
                 source_port: sp.to_string(),
                 dest_port: dp.to_string(),
@@ -68,7 +78,10 @@ fn parse_payloads(attrs: &[(String, String)]) -> Vec<PacketPayload> {
                 .get("data")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or_default();
-            let data_bytes = hex::decode(data_str).unwrap_or_else(|_| data_str.as_bytes().to_vec());
+            let data_bytes = hex::decode(data_str).unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "failed to hex-decode packet payload data, using raw bytes");
+                data_str.as_bytes().to_vec()
+            });
 
             payloads.push(PacketPayload {
                 source_port: source_port.to_string(),
