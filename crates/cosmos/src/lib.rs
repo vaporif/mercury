@@ -4,6 +4,7 @@ pub mod encoding;
 pub mod events;
 pub mod keys;
 pub mod message_builders;
+pub mod messaging;
 pub mod packet_builders;
 pub mod packet_queries;
 pub mod payload_builders;

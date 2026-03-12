@@ -429,7 +429,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "462e1f6a8e005acc8835d32d60cbd7973ed65ea2a8d8473830e675f050956427"
 dependencies = [
  "informalsystems-pbjson",
- "prost 0.13.5",
+ "prost",
  "serde",
  "tendermint-proto",
 ]
@@ -441,7 +441,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95ac39be7373404accccaede7cc1ec942ccef14f0ca18d209967a756bf1dbb1f"
 dependencies = [
  "informalsystems-pbjson",
- "prost 0.13.5",
+ "prost",
  "serde",
  "tendermint-proto",
 ]
@@ -1423,7 +1423,7 @@ dependencies = [
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-primitives",
- "prost 0.13.5",
+ "prost",
  "serde",
 ]
 
@@ -1478,7 +1478,7 @@ dependencies = [
  "derive_more 1.0.0",
  "displaydoc",
  "ibc-proto 0.51.1",
- "prost 0.13.5",
+ "prost",
  "serde",
  "time",
 ]
@@ -1495,7 +1495,7 @@ dependencies = [
  "flex-error",
  "ics23",
  "informalsystems-pbjson",
- "prost 0.13.5",
+ "prost",
  "serde",
  "subtle-encoding",
  "tendermint-proto",
@@ -1513,7 +1513,7 @@ dependencies = [
  "flex-error",
  "ics23",
  "informalsystems-pbjson",
- "prost 0.13.5",
+ "prost",
  "serde",
  "subtle-encoding",
  "tendermint-proto",
@@ -1531,7 +1531,7 @@ dependencies = [
  "bytes",
  "hex",
  "informalsystems-pbjson",
- "prost 0.13.5",
+ "prost",
  "ripemd",
  "serde",
  "sha2 0.10.9",
@@ -1834,7 +1834,7 @@ dependencies = [
  "ibc-proto 0.52.0",
  "mercury-chain-traits",
  "mercury-core",
- "prost 0.14.3",
+ "prost",
  "prost-types",
  "secp256k1",
  "serde",
@@ -2110,17 +2110,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2796faa41db3ec313a31f7624d9286acf277b52de526150b7e69f3debf891ee5"
 dependencies = [
  "bytes",
- "prost-derive 0.13.5",
-]
-
-[[package]]
-name = "prost"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
-dependencies = [
- "bytes",
- "prost-derive 0.14.3",
+ "prost-derive",
 ]
 
 [[package]]
@@ -2137,25 +2127,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "prost-derive"
-version = "0.14.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
-dependencies = [
- "anyhow",
- "itertools",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "prost-types"
-version = "0.14.3"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8991c4cbdb8bc5b11f0b074ffe286c30e523de90fee5ba8132f1399f23cb3dd7"
+checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
 dependencies = [
- "prost 0.14.3",
+ "prost",
 ]
 
 [[package]]
@@ -2864,7 +2841,7 @@ dependencies = [
  "k256",
  "num-traits",
  "once_cell",
- "prost 0.13.5",
+ "prost",
  "ripemd",
  "serde",
  "serde_bytes",
@@ -2914,7 +2891,7 @@ checksum = "d2c40e13d39ca19082d8a7ed22de7595979350319833698f8b1080f29620a094"
 dependencies = [
  "bytes",
  "flex-error",
- "prost 0.13.5",
+ "prost",
  "serde",
  "serde_bytes",
  "subtle-encoding",

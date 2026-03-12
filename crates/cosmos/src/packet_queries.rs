@@ -6,18 +6,47 @@ use mercury_chain_traits::packet_queries::{
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
+use crate::rpc::query_abci;
 use crate::types::{MerkleProof, PacketAcknowledgement, PacketCommitment, PacketReceipt};
+
+fn extract_proof(response: &tendermint_rpc::endpoint::abci_query::AbciQuery) -> MerkleProof {
+    let proof_bytes = response
+        .proof
+        .as_ref()
+        .map(|proof_ops| {
+            <tendermint::merkle::proof::ProofOps as tendermint_proto::Protobuf<
+                tendermint_proto::v0_38::crypto::ProofOps,
+            >>::encode_vec(proof_ops.clone())
+        })
+        .unwrap_or_default();
+    MerkleProof { proof_bytes }
+}
 
 #[async_trait]
 impl CanQueryPacketCommitment<Self> for CosmosChain {
     async fn query_packet_commitment(
         &self,
-        _client_id: &Self::ClientId,
-        _sequence: u64,
-        _height: &Self::Height,
+        client_id: &Self::ClientId,
+        sequence: u64,
+        height: &Self::Height,
     ) -> Result<(Option<PacketCommitment>, MerkleProof)> {
-        // TODO: ABCI query at path "{client_id}\x01{sequence_be_bytes}" with prove=true
-        todo!("query packet commitment")
+        let key = format!("ibc/{client_id}/commitments/{sequence}");
+        let response = query_abci(
+            &self.rpc_client,
+            "store/ibc/key",
+            key.into_bytes(),
+            Some(*height),
+            true,
+        )
+        .await?;
+
+        let proof = extract_proof(&response);
+        let commitment = if response.value.is_empty() {
+            None
+        } else {
+            Some(PacketCommitment(response.value))
+        };
+        Ok((commitment, proof))
     }
 }
 
@@ -25,12 +54,27 @@ impl CanQueryPacketCommitment<Self> for CosmosChain {
 impl CanQueryPacketReceipt<Self> for CosmosChain {
     async fn query_packet_receipt(
         &self,
-        _client_id: &Self::ClientId,
-        _sequence: u64,
-        _height: &Self::Height,
+        client_id: &Self::ClientId,
+        sequence: u64,
+        height: &Self::Height,
     ) -> Result<(Option<PacketReceipt>, MerkleProof)> {
-        // TODO: ABCI query at path "{client_id}\x02{sequence_be_bytes}" with prove=true
-        todo!("query packet receipt")
+        let key = format!("ibc/{client_id}/receipts/{sequence}");
+        let response = query_abci(
+            &self.rpc_client,
+            "store/ibc/key",
+            key.into_bytes(),
+            Some(*height),
+            true,
+        )
+        .await?;
+
+        let proof = extract_proof(&response);
+        let receipt = if response.value.is_empty() {
+            None
+        } else {
+            Some(PacketReceipt)
+        };
+        Ok((receipt, proof))
     }
 }
 
@@ -38,11 +82,26 @@ impl CanQueryPacketReceipt<Self> for CosmosChain {
 impl CanQueryPacketAcknowledgement<Self> for CosmosChain {
     async fn query_packet_acknowledgement(
         &self,
-        _client_id: &Self::ClientId,
-        _sequence: u64,
-        _height: &Self::Height,
+        client_id: &Self::ClientId,
+        sequence: u64,
+        height: &Self::Height,
     ) -> Result<(Option<PacketAcknowledgement>, MerkleProof)> {
-        // TODO: ABCI query at path "{client_id}\x03{sequence_be_bytes}" with prove=true
-        todo!("query packet ack")
+        let key = format!("ibc/{client_id}/acks/{sequence}");
+        let response = query_abci(
+            &self.rpc_client,
+            "store/ibc/key",
+            key.into_bytes(),
+            Some(*height),
+            true,
+        )
+        .await?;
+
+        let proof = extract_proof(&response);
+        let ack = if response.value.is_empty() {
+            None
+        } else {
+            Some(PacketAcknowledgement(response.value))
+        };
+        Ok((ack, proof))
     }
 }

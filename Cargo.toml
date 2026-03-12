@@ -55,8 +55,8 @@ tendermint-light-client-verifier = "0.40"
 ibc = { version = "0.57", default-features = false, features = ["serde"] }
 ibc-proto = { version = "0.52", default-features = false, features = ["serde"] }
 ibc-client-tendermint = { version = "0.57", default-features = false }
-prost = "0.14"
-prost-types = "0.14"
+prost = "0.13"
+prost-types = "0.13"
 tonic = { version = "0.14", features = ["tls-native-roots", "channel", "transport"] }
 secp256k1 = { version = "0.31", features = ["serde"] }
 sha2 = "0.10"

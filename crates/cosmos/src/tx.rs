@@ -1,12 +1,16 @@
 use async_trait::async_trait;
+use prost::Message;
+use sha2::{Digest, Sha256};
+use tracing::debug;
 
 use mercury_chain_traits::tx::{
     CanEstimateFee, CanPollTxResponse, CanQueryNonce, CanSubmitTx, HasTxTypes,
 };
-use mercury_core::error::Result;
+use mercury_core::error::{Error, Result};
 
 use crate::chain::CosmosChain;
 use crate::keys::Secp256k1KeyPair;
+use crate::queries::grpc_unary;
 
 #[derive(Clone, Debug)]
 pub struct CosmosFee {
@@ -28,17 +32,130 @@ impl HasTxTypes for CosmosChain {
     type TxHash = String;
 }
 
+/// Builds a signed transaction and returns the raw tx bytes.
+fn build_tx_bytes(
+    chain_id: &str,
+    signer: &Secp256k1KeyPair,
+    nonce: &CosmosNonce,
+    fee: &CosmosFee,
+    messages: &[crate::types::CosmosMessage],
+) -> Vec<u8> {
+    use ibc_proto::cosmos::base::v1beta1::Coin;
+    use ibc_proto::cosmos::crypto::secp256k1::PubKey;
+    use ibc_proto::cosmos::tx::v1beta1::{
+        AuthInfo, Fee, ModeInfo, SignDoc, SignerInfo, TxBody, TxRaw, mode_info::Single,
+        mode_info::Sum,
+    };
+
+    let body = TxBody {
+        messages: messages
+            .iter()
+            .map(|m| tendermint_proto::google::protobuf::Any {
+                type_url: m.type_url.clone(),
+                value: m.value.clone(),
+            })
+            .collect(),
+        memo: String::new(),
+        timeout_height: 0,
+        extension_options: vec![],
+        non_critical_extension_options: vec![],
+    };
+
+    let pub_key = PubKey {
+        key: signer.public_key.serialize().to_vec(),
+    };
+
+    let pub_key_any = tendermint_proto::google::protobuf::Any {
+        type_url: "/cosmos.crypto.secp256k1.PubKey".to_string(),
+        value: pub_key.encode_to_vec(),
+    };
+
+    let signer_info = SignerInfo {
+        public_key: Some(pub_key_any),
+        mode_info: Some(ModeInfo {
+            sum: Some(Sum::Single(Single { mode: 1 })), // SIGN_MODE_DIRECT
+        }),
+        sequence: nonce.sequence,
+    };
+
+    let fee_proto = Fee {
+        amount: vec![Coin {
+            denom: fee.denom.clone(),
+            amount: fee.amount.to_string(),
+        }],
+        gas_limit: fee.gas_limit,
+        payer: String::new(),
+        granter: String::new(),
+    };
+
+    #[allow(deprecated)]
+    let auth_info = AuthInfo {
+        signer_infos: vec![signer_info],
+        fee: Some(fee_proto),
+        tip: None,
+    };
+
+    let body_bytes = body.encode_to_vec();
+    let auth_info_bytes = auth_info.encode_to_vec();
+
+    let sign_doc = SignDoc {
+        body_bytes: body_bytes.clone(),
+        auth_info_bytes: auth_info_bytes.clone(),
+        chain_id: chain_id.to_string(),
+        account_number: nonce.account_number,
+    };
+
+    let sign_doc_bytes = sign_doc.encode_to_vec();
+    let hash = Sha256::digest(&sign_doc_bytes);
+
+    let secp = secp256k1::Secp256k1::signing_only();
+    let msg = secp256k1::Message::from_digest(hash.into());
+    let sig = secp.sign_ecdsa(msg, &signer.secret_key);
+    let sig_bytes = sig.serialize_compact().to_vec();
+
+    let tx_raw = TxRaw {
+        body_bytes,
+        auth_info_bytes,
+        signatures: vec![sig_bytes],
+    };
+
+    tx_raw.encode_to_vec()
+}
+
 #[async_trait]
-impl CanSubmitTx for CosmosChain {
-    async fn submit_tx(
-        &self,
-        _signer: &Self::Signer,
-        _nonce: &Self::Nonce,
-        _fee: &Self::Fee,
-        _messages: Vec<Self::Message>,
-    ) -> Result<Self::TxHash> {
-        // TODO: encode tx body + auth info, sign, broadcast via tendermint-rpc
-        todo!("submit tx")
+impl CanQueryNonce for CosmosChain {
+    async fn query_nonce(&self, signer: &Self::Signer) -> Result<Self::Nonce> {
+        use ibc_proto::cosmos::auth::v1beta1::{
+            BaseAccount, QueryAccountRequest, QueryAccountResponse,
+        };
+
+        let address = signer.account_address()?;
+        debug!(address = %address, "querying account nonce");
+
+        let request = tonic::Request::new(QueryAccountRequest {
+            address: address.clone(),
+        });
+
+        let response = grpc_unary::<QueryAccountRequest, QueryAccountResponse>(
+            self.grpc_channel.clone(),
+            "/cosmos.auth.v1beta1.Query/Account",
+            request,
+        )
+        .await
+        .map_err(Error::report)?
+        .into_inner();
+
+        let account_any = response
+            .account
+            .ok_or_else(|| Error::report(eyre::eyre!("account not found: {address}")))?;
+
+        let base_account =
+            BaseAccount::decode(account_any.value.as_slice()).map_err(Error::report)?;
+
+        Ok(CosmosNonce {
+            account_number: base_account.account_number,
+            sequence: base_account.sequence,
+        })
     }
 }
 
@@ -46,19 +163,113 @@ impl CanSubmitTx for CosmosChain {
 impl CanEstimateFee for CosmosChain {
     async fn estimate_fee(
         &self,
-        _signer: &Self::Signer,
-        _messages: &[Self::Message],
+        signer: &Self::Signer,
+        messages: &[Self::Message],
     ) -> Result<Self::Fee> {
-        // TODO: simulate tx via gRPC, extract gas_used, apply multiplier
-        todo!("estimate fee")
+        use ibc_proto::cosmos::tx::v1beta1::{SimulateRequest, SimulateResponse};
+
+        let nonce = self.query_nonce(signer).await?;
+
+        // Build a signed tx with dummy fee for simulation
+        let dummy_fee = CosmosFee {
+            amount: 0,
+            denom: self.config.gas_price.denom.clone(),
+            gas_limit: 0,
+        };
+        let tx_bytes = build_tx_bytes(
+            &self.chain_id.to_string(),
+            signer,
+            &nonce,
+            &dummy_fee,
+            messages,
+        );
+
+        #[allow(deprecated)]
+        let request = tonic::Request::new(SimulateRequest { tx: None, tx_bytes });
+
+        let response = grpc_unary::<SimulateRequest, SimulateResponse>(
+            self.grpc_channel.clone(),
+            "/cosmos.tx.v1beta1.Service/Simulate",
+            request,
+        )
+        .await
+        .map_err(Error::report)?
+        .into_inner();
+
+        let gas_info = response
+            .gas_info
+            .ok_or_else(|| Error::report(eyre::eyre!("no gas info in simulate response")))?;
+
+        let gas_used = gas_info.gas_used;
+        // Apply 1.3x gas margin
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        let gas_limit = (gas_used as f64 * 1.3) as u64;
+
+        let gas_price = &self.config.gas_price;
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
+        let fee_amount = (gas_limit as f64 * gas_price.amount).ceil() as u64;
+
+        debug!(
+            gas_used = gas_used,
+            gas_limit = gas_limit,
+            fee_amount = fee_amount,
+            "estimated fee"
+        );
+
+        Ok(CosmosFee {
+            amount: fee_amount,
+            denom: gas_price.denom.clone(),
+            gas_limit,
+        })
     }
 }
 
 #[async_trait]
-impl CanQueryNonce for CosmosChain {
-    async fn query_nonce(&self, _signer: &Self::Signer) -> Result<Self::Nonce> {
-        // TODO: query account via gRPC to get account_number + sequence
-        todo!("query nonce")
+impl CanSubmitTx for CosmosChain {
+    async fn submit_tx(
+        &self,
+        signer: &Self::Signer,
+        nonce: &Self::Nonce,
+        fee: &Self::Fee,
+        messages: Vec<Self::Message>,
+    ) -> Result<Self::TxHash> {
+        use tendermint_rpc::Client;
+
+        let tx_bytes = build_tx_bytes(&self.chain_id.to_string(), signer, nonce, fee, &messages);
+
+        debug!(
+            num_messages = messages.len(),
+            sequence = nonce.sequence,
+            gas_limit = fee.gas_limit,
+            "broadcasting transaction"
+        );
+
+        let response = self
+            .rpc_client
+            .broadcast_tx_sync(tx_bytes)
+            .await
+            .map_err(Error::report)?;
+
+        if response.code.is_err() {
+            return Err(Error::report(eyre::eyre!(
+                "broadcast_tx_sync failed: code={}, log={}",
+                response.code.value(),
+                response.log
+            )));
+        }
+
+        let tx_hash = response.hash.to_string();
+        debug!(tx_hash = %tx_hash, "transaction broadcast successful");
+
+        Ok(tx_hash)
     }
 }
 
@@ -66,8 +277,84 @@ impl CanQueryNonce for CosmosChain {
 impl CanPollTxResponse for CosmosChain {
     type TxResponse = crate::types::CosmosTxResponse;
 
-    async fn poll_tx_response(&self, _tx_hash: &Self::TxHash) -> Result<Self::TxResponse> {
-        // TODO: poll tx by hash via tendermint-rpc, with retry loop
-        todo!("poll tx response")
+    async fn poll_tx_response(&self, tx_hash: &Self::TxHash) -> Result<Self::TxResponse> {
+        use tendermint::Hash;
+        use tendermint_rpc::Client;
+
+        let hash = Hash::from_bytes(
+            tendermint::hash::Algorithm::Sha256,
+            &hex::decode(tx_hash).map_err(Error::report)?,
+        )
+        .map_err(Error::report)?;
+
+        let max_retries = 10;
+        let poll_interval = self.block_time / 2;
+
+        for attempt in 1..=max_retries {
+            debug!(
+                tx_hash = %tx_hash,
+                attempt = attempt,
+                max_retries = max_retries,
+                "polling for transaction"
+            );
+
+            tokio::time::sleep(poll_interval).await;
+
+            match self.rpc_client.tx(hash, false).await {
+                Ok(response) => {
+                    if response.tx_result.code.is_err() {
+                        return Err(Error::report(eyre::eyre!(
+                            "transaction failed: code={}, log={}",
+                            response.tx_result.code.value(),
+                            response.tx_result.log
+                        )));
+                    }
+
+                    let events = response
+                        .tx_result
+                        .events
+                        .iter()
+                        .map(|e| crate::types::CosmosEvent {
+                            kind: e.kind.clone(),
+                            attributes: e
+                                .attributes
+                                .iter()
+                                .filter_map(|a| {
+                                    let key = a.key_str().ok()?.to_string();
+                                    let value = a.value_str().ok()?.to_string();
+                                    Some((key, value))
+                                })
+                                .collect(),
+                        })
+                        .collect();
+
+                    debug!(
+                        tx_hash = %tx_hash,
+                        height = %response.height,
+                        "transaction confirmed"
+                    );
+
+                    return Ok(crate::types::CosmosTxResponse {
+                        hash: tx_hash.clone(),
+                        height: response.height,
+                        events,
+                    });
+                }
+                Err(e) => {
+                    if attempt == max_retries {
+                        return Err(Error::report(eyre::eyre!(
+                            "transaction {tx_hash} not found after {max_retries} attempts: {e}"
+                        )));
+                    }
+                    debug!(
+                        attempt = attempt,
+                        error = %e,
+                        "transaction not yet found, retrying"
+                    );
+                }
+            }
+        }
+
+        unreachable!()
     }
 }

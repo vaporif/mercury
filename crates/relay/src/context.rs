@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use mercury_chain_traits::events::CanExtractPacketEvents;
-use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::{HasIbcTypes, HasMessageTypes, HasPacketTypes};
+use mercury_chain_traits::types::{Chain, HasIbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
@@ -17,16 +15,8 @@ const CHANNEL_BUFFER: usize = 256;
 
 pub struct RelayContext<Src, Dst>
 where
-    Src: HasMessageTypes
-        + HasIbcTypes<Dst>
-        + HasPacketTypes<Dst>
-        + CanSendMessages
-        + CanExtractPacketEvents<Dst>,
-    Dst: HasMessageTypes
-        + HasIbcTypes<Src>
-        + HasPacketTypes<Src>
-        + CanSendMessages
-        + CanExtractPacketEvents<Src>,
+    Src: Chain<Dst>,
+    Dst: Chain<Src>,
 {
     pub src_chain: Src,
     pub dst_chain: Dst,
@@ -36,16 +26,8 @@ where
 
 impl<Src, Dst> Relay for RelayContext<Src, Dst>
 where
-    Src: HasMessageTypes
-        + HasIbcTypes<Dst>
-        + HasPacketTypes<Dst>
-        + CanSendMessages
-        + CanExtractPacketEvents<Dst>,
-    Dst: HasMessageTypes
-        + HasIbcTypes<Src>
-        + HasPacketTypes<Src>
-        + CanSendMessages
-        + CanExtractPacketEvents<Src>,
+    Src: Chain<Dst>,
+    Dst: Chain<Src>,
 {
     type SrcChain = Src;
     type DstChain = Dst;
@@ -69,16 +51,8 @@ where
 
 impl<Src, Dst> RelayContext<Src, Dst>
 where
-    Src: HasMessageTypes
-        + HasIbcTypes<Dst>
-        + HasPacketTypes<Dst>
-        + CanSendMessages
-        + CanExtractPacketEvents<Dst>,
-    Dst: HasMessageTypes
-        + HasIbcTypes<Src>
-        + HasPacketTypes<Src>
-        + CanSendMessages
-        + CanExtractPacketEvents<Src>,
+    Src: Chain<Dst>,
+    Dst: Chain<Src>,
 {
     pub async fn run(self: Arc<Self>) -> Result<()> {
         let token = CancellationToken::new();
