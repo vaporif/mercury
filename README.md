@@ -14,7 +14,39 @@ Early active development phase.
 - [Architecture](./docs/architecture.md)  
 - [IBC v2](./docs/ibc-v2.md)
 
-## Building
+## Usage
+
+```bash
+# Start the relayer
+mercury start --config relayer.toml
+
+# Query chain status
+mercury status --config relayer.toml --chain cosmoshub-4
+```
+
+See [`examples/relayer.toml`](./examples/relayer.toml) for a full config example.
+
+## Development
+
+### With Nix (recommended)
+
+The project includes a Nix flake with a complete dev shell. If you have Nix with flakes enabled:
+
+```bash
+# Enter the dev shell (or use direnv with the included .envrc)
+nix develop
+
+# Build the binary via Nix
+nix build
+```
+
+The dev shell provides the stable Rust toolchain (cargo, clippy, rustfmt, rust-analyzer), plus `cargo-nextest`, `taplo`, `typos`, and `actionlint`.
+
+### Without Nix
+
+Requires a stable Rust toolchain. Install via [rustup](https://rustup.rs).
+
+### Building and testing
 
 ```bash
 cargo build

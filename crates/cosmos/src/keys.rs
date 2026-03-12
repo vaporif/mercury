@@ -1,9 +1,39 @@
 use std::fmt;
+use std::path::Path;
 
 use async_trait::async_trait;
 use mercury_core::ThreadSafe;
 use mercury_core::error::{Error, Result};
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use serde::Deserialize;
+use zeroize::Zeroize;
+
+#[derive(Deserialize)]
+struct CosmosKeyFile {
+    secret_key: String,
+}
+
+/// Load a Cosmos signer from a TOML key file.
+///
+/// The key file must contain a `secret_key` field with a hex-encoded
+/// secp256k1 secret key.
+pub fn load_cosmos_signer(key_file: &Path, account_prefix: &str) -> Result<Secp256k1KeyPair> {
+    let content = std::fs::read_to_string(key_file)
+        .map_err(|e| Error::report(eyre::eyre!("reading key file {}: {e}", key_file.display())))?;
+    let key_toml: CosmosKeyFile = toml::from_str(&content)
+        .map_err(|e| Error::report(eyre::eyre!("parsing key file {}: {e}", key_file.display())))?;
+    let mut secret_bytes = hex::decode(&key_toml.secret_key)
+        .map_err(|e| Error::report(eyre::eyre!("decoding secret key hex: {e}")))?;
+    let mut secret_arr: [u8; 32] = secret_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| Error::report(eyre::eyre!("secret key must be exactly 32 bytes")))?;
+    secret_bytes.zeroize();
+    let result = SecretKey::from_byte_array(secret_arr).map_err(Error::report);
+    secret_arr.zeroize();
+    let secret_key = result?;
+    Ok(Secp256k1KeyPair::from_secret_key(secret_key, account_prefix))
+}
 
 /// Trait for Cosmos transaction signing backends.
 ///

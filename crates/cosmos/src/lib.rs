@@ -11,5 +11,6 @@ pub mod packet_queries;
 pub mod payload_builders;
 pub mod queries;
 pub mod rpc;
+pub mod status;
 pub mod tx;
 pub mod types;

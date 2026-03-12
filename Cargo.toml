@@ -62,4 +62,5 @@ secp256k1 = { version = "0.31", features = ["serde"] }
 sha2 = "0.10"
 bech32 = "0.11"
 hex = "0.4"
+toml = "0.8"
 zeroize = "1"

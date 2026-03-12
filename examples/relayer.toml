@@ -1,0 +1,31 @@
+[[chains]]
+type = "cosmos"
+chain_id = "cosmoshub-4"
+rpc_addr = "https://rpc.cosmos.network:443"
+grpc_addr = "https://grpc.cosmos.network:443"
+account_prefix = "cosmos"
+key_name = "relayer"
+key_file = "keys/cosmoshub.toml"
+
+[chains.gas_price]
+amount = 0.025
+denom = "uatom"
+
+[[chains]]
+type = "cosmos"
+chain_id = "osmosis-1"
+rpc_addr = "https://rpc.osmosis.zone:443"
+grpc_addr = "https://grpc.osmosis.zone:443"
+account_prefix = "osmo"
+key_name = "relayer"
+key_file = "keys/osmosis.toml"
+
+[chains.gas_price]
+amount = 0.025
+denom = "uosmo"
+
+[[relays]]
+src_chain = "cosmoshub-4"
+dst_chain = "osmosis-1"
+src_client_id = "07-tendermint-0"
+dst_client_id = "07-tendermint-0"
