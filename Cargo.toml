@@ -12,8 +12,12 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+description = "IBC v2 relayer in Rust — plain traits, no macro frameworks"
 license = "Apache-2.0"
 repository = "https://github.com/vaporif/mercury"
+readme = "README.md"
+keywords = ["ibc", "cosmos", "relayer", "blockchain", "interoperability"]
+categories = ["network-programming"]
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -21,6 +25,9 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 multiple_crate_versions = "allow"
+missing_errors_doc = "allow"
+return_self_not_must_use = "allow"
+branches_sharing_code = "allow"
 
 [workspace.dependencies]
 async-trait = "0.1"

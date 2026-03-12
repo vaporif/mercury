@@ -15,7 +15,7 @@ use mercury_chain_traits::types::{
 use mercury_core::runtime::TokioRuntime;
 
 use crate::config::CosmosChainConfig;
-use crate::types::*;
+use crate::types::{CosmosEvent, CosmosMessage, CosmosTxResponse, MerkleProof, CosmosPacket, PacketCommitment, PacketReceipt, PacketAcknowledgement, CosmosChainStatus};
 
 #[derive(Clone)]
 pub struct CosmosChain {
@@ -39,14 +39,14 @@ impl HasMessageTypes for CosmosChain {
     type MessageResponse = CosmosTxResponse;
 }
 
-impl HasIbcTypes<CosmosChain> for CosmosChain {
+impl HasIbcTypes<Self> for CosmosChain {
     type ClientId = ibc::core::host::types::identifiers::ClientId;
     type ClientState = TendermintClientState;
     type ConsensusState = TendermintConsensusState;
     type CommitmentProof = MerkleProof;
 }
 
-impl HasPacketTypes<CosmosChain> for CosmosChain {
+impl HasPacketTypes<Self> for CosmosChain {
     type Packet = CosmosPacket;
     type PacketCommitment = PacketCommitment;
     type PacketReceipt = PacketReceipt;
@@ -66,11 +66,13 @@ impl HasChainStatusType for CosmosChain {
 }
 
 impl CosmosChain {
-    pub fn chain_id(&self) -> &ChainId {
+    #[must_use] 
+    pub const fn chain_id(&self) -> &ChainId {
         &self.chain_id
     }
 
-    pub fn block_time(&self) -> Duration {
+    #[must_use] 
+    pub const fn block_time(&self) -> Duration {
         self.block_time
     }
 }

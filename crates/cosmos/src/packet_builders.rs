@@ -6,7 +6,7 @@ use mercury_chain_traits::packet_builders::{
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
-use crate::types::*;
+use crate::types::{MerkleProof, CosmosPacket, CosmosMessage, PacketAcknowledgement};
 
 #[derive(Clone, Debug)]
 pub struct CosmosReceivePacketPayload {
@@ -27,7 +27,7 @@ pub struct CosmosTimeoutPacketPayload {
 }
 
 #[async_trait]
-impl CanBuildReceivePacketMessage<CosmosChain> for CosmosChain {
+impl CanBuildReceivePacketMessage<Self> for CosmosChain {
     type ReceivePacketPayload = CosmosReceivePacketPayload;
 
     async fn build_receive_packet_message(
@@ -41,7 +41,7 @@ impl CanBuildReceivePacketMessage<CosmosChain> for CosmosChain {
 }
 
 #[async_trait]
-impl CanBuildAckPacketMessage<CosmosChain> for CosmosChain {
+impl CanBuildAckPacketMessage<Self> for CosmosChain {
     type AckPacketPayload = CosmosAckPacketPayload;
 
     async fn build_ack_packet_message(
@@ -56,7 +56,7 @@ impl CanBuildAckPacketMessage<CosmosChain> for CosmosChain {
 }
 
 #[async_trait]
-impl CanBuildTimeoutPacketMessage<CosmosChain> for CosmosChain {
+impl CanBuildTimeoutPacketMessage<Self> for CosmosChain {
     type TimeoutPacketPayload = CosmosTimeoutPacketPayload;
 
     async fn build_timeout_packet_message(

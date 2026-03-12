@@ -19,7 +19,7 @@ pub struct CosmosUpdateClientPayload {
 }
 
 #[async_trait]
-impl CanBuildCreateClientPayload<CosmosChain> for CosmosChain {
+impl CanBuildCreateClientPayload<Self> for CosmosChain {
     type CreateClientPayload = CosmosCreateClientPayload;
 
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
@@ -29,7 +29,7 @@ impl CanBuildCreateClientPayload<CosmosChain> for CosmosChain {
 }
 
 #[async_trait]
-impl CanBuildUpdateClientPayload<CosmosChain> for CosmosChain {
+impl CanBuildUpdateClientPayload<Self> for CosmosChain {
     type UpdateClientPayload = CosmosUpdateClientPayload;
 
     async fn build_update_client_payload(

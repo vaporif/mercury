@@ -3,7 +3,7 @@ use mercury_chain_traits::events::CanExtractPacketEvents;
 use crate::chain::CosmosChain;
 use crate::types::{CosmosEvent, CosmosPacket, SendPacketEvent};
 
-impl CanExtractPacketEvents<CosmosChain> for CosmosChain {
+impl CanExtractPacketEvents<Self> for CosmosChain {
     type SendPacketEvent = SendPacketEvent;
 
     fn try_extract_send_packet_event(event: &CosmosEvent) -> Option<SendPacketEvent> {

@@ -22,7 +22,7 @@ impl CanQueryChainStatus for CosmosChain {
 }
 
 #[async_trait]
-impl CanQueryClientState<CosmosChain> for CosmosChain {
+impl CanQueryClientState<Self> for CosmosChain {
     async fn query_client_state(
         &self,
         _client_id: &Self::ClientId,
@@ -34,11 +34,11 @@ impl CanQueryClientState<CosmosChain> for CosmosChain {
 }
 
 #[async_trait]
-impl CanQueryConsensusState<CosmosChain> for CosmosChain {
+impl CanQueryConsensusState<Self> for CosmosChain {
     async fn query_consensus_state(
         &self,
         _client_id: &Self::ClientId,
-        _consensus_height: &<CosmosChain as HasChainTypes>::Height,
+        _consensus_height: &<Self as HasChainTypes>::Height,
         _query_height: &Self::Height,
     ) -> Result<Self::ConsensusState> {
         // TODO: implement via gRPC query to ibc.core.client.v2.Query/ConsensusState

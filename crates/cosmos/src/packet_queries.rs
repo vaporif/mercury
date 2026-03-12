@@ -6,10 +6,10 @@ use mercury_chain_traits::packet_queries::{
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
-use crate::types::*;
+use crate::types::{PacketCommitment, MerkleProof, PacketReceipt, PacketAcknowledgement};
 
 #[async_trait]
-impl CanQueryPacketCommitment<CosmosChain> for CosmosChain {
+impl CanQueryPacketCommitment<Self> for CosmosChain {
     async fn query_packet_commitment(
         &self,
         _client_id: &Self::ClientId,
@@ -22,7 +22,7 @@ impl CanQueryPacketCommitment<CosmosChain> for CosmosChain {
 }
 
 #[async_trait]
-impl CanQueryPacketReceipt<CosmosChain> for CosmosChain {
+impl CanQueryPacketReceipt<Self> for CosmosChain {
     async fn query_packet_receipt(
         &self,
         _client_id: &Self::ClientId,
@@ -35,7 +35,7 @@ impl CanQueryPacketReceipt<CosmosChain> for CosmosChain {
 }
 
 #[async_trait]
-impl CanQueryPacketAcknowledgement<CosmosChain> for CosmosChain {
+impl CanQueryPacketAcknowledgement<Self> for CosmosChain {
     async fn query_packet_acknowledgement(
         &self,
         _client_id: &Self::ClientId,

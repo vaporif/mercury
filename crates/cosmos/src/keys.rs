@@ -9,6 +9,7 @@ pub struct Secp256k1KeyPair {
 }
 
 impl Secp256k1KeyPair {
+    #[must_use] 
     pub fn from_secret_key(secret_key: SecretKey, account_prefix: &str) -> Self {
         let secp = Secp256k1::new();
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);

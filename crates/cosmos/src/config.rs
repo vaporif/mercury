@@ -22,10 +22,10 @@ pub struct GasPrice {
     pub denom: String,
 }
 
-fn default_block_time() -> Duration {
+const fn default_block_time() -> Duration {
     Duration::from_secs(3)
 }
 
-fn default_max_msg_num() -> usize {
+const fn default_max_msg_num() -> usize {
     30
 }

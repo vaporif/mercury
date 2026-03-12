@@ -14,7 +14,7 @@ pub struct Error {
 #[derive(Clone)]
 pub enum ErrorDetail {
     Report(Arc<Report>),
-    Wrapped(String, Arc<ErrorDetail>),
+    Wrapped(String, Arc<Self>),
 }
 
 impl Error {
@@ -61,8 +61,8 @@ impl fmt::Display for Error {
 impl fmt::Debug for ErrorDetail {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ErrorDetail::Report(r) => write!(f, "{r:?}"),
-            ErrorDetail::Wrapped(msg, inner) => write!(f, "{msg}: {inner:?}"),
+            Self::Report(r) => write!(f, "{r:?}"),
+            Self::Wrapped(msg, inner) => write!(f, "{msg}: {inner:?}"),
         }
     }
 }
@@ -70,8 +70,8 @@ impl fmt::Debug for ErrorDetail {
 impl fmt::Display for ErrorDetail {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ErrorDetail::Report(r) => write!(f, "{r}"),
-            ErrorDetail::Wrapped(msg, inner) => write!(f, "{msg}: {inner}"),
+            Self::Report(r) => write!(f, "{r}"),
+            Self::Wrapped(msg, inner) => write!(f, "{msg}: {inner}"),
         }
     }
 }

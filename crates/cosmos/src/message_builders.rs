@@ -10,7 +10,7 @@ use crate::payload_builders::{CosmosCreateClientPayload, CosmosUpdateClientPaylo
 use crate::types::CosmosMessage;
 
 #[async_trait]
-impl CanBuildCreateClientMessage<CosmosChain> for CosmosChain {
+impl CanBuildCreateClientMessage<Self> for CosmosChain {
     async fn build_create_client_message(
         &self,
         _payload: CosmosCreateClientPayload,
@@ -21,7 +21,7 @@ impl CanBuildCreateClientMessage<CosmosChain> for CosmosChain {
 }
 
 #[async_trait]
-impl CanBuildUpdateClientMessage<CosmosChain> for CosmosChain {
+impl CanBuildUpdateClientMessage<Self> for CosmosChain {
     async fn build_update_client_message(
         &self,
         _client_id: &Self::ClientId,
@@ -33,7 +33,7 @@ impl CanBuildUpdateClientMessage<CosmosChain> for CosmosChain {
 }
 
 #[async_trait]
-impl CanRegisterCounterparty<CosmosChain> for CosmosChain {
+impl CanRegisterCounterparty<Self> for CosmosChain {
     async fn build_register_counterparty_message(
         &self,
         _client_id: &Self::ClientId,
