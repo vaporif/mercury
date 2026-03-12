@@ -51,12 +51,12 @@ tendermint = { version = "0.40", features = ["secp256k1"] }
 tendermint-rpc = { version = "0.40", features = ["http-client"] }
 tendermint-proto = "0.40"
 tendermint-light-client-verifier = "0.40"
-ibc = { version = "0.56", default-features = false, features = ["serde"] }
-ibc-proto = { version = "0.51", default-features = false, features = ["serde"] }
-ibc-client-tendermint = { version = "0.56", default-features = false }
-prost = "0.13"
-prost-types = "0.13"
-tonic = { version = "0.12", features = ["tls", "tls-roots"] }
-secp256k1 = { version = "0.28", features = ["serde"] }
+ibc = { version = "0.57", default-features = false, features = ["serde"] }
+ibc-proto = { version = "0.52", default-features = false, features = ["serde"] }
+ibc-client-tendermint = { version = "0.57", default-features = false }
+prost = "0.14"
+prost-types = "0.14"
+tonic = { version = "0.14", features = ["tls-native-roots", "channel", "transport"] }
+secp256k1 = { version = "0.31", features = ["serde"] }
 sha2 = "0.10"
-bech32 = "0.9"
+bech32 = "0.11"

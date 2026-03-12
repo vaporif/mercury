@@ -21,17 +21,13 @@ impl Secp256k1KeyPair {
     }
 
     pub fn account_address(&self) -> Result<String> {
-        use bech32::ToBase32;
+        use bech32::Hrp;
         use sha2::{Digest, Sha256};
         let pub_key_bytes = self.public_key.serialize();
         let sha_hash = Sha256::digest(pub_key_bytes);
         let address_bytes = &sha_hash[..20];
-        let encoded = bech32::encode(
-            &self.account_prefix,
-            address_bytes.to_base32(),
-            bech32::Variant::Bech32,
-        )
-        .map_err(Error::report)?;
+        let hrp = Hrp::parse(&self.account_prefix).map_err(Error::report)?;
+        let encoded = bech32::encode::<bech32::Bech32>(hrp, address_bytes).map_err(Error::report)?;
         Ok(encoded)
     }
 }
