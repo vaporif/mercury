@@ -6,7 +6,7 @@ use mercury_chain_traits::packet_queries::{
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
-use crate::types::{PacketCommitment, MerkleProof, PacketReceipt, PacketAcknowledgement};
+use crate::types::{MerkleProof, PacketAcknowledgement, PacketCommitment, PacketReceipt};
 
 #[async_trait]
 impl CanQueryPacketCommitment<Self> for CosmosChain {

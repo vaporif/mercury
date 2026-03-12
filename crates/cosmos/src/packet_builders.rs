@@ -6,7 +6,7 @@ use mercury_chain_traits::packet_builders::{
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
-use crate::types::{MerkleProof, CosmosPacket, CosmosMessage, PacketAcknowledgement};
+use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgement};
 
 #[derive(Clone, Debug)]
 pub struct CosmosReceivePacketPayload {
