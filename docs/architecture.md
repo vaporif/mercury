@@ -7,7 +7,7 @@ Mercury is an IBC relayer built with plain Rust traits and generics. No macro fr
 - **Direct trait impls.** Every chain operation is a trait method with a direct `impl` block on the concrete type. No provider indirection.
 - **Small, focused traits.** ~35 traits grouped by concern instead of 250+ component traits.
 - **Concrete error type.** One error type based on `eyre::Report` with retryability tracking. No generic error parameters on traits.
-- **Struct fields, not trait getters.** Configuration, runtime handles, and RPC clients are struct fields accessed via methods. Not abstracted behind traits.
+- **Struct fields, not trait getters.** Configuration and RPC clients are struct fields accessed via methods. Not abstracted behind traits.
 
 ## Trait Hierarchy
 
@@ -50,12 +50,12 @@ pub trait HasIbcTypes<Counterparty: HasChainTypes>: HasChainTypes {
 - **Payload builders** (2) — create/update client payloads (counterparty side)
 - **Transaction traits** (4) — submit, estimate fee, query nonce, poll response
 - **Relay traits** (6) — packet relay, client update, event relay, bidirectional relay
-- **Infrastructure** (3) — runtime, encoding, worker
+- **Infrastructure** (2) — encoding, worker
 
 ## Crate Layout
 
 ```
-mercury-core             Error types, runtime (trait + tokio), encoding, worker trait
+mercury-core             Error types, encoding, worker trait
         |
 mercury-chain-traits     Chain types, messaging, queries, tx traits, relay traits, IbcEvent
         |
@@ -97,6 +97,6 @@ pub type Result<T> = std::result::Result<T, MercuryError>;
 Mercury keeps these as direct code rather than trait abstractions:
 
 - **Logging** — uses `tracing` directly
-- **Field access** — struct fields accessed via methods (e.g. `self.runtime`)
+- **Field access** — struct fields accessed via methods
 - **Configuration** — config values are struct fields
 - **Test infrastructure** — test setup is separate from the core trait hierarchy

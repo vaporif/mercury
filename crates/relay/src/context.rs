@@ -5,7 +5,6 @@ use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::relay::Relay;
 use mercury_chain_traits::types::{HasIbcTypes, HasMessageTypes, HasPacketTypes};
 use mercury_core::error::Result;
-use mercury_core::runtime::Runtime;
 use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -81,37 +80,37 @@ where
         + CanSendMessages
         + CanExtractPacketEvents<Src>,
 {
-    pub async fn run(self: Arc<Self>, runtime: &impl Runtime) -> Result<()> {
+    pub async fn run(self: Arc<Self>) -> Result<()> {
         let token = CancellationToken::new();
 
         let (event_tx, event_rx) = mpsc::channel(CHANNEL_BUFFER);
         let (tx_req_tx, tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
 
-        let ew = EventWatcher {
+        let event_watcher = EventWatcher {
             relay: Arc::clone(&self),
             sender: event_tx,
             token: token.clone(),
         };
-        let pw = PacketWorker {
+        let packet_worker = PacketWorker {
             relay: Arc::clone(&self),
             receiver: event_rx,
             sender: tx_req_tx,
             token: token.clone(),
         };
-        let tw = TxWorker {
+        let tx_worker = TxWorker {
             relay: Arc::clone(&self),
             receiver: tx_req_rx,
             token: token.clone(),
         };
 
-        let ew_handle = spawn_worker(runtime, ew);
-        let pw_handle = spawn_worker(runtime, pw);
-        let tw_handle = spawn_worker(runtime, tw);
+        let event_watcher_handle = spawn_worker(event_watcher);
+        let packet_worker_handle = spawn_worker(packet_worker);
+        let tx_worker_handle = spawn_worker(tx_worker);
 
         let result = tokio::select! {
-            res = ew_handle => res,
-            res = pw_handle => res,
-            res = tw_handle => res,
+            res = event_watcher_handle => res,
+            res = packet_worker_handle => res,
+            res = tx_worker_handle => res,
         };
 
         token.cancel();

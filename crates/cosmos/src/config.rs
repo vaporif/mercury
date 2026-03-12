@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -9,6 +10,7 @@ pub struct CosmosChainConfig {
     pub grpc_addr: String,
     pub account_prefix: String,
     pub key_name: String,
+    pub key_file: PathBuf,
     pub gas_price: GasPrice,
     #[serde(default = "default_block_time")]
     pub block_time: Duration,

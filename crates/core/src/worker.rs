@@ -1,7 +1,7 @@
 use async_trait::async_trait;
+use tokio::task::JoinHandle;
 
 use crate::error::Result;
-use crate::runtime::Runtime;
 
 #[async_trait]
 pub trait Worker: Send + 'static {
@@ -9,11 +9,10 @@ pub trait Worker: Send + 'static {
     async fn run(self) -> Result<()>;
 }
 
-pub fn spawn_worker<R, W>(runtime: &R, worker: W) -> R::JoinHandle<Result<()>>
-where
-    R: Runtime,
-    W: Worker,
-{
+pub fn spawn_worker<W: Worker>(worker: W) -> JoinHandle<Result<()>> {
     let name = worker.name().to_owned();
-    runtime.spawn(&name, async move { worker.run().await })
+    tokio::spawn(async move {
+        tracing::debug!(task = %name, "spawned");
+        worker.run().await
+    })
 }
