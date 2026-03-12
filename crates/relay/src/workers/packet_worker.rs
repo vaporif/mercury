@@ -26,6 +26,8 @@ use mercury_core::worker::Worker;
 
 use crate::workers::{DstTxRequest, SrcTxRequest};
 
+type UpdateClientResult<Height, Message> = Result<(Height, Vec<Message>)>;
+
 const PROOF_FETCH_CONCURRENCY: usize = 8;
 const PROOF_FETCH_MAX_RETRIES: usize = 3;
 const PROOF_FETCH_RETRY_DELAY: Duration = Duration::from_millis(500);
@@ -60,10 +62,10 @@ where
     #[instrument(skip_all, name = "build_dst_update_client")]
     async fn build_dst_update_client_messages(
         &self,
-    ) -> Result<(
+    ) -> UpdateClientResult<
         <R::SrcChain as HasChainTypes>::Height,
-        Vec<<R::DstChain as HasMessageTypes>::Message>,
-    )> {
+        <R::DstChain as HasMessageTypes>::Message,
+    > {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
@@ -101,10 +103,10 @@ where
     #[instrument(skip_all, name = "build_src_update_client")]
     async fn build_src_update_client_messages(
         &self,
-    ) -> Result<(
+    ) -> UpdateClientResult<
         <R::DstChain as HasChainTypes>::Height,
-        Vec<<R::SrcChain as HasMessageTypes>::Message>,
-    )> {
+        <R::SrcChain as HasMessageTypes>::Message,
+    > {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 

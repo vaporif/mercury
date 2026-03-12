@@ -15,8 +15,9 @@ use mercury_chain_traits::payload_builders::{
     CanBuildCreateClientPayload, CanBuildUpdateClientPayload,
 };
 use mercury_core::error::{Error, Result};
+use tendermint::account;
 use tendermint::block::Height as TmHeight;
-use tendermint::validator::Set as ValidatorSet;
+use tendermint::validator::{Info as ValidatorInfo, Set as ValidatorSet};
 use tendermint_rpc::{Client, Paging};
 
 use crate::chain::CosmosChain;
@@ -114,14 +115,27 @@ impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
             )));
         }
 
-        let trusted_validators_response = self
-            .rpc_client
-            .validators(*trusted_height, Paging::All)
-            .await
-            .map_err(Error::report)?;
+        let (trusted_validators_response, trusted_commit_response) = tokio::try_join!(
+            async {
+                self.rpc_client
+                    .validators(*trusted_height, Paging::All)
+                    .await
+                    .map_err(Error::report)
+            },
+            async {
+                self.rpc_client
+                    .commit(*trusted_height)
+                    .await
+                    .map_err(Error::report)
+            },
+        )?;
 
+        let trusted_proposer = find_proposer(
+            &trusted_validators_response.validators,
+            &trusted_commit_response.signed_header.header.proposer_address,
+        );
         let trusted_next_validator_set =
-            ValidatorSet::new(trusted_validators_response.validators, None);
+            ValidatorSet::new(trusted_validators_response.validators, trusted_proposer);
 
         let ibc_trusted_height = Height::new(self.chain_id.revision_number(), trusted_height_value)
             .map_err(|e| Error::report(eyre::eyre!("{e}")))?;
@@ -144,7 +158,12 @@ impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
                         },
                     )?;
 
-                    let validator_set = ValidatorSet::new(validators_response.validators, None);
+                    let proposer = find_proposer(
+                        &validators_response.validators,
+                        &commit_response.signed_header.header.proposer_address,
+                    );
+                    let validator_set =
+                        ValidatorSet::new(validators_response.validators, proposer);
 
                     let header = TmIbcHeader {
                         signed_header: commit_response.signed_header,
@@ -162,4 +181,14 @@ impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
 
         Ok(CosmosUpdateClientPayload { headers })
     }
+}
+
+fn find_proposer(
+    validators: &[ValidatorInfo],
+    proposer_address: &account::Id,
+) -> Option<ValidatorInfo> {
+    validators
+        .iter()
+        .find(|v| &v.address == proposer_address)
+        .cloned()
 }
