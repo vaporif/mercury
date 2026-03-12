@@ -37,6 +37,7 @@ secp256k1 = { workspace = true }
 sha2 = { workspace = true }
 bech32 = { workspace = true }
 hex = { workspace = true }
+ripemd = { workspace = true }
 futures = { workspace = true }
 toml = { workspace = true }
 zeroize = { workspace = true }

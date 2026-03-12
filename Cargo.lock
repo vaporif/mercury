@@ -2181,6 +2181,7 @@ dependencies = [
  "mercury-core",
  "prost",
  "prost-types",
+ "ripemd",
  "secp256k1",
  "serde",
  "serde_json",

@@ -100,13 +100,14 @@ impl CosmosSigner for Secp256k1KeyPair {
 
     fn account_address(&self) -> Result<String> {
         use bech32::Hrp;
+        use ripemd::Ripemd160;
         use sha2::{Digest, Sha256};
         let pub_key_bytes = self.public_key.serialize();
         let sha_hash = Sha256::digest(pub_key_bytes);
-        let address_bytes = &sha_hash[..20];
+        let address_bytes = Ripemd160::digest(sha_hash);
         let hrp = Hrp::parse(&self.account_prefix).map_err(Error::report)?;
         let encoded =
-            bech32::encode::<bech32::Bech32>(hrp, address_bytes).map_err(Error::report)?;
+            bech32::encode::<bech32::Bech32>(hrp, &address_bytes).map_err(Error::report)?;
         Ok(encoded)
     }
 }

@@ -214,7 +214,9 @@ async fn poll_until_ready(rpc_endpoint: &str, grpc_endpoint: &str) -> Result<()>
             .ok()
             .map(|c| async move {
                 use tendermint_rpc::Client;
-                c.status().await.is_ok()
+                c.status()
+                    .await
+                    .is_ok_and(|s| s.sync_info.latest_block_height.value() > 0)
             });
         let rpc_ready = match rpc_ok {
             Some(fut) => fut.await,
@@ -261,8 +263,8 @@ async fn exec_in_container(container: &ContainerAsync<GenericImage>, cmd: &str) 
         .await
         .wrap_err("exec failed")?;
 
-    let exit_code = result.exit_code().await.wrap_err("waiting for exit code")?;
     let stdout = result.stdout_to_vec().await.wrap_err("reading stdout")?;
+    let exit_code = result.exit_code().await.wrap_err("waiting for exit code")?;
     eyre::ensure!(
         exit_code == Some(0),
         "command exited with code {exit_code:?}"
