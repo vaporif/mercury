@@ -1,4 +1,4 @@
-//! Clonable, retryable error type with context wrapping.
+//! Cloneable, retryable error type with context wrapping.
 
 use std::fmt;
 use std::sync::Arc;
@@ -8,7 +8,7 @@ pub use eyre::Report;
 /// Alias for `std::result::Result` with [`Error`].
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// A clonable error that tracks whether the operation is retryable.
+/// A cloneable error that tracks whether the operation is retryable.
 #[derive(Clone)]
 pub struct Error {
     /// Whether the failed operation can be retried.
