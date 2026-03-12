@@ -121,6 +121,23 @@ jobs:
       - name: Nix build
         run: nix build
 
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
+
+      - uses: dtolnay/rust-toolchain@1.85.1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check MSRV
+        run: cargo hack check --workspace --rust-version
+
   deny:
     name: Deny
     runs-on: ubuntu-latest
