@@ -15,10 +15,10 @@ use crate::keys::CosmosSigner;
 use crate::rpc::query_abci;
 use crate::types::{MerkleProof, PacketAcknowledgement, PacketCommitment, PacketReceipt};
 
-/// ABCI state at height H is committed in block H+1's app_hash.
+/// ABCI state at height H is committed in block `H+1`'s `app_hash`.
 /// When the light client is updated to height H, proofs must be
-/// queried at H-1 to match the app_hash the client holds.
-fn proof_query_height(height: &TmHeight) -> Result<TmHeight> {
+/// queried at `H-1` to match the `app_hash` the client holds.
+fn proof_query_height(height: TmHeight) -> Result<TmHeight> {
     let h = height
         .value()
         .checked_sub(1)
@@ -80,7 +80,7 @@ impl<S: CosmosSigner> CanQueryPacketCommitment<Self> for CosmosChain<S> {
         sequence: u64,
         height: &Self::Height,
     ) -> Result<(Option<PacketCommitment>, MerkleProof)> {
-        let query_height = proof_query_height(height)?;
+        let query_height = proof_query_height(*height)?;
         let response = query_abci(
             &self.rpc_client,
             "store/ibc/key",
@@ -109,7 +109,7 @@ impl<S: CosmosSigner> CanQueryPacketReceipt<Self> for CosmosChain<S> {
         sequence: u64,
         height: &Self::Height,
     ) -> Result<(Option<PacketReceipt>, MerkleProof)> {
-        let query_height = proof_query_height(height)?;
+        let query_height = proof_query_height(*height)?;
         let response = query_abci(
             &self.rpc_client,
             "store/ibc/key",
@@ -138,7 +138,7 @@ impl<S: CosmosSigner> CanQueryPacketAcknowledgement<Self> for CosmosChain<S> {
         sequence: u64,
         height: &Self::Height,
     ) -> Result<(Option<PacketAcknowledgement>, MerkleProof)> {
-        let query_height = proof_query_height(height)?;
+        let query_height = proof_query_height(*height)?;
         let response = query_abci(
             &self.rpc_client,
             "store/ibc/key",

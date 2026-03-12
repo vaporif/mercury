@@ -70,6 +70,7 @@ impl TestContext {
     }
 
     /// Start mercury-relayer as a subprocess.
+    #[allow(clippy::missing_panics_doc)]
     pub fn start_relay_binary(&self) -> Result<SubprocessHandle> {
         let config_dir = tempfile::tempdir().wrap_err("creating temp dir")?;
         let config_path = config_dir.path().join("relayer.toml");
@@ -146,8 +147,7 @@ dst_client_id = "{client_b}"
                 .expect("invalid utf8")
                 .lines()
                 .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-                .filter(|v| v.get("executable").and_then(|e| e.as_str()).is_some())
-                .last()
+                .rfind(|v| v.get("executable").and_then(|e| e.as_str()).is_some())
                 .and_then(|v| {
                     v.get("executable")
                         .and_then(|e| e.as_str())

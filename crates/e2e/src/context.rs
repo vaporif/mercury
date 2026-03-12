@@ -104,6 +104,7 @@ impl TestContext {
     ///
     /// Builds and submits a `MsgSendPacket` with JSON-encoded
     /// `FungibleTokenPacketData` as the payload.
+    #[allow(clippy::missing_panics_doc)]
     pub async fn send_transfer_a_to_b(&self, amount: u64, denom: &str) -> Result<()> {
         let user_a = &self.handle_a.user_wallets()[0];
         let user_b = &self.handle_b.user_wallets()[0];
@@ -150,7 +151,7 @@ impl TestContext {
             .map_err(|e| eyre::eyre!("{e}"))?;
 
         info!(
-            tx_hash = %responses.first().map(|r| r.hash.as_str()).unwrap_or("?"),
+            tx_hash = %responses.first().map_or("?", |r| r.hash.as_str()),
             "IBC v2 transfer submitted on chain A"
         );
         Ok(())
