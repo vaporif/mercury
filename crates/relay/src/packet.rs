@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 
+use mercury_chain_traits::events::CanExtractPacketEvents;
 use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::relay::packet::{
     CanRelayAckPacket, CanRelayReceivePacket, CanRelayTimeoutPacket,
@@ -12,8 +13,16 @@ use crate::context::RelayContext;
 #[async_trait]
 impl<Src, Dst> CanRelayReceivePacket for RelayContext<Src, Dst>
 where
-    Src: HasMessageTypes + HasIbcTypes<Dst> + HasPacketTypes<Dst> + CanSendMessages,
-    Dst: HasMessageTypes + HasIbcTypes<Src> + HasPacketTypes<Src> + CanSendMessages,
+    Src: HasMessageTypes
+        + HasIbcTypes<Dst>
+        + HasPacketTypes<Dst>
+        + CanSendMessages
+        + CanExtractPacketEvents<Dst>,
+    Dst: HasMessageTypes
+        + HasIbcTypes<Src>
+        + HasPacketTypes<Src>
+        + CanSendMessages
+        + CanExtractPacketEvents<Src>,
 {
     async fn relay_receive_packet(
         &self,
@@ -27,8 +36,16 @@ where
 #[async_trait]
 impl<Src, Dst> CanRelayAckPacket for RelayContext<Src, Dst>
 where
-    Src: HasMessageTypes + HasIbcTypes<Dst> + HasPacketTypes<Dst> + CanSendMessages,
-    Dst: HasMessageTypes + HasIbcTypes<Src> + HasPacketTypes<Src> + CanSendMessages,
+    Src: HasMessageTypes
+        + HasIbcTypes<Dst>
+        + HasPacketTypes<Dst>
+        + CanSendMessages
+        + CanExtractPacketEvents<Dst>,
+    Dst: HasMessageTypes
+        + HasIbcTypes<Src>
+        + HasPacketTypes<Src>
+        + CanSendMessages
+        + CanExtractPacketEvents<Src>,
 {
     async fn relay_ack_packet(
         &self,
@@ -43,8 +60,16 @@ where
 #[async_trait]
 impl<Src, Dst> CanRelayTimeoutPacket for RelayContext<Src, Dst>
 where
-    Src: HasMessageTypes + HasIbcTypes<Dst> + HasPacketTypes<Dst> + CanSendMessages,
-    Dst: HasMessageTypes + HasIbcTypes<Src> + HasPacketTypes<Src> + CanSendMessages,
+    Src: HasMessageTypes
+        + HasIbcTypes<Dst>
+        + HasPacketTypes<Dst>
+        + CanSendMessages
+        + CanExtractPacketEvents<Dst>,
+    Dst: HasMessageTypes
+        + HasIbcTypes<Src>
+        + HasPacketTypes<Src>
+        + CanSendMessages
+        + CanExtractPacketEvents<Src>,
 {
     async fn relay_timeout_packet(
         &self,

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 
+use mercury_chain_traits::events::CanExtractPacketEvents;
 use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
 use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
@@ -20,6 +21,7 @@ where
         + HasPacketTypes<Dst>
         + HasChainStatusType
         + CanSendMessages
+        + CanExtractPacketEvents<Dst>
         + CanQueryChainStatus
         + CanBuildUpdateClientPayload<Dst>
         + CanBuildUpdateClientMessage<Dst>,
@@ -28,6 +30,7 @@ where
         + HasPacketTypes<Src>
         + HasChainStatusType
         + CanSendMessages
+        + CanExtractPacketEvents<Src>
         + CanQueryChainStatus
         + CanQueryClientState<Src>
         + CanBuildUpdateClientPayload<Src>

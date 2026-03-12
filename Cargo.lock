@@ -1765,6 +1765,8 @@ dependencies = [
  "async-trait",
  "mercury-chain-traits",
  "mercury-core",
+ "tokio",
+ "tokio-util",
  "tracing",
 ]
 

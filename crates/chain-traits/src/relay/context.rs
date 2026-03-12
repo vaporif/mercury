@@ -1,5 +1,6 @@
 use mercury_core::ThreadSafe;
 
+use crate::events::CanExtractPacketEvents;
 use crate::messaging::CanSendMessages;
 use crate::types::{HasIbcTypes, HasMessageTypes, HasPacketTypes};
 
@@ -7,11 +8,13 @@ pub trait Relay: ThreadSafe {
     type SrcChain: HasMessageTypes
         + HasIbcTypes<Self::DstChain>
         + HasPacketTypes<Self::DstChain>
-        + CanSendMessages;
+        + CanSendMessages
+        + CanExtractPacketEvents<Self::DstChain>;
     type DstChain: HasMessageTypes
         + HasIbcTypes<Self::SrcChain>
         + HasPacketTypes<Self::SrcChain>
-        + CanSendMessages;
+        + CanSendMessages
+        + CanExtractPacketEvents<Self::SrcChain>;
 
     fn src_chain(&self) -> &Self::SrcChain;
     fn dst_chain(&self) -> &Self::DstChain;

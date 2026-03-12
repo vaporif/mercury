@@ -1,11 +1,33 @@
+use std::sync::Arc;
+
+use mercury_chain_traits::events::CanExtractPacketEvents;
 use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::relay::Relay;
 use mercury_chain_traits::types::{HasIbcTypes, HasMessageTypes, HasPacketTypes};
+use mercury_core::error::Result;
+use mercury_core::runtime::Runtime;
+use mercury_core::worker::spawn_worker;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+use crate::workers::event_watcher::EventWatcher;
+use crate::workers::packet_worker::PacketWorker;
+use crate::workers::tx_worker::TxWorker;
+
+const CHANNEL_BUFFER: usize = 256;
 
 pub struct RelayContext<Src, Dst>
 where
-    Src: HasMessageTypes + HasIbcTypes<Dst> + HasPacketTypes<Dst> + CanSendMessages,
-    Dst: HasMessageTypes + HasIbcTypes<Src> + HasPacketTypes<Src> + CanSendMessages,
+    Src: HasMessageTypes
+        + HasIbcTypes<Dst>
+        + HasPacketTypes<Dst>
+        + CanSendMessages
+        + CanExtractPacketEvents<Dst>,
+    Dst: HasMessageTypes
+        + HasIbcTypes<Src>
+        + HasPacketTypes<Src>
+        + CanSendMessages
+        + CanExtractPacketEvents<Src>,
 {
     pub src_chain: Src,
     pub dst_chain: Dst,
@@ -15,8 +37,16 @@ where
 
 impl<Src, Dst> Relay for RelayContext<Src, Dst>
 where
-    Src: HasMessageTypes + HasIbcTypes<Dst> + HasPacketTypes<Dst> + CanSendMessages,
-    Dst: HasMessageTypes + HasIbcTypes<Src> + HasPacketTypes<Src> + CanSendMessages,
+    Src: HasMessageTypes
+        + HasIbcTypes<Dst>
+        + HasPacketTypes<Dst>
+        + CanSendMessages
+        + CanExtractPacketEvents<Dst>,
+    Dst: HasMessageTypes
+        + HasIbcTypes<Src>
+        + HasPacketTypes<Src>
+        + CanSendMessages
+        + CanExtractPacketEvents<Src>,
 {
     type SrcChain = Src;
     type DstChain = Dst;
@@ -35,5 +65,60 @@ where
 
     fn dst_client_id(&self) -> &<Dst as HasIbcTypes<Src>>::ClientId {
         &self.dst_client_id
+    }
+}
+
+impl<Src, Dst> RelayContext<Src, Dst>
+where
+    Src: HasMessageTypes
+        + HasIbcTypes<Dst>
+        + HasPacketTypes<Dst>
+        + CanSendMessages
+        + CanExtractPacketEvents<Dst>,
+    Dst: HasMessageTypes
+        + HasIbcTypes<Src>
+        + HasPacketTypes<Src>
+        + CanSendMessages
+        + CanExtractPacketEvents<Src>,
+{
+    pub async fn run(self: Arc<Self>, runtime: &impl Runtime) -> Result<()> {
+        let token = CancellationToken::new();
+
+        let (event_tx, event_rx) = mpsc::channel(CHANNEL_BUFFER);
+        let (tx_req_tx, tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
+
+        let ew = EventWatcher {
+            relay: Arc::clone(&self),
+            sender: event_tx,
+            token: token.clone(),
+        };
+        let pw = PacketWorker {
+            relay: Arc::clone(&self),
+            receiver: event_rx,
+            sender: tx_req_tx,
+            token: token.clone(),
+        };
+        let tw = TxWorker {
+            relay: Arc::clone(&self),
+            receiver: tx_req_rx,
+            token: token.clone(),
+        };
+
+        let ew_handle = spawn_worker(runtime, ew);
+        let pw_handle = spawn_worker(runtime, pw);
+        let tw_handle = spawn_worker(runtime, tw);
+
+        let result = tokio::select! {
+            res = ew_handle => res,
+            res = pw_handle => res,
+            res = tw_handle => res,
+        };
+
+        token.cancel();
+
+        match result {
+            Ok(worker_result) => worker_result,
+            Err(join_err) => Err(mercury_core::error::Error::report(join_err)),
+        }
     }
 }
