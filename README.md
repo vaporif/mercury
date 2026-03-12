@@ -2,11 +2,11 @@
 
 An IBC v2 relayer in Rust. Plain traits, no frameworks.
 
-Mercury relays packets between IBC-connected blockchains. Unlike [hermes-sdk](https://github.com/informalsystems/hermes-sdk), which uses Context-Generic Programming (250+ component traits, macro-heavy abstractions, 30-minute compile times), Mercury uses plain Rust traits and generics — ~35 focused traits, readable error messages, and standard tooling that just works. If you've tried to contribute to an IBC relayer and bounced off the complexity, this is for you.
+Mercury relays packets between IBC-connected blockchains. Unlike [hermes-sdk](https://github.com/informalsystems/hermes-sdk), which uses Context-Generic Programming (250+ component traits, macro-heavy abstractions, 20-minute compile times), Mercury uses plain Rust traits and generics — ~35 focused traits, readable error messages, and standard tooling that just works. If you've tried to contribute to an IBC relayer and bounced off the complexity, this is for you.
 
 ## Status
 
-Early active development. Core IBC v2 relay pipeline is implemented but **not yet tested against live chains**. No unit or integration tests yet. Use at your own risk.
+Early active development. Core IBC v2 relay pipeline is implemented but **not yet tested against live chains**. No unit or integration tests yet. Use at your own risk. Or better don't even try to use until I add unit/integration/e2e tests.
 
 ## Docs
 
