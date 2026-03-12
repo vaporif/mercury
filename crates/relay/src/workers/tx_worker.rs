@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
@@ -15,8 +16,10 @@ use mercury_core::worker::Worker;
 use crate::workers::{DstTxRequest, SrcTxRequest};
 
 const MAX_IN_FLIGHT: usize = 3;
-const MAX_CONSECUTIVE_FAILURES: usize = 10;
+const MAX_CONSECUTIVE_FAILURES: usize = 25;
 const FORWARD_BUFFER: usize = 256;
+const BACKOFF_BASE: Duration = Duration::from_secs(1);
+const BACKOFF_CAP: Duration = Duration::from_secs(30);
 
 async fn run_tx_loop<M: Send + 'static>(
     label: &'static str,
@@ -38,10 +41,14 @@ async fn run_tx_loop<M: Send + 'static>(
                     Ok(false) => {
                         consecutive_failures += 1;
                         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                            warn!("{label}: too many consecutive tx failures, cancelling relay");
+                            warn!("{label}: {consecutive_failures} consecutive tx failures, cancelling relay");
                             token.cancel();
                             break;
                         }
+                        let backoff = (BACKOFF_BASE * 2u32.saturating_pow(consecutive_failures.min(5).try_into().unwrap_or(5)))
+                            .min(BACKOFF_CAP);
+                        warn!("{label}: tx failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}, backing off {backoff:?}");
+                        tokio::time::sleep(backoff).await;
                     }
                     Err(e) => { warn!("{label}: tx task panicked: {e}"); }
                 }
