@@ -4,6 +4,8 @@ ignore = [
     "RUSTSEC-2026-0009",
     # rustls-pemfile unmaintained — transitive via tendermint-rpc -> reqwest 0.11, waiting on upstream
     "RUSTSEC-2025-0134",
+    # paste unmaintained — transitive dependency, waiting on upstream to switch to pastey
+    "RUSTSEC-2024-0436",
 ]
 
 [licenses]
