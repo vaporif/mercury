@@ -70,27 +70,37 @@ This keeps where clauses focused on only the *additional* bounds each context ne
 
 ## Crate Layout
 
-```
-mercury-core             Error types, encoding, worker trait
-        |
-mercury-chain-traits     Chain types, messaging, queries, tx traits, relay traits, IbcEvent
-        |
-mercury-cosmos           Cosmos SDK implementation (RPC, protobuf, tx signing)
-mercury-relay            Worker pipeline (EventWatcher → PacketWorker → TxWorker), generic over chain traits
-        |
-mercury-cli              CLI binary
+```mermaid
+graph TD
+    CLI[mercury-cli<br/><i>CLI binary</i>]
+    COSMOS[mercury-cosmos<br/><i>Cosmos SDK: RPC, protobuf, tx signing</i>]
+    RELAY[mercury-relay<br/><i>Worker pipeline, generic over chain traits</i>]
+    TRAITS[mercury-chain-traits<br/><i>Chain types, messaging, queries, relay traits</i>]
+    CORE[mercury-core<br/><i>Error types, encoding, worker trait</i>]
+
+    CLI --> COSMOS
+    CLI --> RELAY
+    COSMOS --> TRAITS
+    RELAY --> TRAITS
+    TRAITS --> CORE
 ```
 
 ## Data Flow: Relaying a Packet
 
 Five workers connected by `tokio::mpsc` channels form the relay pipeline. Each relay direction (A→B, B→A) runs its own set of workers. Shutdown propagates via `CancellationToken` — first worker to exit cancels the rest.
 
-```
-                                              ┌──DstTxRequest──► TxWorker (dst chain)
-EventWatcher ──Vec<IbcEvent>──► PacketWorker ──┤
-                                              └──SrcTxRequest──► SrcTxWorker (src chain)
-                                                        ▲
-ClientRefreshWorker ────────────DstTxRequest─────────────┘
+```mermaid
+graph LR
+    EW[EventWatcher]
+    PW[PacketWorker]
+    TW[TxWorker<br/><i>dst chain</i>]
+    STW[SrcTxWorker<br/><i>src chain</i>]
+    CRW[ClientRefreshWorker]
+
+    EW -- "Vec&lt;IbcEvent&gt;" --> PW
+    PW -- DstTxRequest --> TW
+    PW -- SrcTxRequest --> STW
+    CRW -- DstTxRequest --> TW
 ```
 
 1. **EventWatcher** polls source chain block-by-block for `SendPacket` and `WriteAck` events, batches per block, sends `Vec<IbcEvent>` downstream. Tolerates transient RPC failures without dying.
