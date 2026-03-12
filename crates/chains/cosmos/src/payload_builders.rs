@@ -132,7 +132,10 @@ impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
 
         let trusted_proposer = find_proposer(
             &trusted_validators_response.validators,
-            &trusted_commit_response.signed_header.header.proposer_address,
+            &trusted_commit_response
+                .signed_header
+                .header
+                .proposer_address,
         );
         let trusted_next_validator_set =
             ValidatorSet::new(trusted_validators_response.validators, trusted_proposer);
@@ -162,8 +165,7 @@ impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
                         &validators_response.validators,
                         &commit_response.signed_header.header.proposer_address,
                     );
-                    let validator_set =
-                        ValidatorSet::new(validators_response.validators, proposer);
+                    let validator_set = ValidatorSet::new(validators_response.validators, proposer);
 
                     let header = TmIbcHeader {
                         signed_header: commit_response.signed_header,

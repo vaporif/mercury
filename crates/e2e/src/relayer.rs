@@ -148,14 +148,18 @@ dst_client_id = "{client_b}"
                 .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
                 .filter(|v| v.get("executable").and_then(|e| e.as_str()).is_some())
                 .last()
-                .and_then(|v| v.get("executable").and_then(|e| e.as_str()).map(String::from))
+                .and_then(|v| {
+                    v.get("executable")
+                        .and_then(|e| e.as_str())
+                        .map(String::from)
+                })
                 .expect("no executable found in cargo build output")
         });
 
         let child = Command::new(&binary)
-        .args(["start", "--config", &config_path.to_string_lossy()])
-        .spawn()
-        .wrap_err("spawning mercury-relayer")?;
+            .args(["start", "--config", &config_path.to_string_lossy()])
+            .spawn()
+            .wrap_err("spawning mercury-relayer")?;
 
         Ok(SubprocessHandle {
             child,

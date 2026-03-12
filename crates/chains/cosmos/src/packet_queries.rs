@@ -64,8 +64,7 @@ fn extract_proof(response: &tendermint_rpc::endpoint::abci_query::AbciQuery) -> 
                 .iter()
                 .filter_map(|op| ibc_proto::ics23::CommitmentProof::decode(op.data.as_slice()).ok())
                 .collect();
-            let merkle_proof =
-                ibc_proto::ibc::core::commitment::v1::MerkleProof { proofs };
+            let merkle_proof = ibc_proto::ibc::core::commitment::v1::MerkleProof { proofs };
             merkle_proof.encode_to_vec()
         })
         .unwrap_or_default();
