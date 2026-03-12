@@ -1,7 +1,25 @@
 use std::fmt;
 
+use async_trait::async_trait;
+use mercury_core::ThreadSafe;
 use mercury_core::error::{Error, Result};
-use secp256k1::{PublicKey, Secp256k1, SecretKey, ecdsa::Signature};
+use secp256k1::{PublicKey, Secp256k1, SecretKey};
+
+/// Trait for Cosmos transaction signing backends.
+///
+/// Implementations can range from in-memory keys to HSM devices or cloud KMS.
+/// `sign` is async to support I/O-bound backends (PKCS#11, AWS KMS, etc.).
+#[async_trait]
+pub trait CosmosSigner: ThreadSafe + fmt::Debug + Clone {
+    /// Sign a SHA-256 digest and return the compact ECDSA signature bytes.
+    async fn sign(&self, digest: [u8; 32]) -> Result<Vec<u8>>;
+
+    /// The compressed secp256k1 public key (33 bytes).
+    fn public_key_bytes(&self) -> Vec<u8>;
+
+    /// The bech32 account address.
+    fn account_address(&self) -> Result<String>;
+}
 
 #[derive(Clone)]
 pub struct Secp256k1KeyPair {
@@ -30,14 +48,22 @@ impl Secp256k1KeyPair {
             account_prefix: account_prefix.to_string(),
         }
     }
+}
 
-    #[must_use]
-    pub fn sign(&self, msg: secp256k1::Message) -> Signature {
+#[async_trait]
+impl CosmosSigner for Secp256k1KeyPair {
+    async fn sign(&self, digest: [u8; 32]) -> Result<Vec<u8>> {
         let secp = Secp256k1::signing_only();
-        secp.sign_ecdsa(msg, &self.secret_key)
+        let msg = secp256k1::Message::from_digest(digest);
+        let sig = secp.sign_ecdsa(msg, &self.secret_key);
+        Ok(sig.serialize_compact().to_vec())
     }
 
-    pub fn account_address(&self) -> Result<String> {
+    fn public_key_bytes(&self) -> Vec<u8> {
+        self.public_key.serialize().to_vec()
+    }
+
+    fn account_address(&self) -> Result<String> {
         use bech32::Hrp;
         use sha2::{Digest, Sha256};
         let pub_key_bytes = self.public_key.serialize();

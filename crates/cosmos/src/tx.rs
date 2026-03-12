@@ -9,7 +9,7 @@ use mercury_chain_traits::tx::{
 use mercury_core::error::{Error, Result};
 
 use crate::chain::CosmosChain;
-use crate::keys::Secp256k1KeyPair;
+use crate::keys::CosmosSigner;
 use crate::queries::grpc_unary;
 
 #[derive(Clone, Debug)]
@@ -25,21 +25,20 @@ pub struct CosmosNonce {
     pub sequence: u64,
 }
 
-impl HasTxTypes for CosmosChain {
-    type Signer = Secp256k1KeyPair;
+impl<S: CosmosSigner> HasTxTypes for CosmosChain<S> {
+    type Signer = S;
     type Nonce = CosmosNonce;
     type Fee = CosmosFee;
     type TxHash = String;
 }
 
-/// Builds a signed transaction and returns the raw tx bytes.
-fn build_tx_bytes(
+async fn build_tx_bytes(
     chain_id: &str,
-    signer: &Secp256k1KeyPair,
+    signer: &impl CosmosSigner,
     nonce: &CosmosNonce,
     fee: &CosmosFee,
     messages: &[crate::types::CosmosMessage],
-) -> Vec<u8> {
+) -> Result<Vec<u8>> {
     use ibc_proto::cosmos::base::v1beta1::Coin;
     use ibc_proto::cosmos::crypto::secp256k1::PubKey;
     use ibc_proto::cosmos::tx::v1beta1::{
@@ -62,7 +61,7 @@ fn build_tx_bytes(
     };
 
     let pub_key = PubKey {
-        key: signer.public_key.serialize().to_vec(),
+        key: signer.public_key_bytes(),
     };
 
     let pub_key_any = tendermint_proto::google::protobuf::Any {
@@ -107,10 +106,7 @@ fn build_tx_bytes(
 
     let sign_doc_bytes = sign_doc.encode_to_vec();
     let hash = Sha256::digest(&sign_doc_bytes);
-
-    let msg = secp256k1::Message::from_digest(hash.into());
-    let sig = signer.sign(msg);
-    let sig_bytes = sig.serialize_compact().to_vec();
+    let sig_bytes = signer.sign(hash.into()).await?;
 
     let tx_raw = TxRaw {
         body_bytes,
@@ -118,11 +114,11 @@ fn build_tx_bytes(
         signatures: vec![sig_bytes],
     };
 
-    tx_raw.encode_to_vec()
+    Ok(tx_raw.encode_to_vec())
 }
 
 #[async_trait]
-impl CanQueryNonce for CosmosChain {
+impl<S: CosmosSigner> CanQueryNonce for CosmosChain<S> {
     async fn query_nonce(&self, signer: &Self::Signer) -> Result<Self::Nonce> {
         use ibc_proto::cosmos::auth::v1beta1::{
             BaseAccount, QueryAccountRequest, QueryAccountResponse,
@@ -159,7 +155,7 @@ impl CanQueryNonce for CosmosChain {
 }
 
 #[async_trait]
-impl CanEstimateFee for CosmosChain {
+impl<S: CosmosSigner> CanEstimateFee for CosmosChain<S> {
     async fn estimate_fee(
         &self,
         signer: &Self::Signer,
@@ -169,7 +165,6 @@ impl CanEstimateFee for CosmosChain {
 
         let nonce = self.query_nonce(signer).await?;
 
-        // Build a signed tx with dummy fee for simulation
         let dummy_fee = CosmosFee {
             amount: 0,
             denom: self.config.gas_price.denom.clone(),
@@ -181,7 +176,8 @@ impl CanEstimateFee for CosmosChain {
             &nonce,
             &dummy_fee,
             messages,
-        );
+        )
+        .await?;
 
         #[allow(deprecated)]
         let request = tonic::Request::new(SimulateRequest { tx: None, tx_bytes });
@@ -200,7 +196,6 @@ impl CanEstimateFee for CosmosChain {
             .ok_or_else(|| Error::report(eyre::eyre!("no gas info in simulate response")))?;
 
         let gas_used = gas_info.gas_used;
-        // Apply 1.3x gas margin
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
@@ -232,7 +227,7 @@ impl CanEstimateFee for CosmosChain {
 }
 
 #[async_trait]
-impl CanSubmitTx for CosmosChain {
+impl<S: CosmosSigner> CanSubmitTx for CosmosChain<S> {
     async fn submit_tx(
         &self,
         signer: &Self::Signer,
@@ -242,7 +237,8 @@ impl CanSubmitTx for CosmosChain {
     ) -> Result<Self::TxHash> {
         use tendermint_rpc::Client;
 
-        let tx_bytes = build_tx_bytes(&self.chain_id.to_string(), signer, nonce, fee, &messages);
+        let tx_bytes =
+            build_tx_bytes(&self.chain_id.to_string(), signer, nonce, fee, &messages).await?;
 
         debug!(
             num_messages = messages.len(),
@@ -273,7 +269,7 @@ impl CanSubmitTx for CosmosChain {
 }
 
 #[async_trait]
-impl CanPollTxResponse for CosmosChain {
+impl<S: CosmosSigner> CanPollTxResponse for CosmosChain<S> {
     type TxResponse = crate::types::CosmosTxResponse;
 
     async fn poll_tx_response(&self, tx_hash: &Self::TxHash) -> Result<Self::TxResponse> {

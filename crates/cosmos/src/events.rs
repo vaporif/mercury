@@ -5,6 +5,7 @@ use mercury_core::error::{Error, Result};
 use tendermint_rpc::Client;
 
 use crate::chain::CosmosChain;
+use crate::keys::CosmosSigner;
 use crate::types::{CosmosEvent, CosmosPacket, PacketPayload, SendPacketEvent};
 
 fn get_attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
@@ -89,7 +90,7 @@ fn parse_payloads(attrs: &[(String, String)]) -> Vec<PacketPayload> {
     payloads
 }
 
-impl CanExtractPacketEvents<Self> for CosmosChain {
+impl<S: CosmosSigner> CanExtractPacketEvents<Self> for CosmosChain<S> {
     type SendPacketEvent = SendPacketEvent;
 
     fn try_extract_send_packet_event(event: &CosmosEvent) -> Option<SendPacketEvent> {
@@ -146,7 +147,7 @@ fn abci_event_to_cosmos_event(event: &tendermint::abci::Event) -> CosmosEvent {
 }
 
 #[async_trait]
-impl CanQueryBlockEvents for CosmosChain {
+impl<S: CosmosSigner> CanQueryBlockEvents for CosmosChain<S> {
     async fn query_block_events(
         &self,
         height: &tendermint::block::Height,

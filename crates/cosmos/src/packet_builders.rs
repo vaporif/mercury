@@ -11,6 +11,7 @@ use crate::encoding::to_any;
 use crate::ibc_v2::channel::{
     self, MsgAcknowledgement, MsgRecvPacket, MsgTimeout, Packet as V2Packet,
 };
+use crate::keys::CosmosSigner;
 use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgement};
 
 #[derive(Clone, Debug)]
@@ -59,7 +60,7 @@ fn to_proto_height(revision_number: u64, h: tendermint::block::Height) -> ProtoH
 }
 
 #[async_trait]
-impl CanBuildReceivePacketMessage<Self> for CosmosChain {
+impl<S: CosmosSigner> CanBuildReceivePacketMessage<Self> for CosmosChain<S> {
     type ReceivePacketPayload = CosmosReceivePacketPayload;
 
     async fn build_receive_packet_message(
@@ -81,7 +82,7 @@ impl CanBuildReceivePacketMessage<Self> for CosmosChain {
 }
 
 #[async_trait]
-impl CanBuildAckPacketMessage<Self> for CosmosChain {
+impl<S: CosmosSigner> CanBuildAckPacketMessage<Self> for CosmosChain<S> {
     type AckPacketPayload = CosmosAckPacketPayload;
 
     async fn build_ack_packet_message(
@@ -107,7 +108,7 @@ impl CanBuildAckPacketMessage<Self> for CosmosChain {
 }
 
 #[async_trait]
-impl CanBuildTimeoutPacketMessage<Self> for CosmosChain {
+impl<S: CosmosSigner> CanBuildTimeoutPacketMessage<Self> for CosmosChain<S> {
     type TimeoutPacketPayload = CosmosTimeoutPacketPayload;
 
     async fn build_timeout_packet_message(

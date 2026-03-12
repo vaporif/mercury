@@ -18,6 +18,7 @@ use tendermint::validator::Set as ValidatorSet;
 use tendermint_rpc::{Client, Paging};
 
 use crate::chain::CosmosChain;
+use crate::keys::CosmosSigner;
 
 const TRUSTING_PERIOD: Duration = Duration::from_secs(14 * 24 * 3600);
 const UNBONDING_PERIOD: Duration = Duration::from_secs(21 * 24 * 3600);
@@ -36,7 +37,7 @@ pub struct CosmosUpdateClientPayload {
 }
 
 #[async_trait]
-impl CanBuildCreateClientPayload<Self> for CosmosChain {
+impl<S: CosmosSigner> CanBuildCreateClientPayload<Self> for CosmosChain<S> {
     type CreateClientPayload = CosmosCreateClientPayload;
 
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
@@ -77,7 +78,7 @@ impl CanBuildCreateClientPayload<Self> for CosmosChain {
 }
 
 #[async_trait]
-impl CanBuildUpdateClientPayload<Self> for CosmosChain {
+impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
     type UpdateClientPayload = CosmosUpdateClientPayload;
 
     async fn build_update_client_payload(

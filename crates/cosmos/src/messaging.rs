@@ -6,9 +6,10 @@ use mercury_chain_traits::tx::{CanEstimateFee, CanPollTxResponse, CanQueryNonce,
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
+use crate::keys::CosmosSigner;
 
 #[async_trait]
-impl CanSendMessages for CosmosChain {
+impl<S: CosmosSigner> CanSendMessages for CosmosChain<S> {
     async fn send_messages(
         &self,
         messages: Vec<Self::Message>,
@@ -17,9 +18,9 @@ impl CanSendMessages for CosmosChain {
             return Ok(vec![]);
         }
 
-        // Nonce is queried fresh each time rather than cached. This is safe because
-        // TxWorker is the sole submitter per chain, so there are no concurrent submissions
-        // that could cause sequence conflicts.
+        // Nonce is queried fresh each time. TxWorker may call this concurrently
+        // (up to MAX_IN_FLIGHT batches). Occasional sequence conflicts on
+        // nonce-based chains are acceptable — the event rescan retries missed packets.
         let nonce = self.query_nonce(&self.signer).await?;
         let fee = self.estimate_fee(&self.signer, &messages).await?;
         let tx_hash = self.submit_tx(&self.signer, &nonce, &fee, messages).await?;

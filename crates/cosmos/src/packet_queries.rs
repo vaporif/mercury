@@ -6,6 +6,7 @@ use mercury_chain_traits::packet_queries::{
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
+use crate::keys::CosmosSigner;
 use crate::rpc::query_abci;
 use crate::types::{MerkleProof, PacketAcknowledgement, PacketCommitment, PacketReceipt};
 
@@ -23,7 +24,7 @@ fn extract_proof(response: &tendermint_rpc::endpoint::abci_query::AbciQuery) -> 
 }
 
 #[async_trait]
-impl CanQueryPacketCommitment<Self> for CosmosChain {
+impl<S: CosmosSigner> CanQueryPacketCommitment<Self> for CosmosChain<S> {
     async fn query_packet_commitment(
         &self,
         client_id: &Self::ClientId,
@@ -51,7 +52,7 @@ impl CanQueryPacketCommitment<Self> for CosmosChain {
 }
 
 #[async_trait]
-impl CanQueryPacketReceipt<Self> for CosmosChain {
+impl<S: CosmosSigner> CanQueryPacketReceipt<Self> for CosmosChain<S> {
     async fn query_packet_receipt(
         &self,
         client_id: &Self::ClientId,
@@ -79,7 +80,7 @@ impl CanQueryPacketReceipt<Self> for CosmosChain {
 }
 
 #[async_trait]
-impl CanQueryPacketAcknowledgement<Self> for CosmosChain {
+impl<S: CosmosSigner> CanQueryPacketAcknowledgement<Self> for CosmosChain<S> {
     async fn query_packet_acknowledgement(
         &self,
         client_id: &Self::ClientId,

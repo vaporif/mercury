@@ -118,14 +118,10 @@ jobs:
       - name: Nix flake check
         run: nix flake check
 
-  audit:
-    name: Audit
+  deny:
+    name: Deny
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Audit
-        run: cargo audit
+      - uses: EmbarkStudios/cargo-deny-action@v2

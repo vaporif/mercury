@@ -1,5 +1,0 @@
-[advisories]
-ignore = [
-    # time DoS via stack exhaustion — pinned by ibc-primitives <0.3.37, waiting on upstream
-    "RUSTSEC-2026-0009",
-]

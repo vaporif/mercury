@@ -17,6 +17,7 @@ use mercury_chain_traits::types::HasChainTypes;
 use mercury_core::error::{Error, Result};
 
 use crate::chain::CosmosChain;
+use crate::keys::CosmosSigner;
 use crate::types::CosmosChainStatus;
 
 /// A codec that encodes/decodes protobuf messages using prost's `Message`
@@ -106,7 +107,7 @@ where
 }
 
 #[async_trait]
-impl CanQueryChainStatus for CosmosChain {
+impl<S: CosmosSigner> CanQueryChainStatus for CosmosChain<S> {
     async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
         let status = self.rpc_client.status().await.map_err(Error::report)?;
         Ok(CosmosChainStatus {
@@ -117,7 +118,7 @@ impl CanQueryChainStatus for CosmosChain {
 }
 
 #[async_trait]
-impl CanQueryClientState<Self> for CosmosChain {
+impl<S: CosmosSigner> CanQueryClientState<Self> for CosmosChain<S> {
     async fn query_client_state(
         &self,
         client_id: &Self::ClientId,
@@ -154,7 +155,7 @@ impl CanQueryClientState<Self> for CosmosChain {
 }
 
 #[async_trait]
-impl CanQueryConsensusState<Self> for CosmosChain {
+impl<S: CosmosSigner> CanQueryConsensusState<Self> for CosmosChain<S> {
     async fn query_consensus_state(
         &self,
         client_id: &Self::ClientId,

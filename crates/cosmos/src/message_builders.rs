@@ -9,6 +9,7 @@ use mercury_core::error::Result;
 use crate::chain::CosmosChain;
 use crate::encoding::to_any;
 use crate::ibc_v2::client::MsgRegisterCounterparty;
+use crate::keys::CosmosSigner;
 use crate::payload_builders::{CosmosCreateClientPayload, CosmosUpdateClientPayload};
 use crate::types::CosmosMessage;
 
@@ -16,7 +17,7 @@ use crate::types::CosmosMessage;
 const DEFAULT_MERKLE_PREFIX: &[&[u8]] = &[b"ibc", b""];
 
 #[async_trait]
-impl CanBuildCreateClientMessage<Self> for CosmosChain {
+impl<S: CosmosSigner> CanBuildCreateClientMessage<Self> for CosmosChain<S> {
     async fn build_create_client_message(
         &self,
         payload: CosmosCreateClientPayload,
@@ -34,7 +35,7 @@ impl CanBuildCreateClientMessage<Self> for CosmosChain {
 }
 
 #[async_trait]
-impl CanBuildUpdateClientMessage<Self> for CosmosChain {
+impl<S: CosmosSigner> CanBuildUpdateClientMessage<Self> for CosmosChain<S> {
     async fn build_update_client_message(
         &self,
         client_id: &Self::ClientId,
@@ -60,7 +61,7 @@ impl CanBuildUpdateClientMessage<Self> for CosmosChain {
 }
 
 #[async_trait]
-impl CanRegisterCounterparty<Self> for CosmosChain {
+impl<S: CosmosSigner> CanRegisterCounterparty<Self> for CosmosChain<S> {
     async fn build_register_counterparty_message(
         &self,
         client_id: &Self::ClientId,
