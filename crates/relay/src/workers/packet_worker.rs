@@ -16,8 +16,11 @@ use mercury_chain_traits::queries::{
 };
 use mercury_chain_traits::relay::context::Relay;
 use mercury_chain_traits::relay::ibc_event::IbcEvent;
-use mercury_chain_traits::relay::packet::{CanBuildAckPacketMessages, CanBuildReceivePacketMessages};
-use mercury_chain_traits::types::{HasChainStatusType, HasMessageTypes, HasPacketTypes};
+use mercury_chain_traits::relay::packet::{
+    CanBuildAckPacketMessages, CanBuildReceivePacketMessages,
+};
+use mercury_chain_traits::types::HasChainStatusType;
+use mercury_chain_traits::types::{HasMessageTypes, HasPacketTypes};
 use mercury_core::error::{Error, Result};
 use mercury_core::worker::Worker;
 
@@ -35,12 +38,8 @@ pub struct PacketWorker<R: Relay> {
 impl<R> PacketWorker<R>
 where
     R: Relay + CanBuildReceivePacketMessages + CanBuildAckPacketMessages,
-    R::SrcChain: CanQueryChainStatus
-        + HasChainStatusType
-        + CanBuildUpdateClientPayload<R::DstChain>,
-    R::DstChain: CanQueryChainStatus
-        + HasChainStatusType
-        + CanQueryClientState<R::SrcChain>
+    R::SrcChain: CanBuildUpdateClientPayload<R::DstChain>,
+    R::DstChain: CanQueryClientState<R::SrcChain>
         + HasClientLatestHeight<R::SrcChain>
         + CanBuildUpdateClientMessage<R::SrcChain>,
     <R::SrcChain as HasPacketTypes<R::DstChain>>::Acknowledgement:
@@ -148,14 +147,13 @@ where
     }
 }
 
-type SendEvents<R> =
-    Vec<<<R as Relay>::SrcChain as CanExtractPacketEvents<<R as Relay>::DstChain>>::SendPacketEvent>;
+type SendEvents<R> = Vec<
+    <<R as Relay>::SrcChain as CanExtractPacketEvents<<R as Relay>::DstChain>>::SendPacketEvent,
+>;
 type WriteAckEvents<R> =
     Vec<<<R as Relay>::SrcChain as CanExtractPacketEvents<<R as Relay>::DstChain>>::WriteAckEvent>;
 
-fn classify_events<R: Relay>(
-    events: Vec<IbcEvent<R>>,
-) -> (SendEvents<R>, WriteAckEvents<R>) {
+fn classify_events<R: Relay>(events: Vec<IbcEvent<R>>) -> (SendEvents<R>, WriteAckEvents<R>) {
     type SrcChain<R> = <R as Relay>::SrcChain;
     type DstChain<R> = <R as Relay>::DstChain;
 
@@ -174,13 +172,10 @@ fn classify_events<R: Relay>(
         .as_secs();
 
     send_packets.retain(|e| {
-        let pkt =
-            <SrcChain<R> as CanExtractPacketEvents<DstChain<R>>>::packet_from_send_event(e);
-        let ts =
-            <SrcChain<R> as HasPacketTypes<DstChain<R>>>::packet_timeout_timestamp(pkt);
+        let pkt = <SrcChain<R> as CanExtractPacketEvents<DstChain<R>>>::packet_from_send_event(e);
+        let ts = <SrcChain<R> as HasPacketTypes<DstChain<R>>>::packet_timeout_timestamp(pkt);
         if ts > 0 && now_secs >= ts {
-            let seq =
-                <SrcChain<R> as HasPacketTypes<DstChain<R>>>::packet_sequence(pkt);
+            let seq = <SrcChain<R> as HasPacketTypes<DstChain<R>>>::packet_sequence(pkt);
             debug!(seq, "skipping timed-out packet");
             false
         } else {
@@ -195,12 +190,8 @@ fn classify_events<R: Relay>(
 impl<R> Worker for PacketWorker<R>
 where
     R: Relay + CanBuildReceivePacketMessages + CanBuildAckPacketMessages,
-    R::SrcChain: CanQueryChainStatus
-        + HasChainStatusType
-        + CanBuildUpdateClientPayload<R::DstChain>,
-    R::DstChain: CanQueryChainStatus
-        + HasChainStatusType
-        + CanQueryClientState<R::SrcChain>
+    R::SrcChain: CanBuildUpdateClientPayload<R::DstChain>,
+    R::DstChain: CanQueryClientState<R::SrcChain>
         + HasClientLatestHeight<R::SrcChain>
         + CanBuildUpdateClientMessage<R::SrcChain>,
     <R::SrcChain as HasPacketTypes<R::DstChain>>::Acknowledgement:

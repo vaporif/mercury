@@ -1,17 +1,11 @@
 use async_trait::async_trait;
 
-use mercury_chain_traits::relay::context::Relay;
-use mercury_chain_traits::events::CanExtractPacketEvents;
 use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
-use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
-use mercury_chain_traits::queries::{
-    CanQueryChainStatus, CanQueryClientState, HasClientLatestHeight,
-};
+use mercury_chain_traits::queries::{CanQueryClientState, HasClientLatestHeight};
 use mercury_chain_traits::relay::client::CanUpdateClient;
-use mercury_chain_traits::types::{
-    HasChainStatusType, HasIbcTypes, HasMessageTypes, HasPacketTypes,
-};
+use mercury_chain_traits::relay::context::Relay;
+use mercury_chain_traits::types::Chain;
 use mercury_core::error::Result;
 
 use crate::context::RelayContext;
@@ -19,24 +13,12 @@ use crate::context::RelayContext;
 #[async_trait]
 impl<Src, Dst> CanUpdateClient for RelayContext<Src, Dst>
 where
-    Src: HasMessageTypes
-        + HasIbcTypes<Dst>
-        + HasPacketTypes<Dst>
-        + HasChainStatusType
-        + CanSendMessages
-        + CanExtractPacketEvents<Dst>
-        + CanQueryChainStatus
+    Src: Chain<Dst>
         + CanQueryClientState<Dst>
         + CanBuildUpdateClientPayload<Dst>
         + CanBuildUpdateClientMessage<Dst>
         + HasClientLatestHeight<Dst>,
-    Dst: HasMessageTypes
-        + HasIbcTypes<Src>
-        + HasPacketTypes<Src>
-        + HasChainStatusType
-        + CanSendMessages
-        + CanExtractPacketEvents<Src>
-        + CanQueryChainStatus
+    Dst: Chain<Src>
         + CanQueryClientState<Src>
         + CanBuildUpdateClientPayload<Src>
         + CanBuildUpdateClientMessage<Src>

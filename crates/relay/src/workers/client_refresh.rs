@@ -30,12 +30,8 @@ pub struct ClientRefreshWorker<R: Relay> {
 impl<R> Worker for ClientRefreshWorker<R>
 where
     R: Relay,
-    R::SrcChain: CanQueryChainStatus
-        + HasChainStatusType
-        + CanBuildUpdateClientPayload<R::DstChain>,
-    R::DstChain: CanQueryChainStatus
-        + HasChainStatusType
-        + CanQueryClientState<R::SrcChain>
+    R::SrcChain: CanBuildUpdateClientPayload<R::DstChain>,
+    R::DstChain: CanQueryClientState<R::SrcChain>
         + HasClientLatestHeight<R::SrcChain>
         + HasTrustingPeriod<R::SrcChain>
         + CanBuildUpdateClientMessage<R::SrcChain>,

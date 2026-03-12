@@ -8,8 +8,7 @@ use crate::chain::CosmosChain;
 use crate::ibc_v2::channel;
 use crate::keys::CosmosSigner;
 use crate::types::{
-    CosmosEvent, CosmosPacket, PacketAcknowledgement, PacketPayload, SendPacketEvent,
-    WriteAckEvent,
+    CosmosEvent, CosmosPacket, PacketAcknowledgement, PacketPayload, SendPacketEvent, WriteAckEvent,
 };
 
 fn get_attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
@@ -149,6 +148,9 @@ impl<S: CosmosSigner> CanQueryBlockEvents for CosmosChain<S> {
     }
 
     fn increment_height(height: &tendermint::block::Height) -> Option<tendermint::block::Height> {
-        height.value().checked_add(1).and_then(|v| tendermint::block::Height::try_from(v).ok())
+        height
+            .value()
+            .checked_add(1)
+            .and_then(|v| tendermint::block::Height::try_from(v).ok())
     }
 }

@@ -33,7 +33,9 @@ pub trait CanQueryConsensusState<Counterparty: HasChainTypes + ?Sized>:
     ) -> Result<Self::ConsensusState>;
 }
 
-pub trait HasTrustingPeriod<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Counterparty> {
+pub trait HasTrustingPeriod<Counterparty: HasChainTypes + ?Sized>:
+    HasIbcTypes<Counterparty>
+{
     fn trusting_period(client_state: &Self::ClientState) -> Option<Duration>;
 }
 

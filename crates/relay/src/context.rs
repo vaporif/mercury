@@ -6,13 +6,15 @@ use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
 use mercury_chain_traits::packet_builders::{
     CanBuildAckPacketMessage, CanBuildReceivePacketMessage,
 };
-use mercury_chain_traits::packet_queries::{CanQueryPacketAcknowledgement, CanQueryPacketCommitment};
+use mercury_chain_traits::packet_queries::{
+    CanQueryPacketAcknowledgement, CanQueryPacketCommitment,
+};
 use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
 use mercury_chain_traits::queries::{
-    CanQueryChainStatus, CanQueryClientState, HasClientLatestHeight, HasTrustingPeriod,
+    CanQueryClientState, HasClientLatestHeight, HasTrustingPeriod,
 };
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::{Chain, HasChainStatusType, HasChainTypes, HasIbcTypes, HasPacketTypes};
+use mercury_chain_traits::types::{Chain, HasChainTypes, HasIbcTypes, HasPacketTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
@@ -65,24 +67,24 @@ impl<Src, Dst> RelayContext<Src, Dst>
 where
     Src: Chain<Dst>
         + CanQueryBlockEvents
-        + CanQueryChainStatus
-        + HasChainStatusType
         + CanBuildUpdateClientPayload<Dst>
         + CanQueryPacketCommitment<Dst>
         + CanQueryPacketAcknowledgement<Dst>,
     Dst: Chain<Src>
-        + CanQueryChainStatus
-        + HasChainStatusType
         + CanQueryClientState<Src>
         + HasClientLatestHeight<Src>
         + HasTrustingPeriod<Src>
         + CanBuildUpdateClientMessage<Src>
         + CanBuildReceivePacketMessage<Src>
         + CanBuildAckPacketMessage<Src>,
-    <Dst as CanBuildReceivePacketMessage<Src>>::ReceivePacketPayload:
-        From<(<Src as HasIbcTypes<Dst>>::CommitmentProof, <Src as HasChainTypes>::Height)>,
-    <Dst as CanBuildAckPacketMessage<Src>>::AckPacketPayload:
-        From<(<Src as HasIbcTypes<Dst>>::CommitmentProof, <Src as HasChainTypes>::Height)>,
+    <Dst as CanBuildReceivePacketMessage<Src>>::ReceivePacketPayload: From<(
+        <Src as HasIbcTypes<Dst>>::CommitmentProof,
+        <Src as HasChainTypes>::Height,
+    )>,
+    <Dst as CanBuildAckPacketMessage<Src>>::AckPacketPayload: From<(
+        <Src as HasIbcTypes<Dst>>::CommitmentProof,
+        <Src as HasChainTypes>::Height,
+    )>,
     <Src as HasPacketTypes<Dst>>::Packet: Borrow<<Dst as HasPacketTypes<Src>>::Packet>,
     <Src as HasPacketTypes<Dst>>::Acknowledgement:
         Borrow<<Dst as HasPacketTypes<Src>>::Acknowledgement>,

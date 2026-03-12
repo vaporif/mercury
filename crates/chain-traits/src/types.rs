@@ -4,6 +4,7 @@ use mercury_core::ThreadSafe;
 
 use crate::events::CanExtractPacketEvents;
 use crate::messaging::CanSendMessages;
+use crate::queries::CanQueryChainStatus;
 
 pub trait HasChainTypes: ThreadSafe {
     type Height: Clone + Ord + Debug + Display + ThreadSafe;
@@ -39,12 +40,17 @@ pub trait Chain<Counterparty: HasChainTypes + ?Sized>:
     + HasPacketTypes<Counterparty>
     + CanSendMessages
     + CanExtractPacketEvents<Counterparty>
+    + CanQueryChainStatus
 {
 }
 
 impl<T, C> Chain<C> for T
 where
-    T: HasMessageTypes + HasPacketTypes<C> + CanSendMessages + CanExtractPacketEvents<C>,
+    T: HasMessageTypes
+        + HasPacketTypes<C>
+        + CanSendMessages
+        + CanExtractPacketEvents<C>
+        + CanQueryChainStatus,
     C: HasChainTypes + ?Sized,
 {
 }

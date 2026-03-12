@@ -35,19 +35,28 @@ pub struct CosmosTimeoutPacketPayload {
 
 impl From<(MerkleProof, tendermint::block::Height)> for CosmosReceivePacketPayload {
     fn from((proof, proof_height): (MerkleProof, tendermint::block::Height)) -> Self {
-        Self { proof, proof_height }
+        Self {
+            proof,
+            proof_height,
+        }
     }
 }
 
 impl From<(MerkleProof, tendermint::block::Height)> for CosmosAckPacketPayload {
     fn from((proof, proof_height): (MerkleProof, tendermint::block::Height)) -> Self {
-        Self { proof, proof_height }
+        Self {
+            proof,
+            proof_height,
+        }
     }
 }
 
 impl From<(MerkleProof, tendermint::block::Height)> for CosmosTimeoutPacketPayload {
     fn from((proof, proof_height): (MerkleProof, tendermint::block::Height)) -> Self {
-        Self { proof, proof_height }
+        Self {
+            proof,
+            proof_height,
+        }
     }
 }
 
@@ -111,9 +120,11 @@ impl<S: CosmosSigner> CanBuildAckPacketMessage<Self> for CosmosChain<S> {
         payload: Self::AckPacketPayload,
     ) -> Result<CosmosMessage> {
         // ack.0 stores full proto-encoded Acknowledgement bytes from write_ack event
-        let acknowledgement = channel::Acknowledgement::decode(ack.0.as_slice())
-            .unwrap_or_else(|_| channel::Acknowledgement {
-                app_acknowledgements: vec![ack.0.clone()],
+        let acknowledgement =
+            channel::Acknowledgement::decode(ack.0.as_slice()).unwrap_or_else(|_| {
+                channel::Acknowledgement {
+                    app_acknowledgements: vec![ack.0.clone()],
+                }
             });
         let msg = MsgAcknowledgement {
             packet: Some(cosmos_packet_to_v2(packet)),
