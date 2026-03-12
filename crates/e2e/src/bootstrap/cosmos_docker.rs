@@ -92,6 +92,9 @@ sed -i 's|address = "localhost:9090"|address = "0.0.0.0:9090"|' $HOME_DIR/config
 # Set gas prices
 sed -i 's/minimum-gas-prices = ".*"/minimum-gas-prices = "0.00stake"/' $HOME_DIR/config/app.toml
 
+# Keep ABCI responses so the relayer can query block results
+sed -i 's/discard_abci_responses = true/discard_abci_responses = false/' $HOME_DIR/config/config.toml
+
 exec $BINARY start --home $HOME_DIR --pruning nothing \
   --rpc.laddr tcp://0.0.0.0:{RPC_PORT} \
   --grpc.address 0.0.0.0:{GRPC_PORT}
