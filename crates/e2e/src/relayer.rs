@@ -1,10 +1,12 @@
 use std::process::{Child, Command};
 use std::sync::Arc;
+use std::time::Duration;
 
-use eyre::{Context, Result};
+use eyre::{Context, Result, bail};
 use mercury_relay::context::RelayContext;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use tracing::{info, warn};
 
 use crate::bootstrap::traits::ChainHandle;
 use crate::context::TestContext;
@@ -26,10 +28,66 @@ impl RelayHandle {
 
 pub struct SubprocessHandle {
     child: Child,
+    health_port: u16,
     _config_dir: tempfile::TempDir,
 }
 
 impl SubprocessHandle {
+    /// Check if the subprocess is still running.
+    pub fn is_running(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+
+    /// Poll the relayer's health endpoint until it responds HTTP 200.
+    pub async fn wait_until_ready(&mut self, timeout: Duration) -> Result<()> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpStream;
+
+        let start = std::time::Instant::now();
+        let poll_interval = Duration::from_millis(250);
+        let warning_threshold = Duration::from_secs(15);
+        let mut warned = false;
+        let addr = format!("127.0.0.1:{}", self.health_port);
+
+        loop {
+            let elapsed = start.elapsed();
+            if elapsed > timeout {
+                bail!("relayer health endpoint not ready after {elapsed:?}");
+            }
+
+            if !warned && elapsed > warning_threshold {
+                warn!(
+                    elapsed = ?elapsed,
+                    "relayer taking longer than expected to become ready"
+                );
+                warned = true;
+            }
+
+            if !self.is_running() {
+                bail!("relayer process exited unexpectedly during startup");
+            }
+
+            if let Ok(mut stream) = TcpStream::connect(&addr).await {
+                let _ = stream
+                    .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                    .await;
+                let mut buf = [0u8; 32];
+                if let Ok(n) = stream.read(&mut buf).await
+                    && n > 0
+                    && buf.starts_with(b"HTTP/1.1 200")
+                {
+                    info!(
+                        elapsed = ?start.elapsed(),
+                        "binary relayer ready (health check passed)"
+                    );
+                    return Ok(());
+                }
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
+    }
+
     pub fn stop(mut self) -> Result<()> {
         self.child.kill().wrap_err("killing mercury-relayer")?;
         self.child.wait().wrap_err("waiting for mercury-relayer")?;
@@ -75,6 +133,40 @@ impl TestContext {
         let config_dir = tempfile::tempdir().wrap_err("creating temp dir")?;
         let config_path = config_dir.path().join("relayer.toml");
 
+        self.write_relay_config(&config_dir, &config_path)?;
+
+        let binary = find_or_build_binary();
+
+        // Bind to port 0 to get a free port, then release it for the subprocess.
+        let health_port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")
+                .wrap_err("finding free port for health check")?;
+            listener.local_addr().wrap_err("getting local addr")?.port()
+        };
+
+        let child = Command::new(&binary)
+            .args([
+                "start",
+                "--config",
+                &config_path.to_string_lossy(),
+                "--health-port",
+                &health_port.to_string(),
+            ])
+            .spawn()
+            .wrap_err("spawning mercury-relayer")?;
+
+        Ok(SubprocessHandle {
+            child,
+            health_port,
+            _config_dir: config_dir,
+        })
+    }
+
+    fn write_relay_config(
+        &self,
+        config_dir: &tempfile::TempDir,
+        config_path: &std::path::Path,
+    ) -> Result<()> {
         let key_path_a = config_dir.path().join("key_a.toml");
         let key_path_b = config_dir.path().join("key_b.toml");
         std::fs::write(
@@ -135,35 +227,28 @@ dst_client_id = "{client_b}"
             client_a = self.client_id_a,
             client_b = self.client_id_b,
         );
-        std::fs::write(&config_path, config)?;
-
-        let binary = std::env::var("MERCURY_RELAYER_BIN").unwrap_or_else(|_| {
-            let output = Command::new("cargo")
-                .args(["build", "-p", "mercury-cli", "--message-format=json"])
-                .output()
-                .expect("failed to run cargo build");
-            assert!(output.status.success(), "cargo build failed");
-            String::from_utf8(output.stdout)
-                .expect("invalid utf8")
-                .lines()
-                .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-                .rfind(|v| v.get("executable").and_then(|e| e.as_str()).is_some())
-                .and_then(|v| {
-                    v.get("executable")
-                        .and_then(|e| e.as_str())
-                        .map(String::from)
-                })
-                .expect("no executable found in cargo build output")
-        });
-
-        let child = Command::new(&binary)
-            .args(["start", "--config", &config_path.to_string_lossy()])
-            .spawn()
-            .wrap_err("spawning mercury-relayer")?;
-
-        Ok(SubprocessHandle {
-            child,
-            _config_dir: config_dir,
-        })
+        std::fs::write(config_path, config)?;
+        Ok(())
     }
+}
+
+fn find_or_build_binary() -> String {
+    std::env::var("MERCURY_RELAYER_BIN").unwrap_or_else(|_| {
+        let output = Command::new("cargo")
+            .args(["build", "-p", "mercury-cli", "--message-format=json"])
+            .output()
+            .expect("failed to run cargo build");
+        assert!(output.status.success(), "cargo build failed");
+        String::from_utf8(output.stdout)
+            .expect("invalid utf8")
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .rfind(|v| v.get("executable").and_then(|e| e.as_str()).is_some())
+            .and_then(|v| {
+                v.get("executable")
+                    .and_then(|e| e.as_str())
+                    .map(String::from)
+            })
+            .expect("no executable found in cargo build output")
+    })
 }

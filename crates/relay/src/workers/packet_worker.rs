@@ -203,14 +203,7 @@ where
             .collect()
             .await;
 
-        let mut messages = Vec::new();
-        for batch in recv_msgs {
-            messages.extend(batch);
-        }
-        for batch in ack_msgs {
-            messages.extend(batch);
-        }
-        messages
+        recv_msgs.into_iter().chain(ack_msgs).flatten().collect()
     }
 
     #[instrument(skip_all, name = "build_timeout")]
@@ -249,11 +242,7 @@ where
             .collect()
             .await;
 
-        let mut messages = Vec::new();
-        for batch in timeout_msgs {
-            messages.extend(batch);
-        }
-        messages
+        timeout_msgs.into_iter().flatten().collect()
     }
 }
 
@@ -319,7 +308,7 @@ where
             }
         }
     }
-    Err(last_err.unwrap())
+    Err(last_err.expect("retry loop ran at least once"))
 }
 
 #[async_trait]

@@ -1,3 +1,5 @@
+use std::sync::Once;
+
 use eyre::Result;
 use mercury_e2e::bootstrap::cosmos_docker::CosmosDockerBootstrap;
 use mercury_e2e::bootstrap::traits::ChainBootstrap;
@@ -9,6 +11,18 @@ mod binary;
 mod bootstrap;
 #[path = "cosmos_cosmos/transfer.rs"]
 mod transfer;
+
+static INIT_TRACING: Once = Once::new();
+
+fn init_tracing() {
+    INIT_TRACING.call_once(|| {
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                "info,mercury_relay=debug,mercury_cosmos::events=debug,mercury_e2e=debug",
+            )
+            .init();
+    });
+}
 
 #[allow(clippy::future_not_send)]
 async fn setup_context() -> Result<TestContext> {

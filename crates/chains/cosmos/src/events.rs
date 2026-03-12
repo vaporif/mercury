@@ -107,33 +107,22 @@ impl<S: CosmosSigner> CanQueryBlockEvents for CosmosChain<S> {
     ) -> Result<Vec<CosmosEvent>> {
         let results = self.rpc_client.block_results(*height).await?;
 
-        let mut events = Vec::new();
-
-        // CometBFT 0.38+: finalize_block_events
-        for event in &results.finalize_block_events {
-            events.push(abci_event_to_cosmos_event(event));
-        }
-
-        // Pre-0.38: begin_block_events / end_block_events
-        if let Some(begin_events) = &results.begin_block_events {
-            for event in begin_events {
-                events.push(abci_event_to_cosmos_event(event));
-            }
-        }
-        if let Some(end_events) = &results.end_block_events {
-            for event in end_events {
-                events.push(abci_event_to_cosmos_event(event));
-            }
-        }
-
-        // Transaction events
-        if let Some(tx_results) = &results.txs_results {
-            for tx_result in tx_results {
-                for event in &tx_result.events {
-                    events.push(abci_event_to_cosmos_event(event));
-                }
-            }
-        }
+        let events = results
+            .finalize_block_events
+            .iter()
+            // Pre-0.38: begin_block_events / end_block_events
+            .chain(results.begin_block_events.iter().flatten())
+            .chain(results.end_block_events.iter().flatten())
+            // Transaction events
+            .chain(
+                results
+                    .txs_results
+                    .iter()
+                    .flatten()
+                    .flat_map(|tx| &tx.events),
+            )
+            .map(abci_event_to_cosmos_event)
+            .collect();
 
         Ok(events)
     }

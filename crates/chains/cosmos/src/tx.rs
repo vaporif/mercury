@@ -106,13 +106,12 @@ async fn build_tx_bytes(
         account_number: nonce.account_number,
     };
 
-    let sign_doc_bytes = sign_doc.encode_to_vec();
-    let hash = Sha256::digest(&sign_doc_bytes);
+    let hash = Sha256::digest(sign_doc.encode_to_vec());
     let sig_bytes = signer.sign(hash.into()).await?;
 
     let tx_raw = TxRaw {
-        body_bytes,
-        auth_info_bytes,
+        body_bytes: sign_doc.body_bytes,
+        auth_info_bytes: sign_doc.auth_info_bytes,
         signatures: vec![sig_bytes],
     };
 
@@ -289,6 +288,7 @@ impl<S: CosmosSigner> CanPollTxResponse for CosmosChain<S> {
 
         let max_retries = 10;
         let poll_interval = self.block_time / 2;
+        let mut last_err = None;
 
         for attempt in 1..=max_retries {
             debug!(
@@ -341,20 +341,19 @@ impl<S: CosmosSigner> CanPollTxResponse for CosmosChain<S> {
                     });
                 }
                 Err(e) => {
-                    if attempt == max_retries {
-                        eyre::bail!(
-                            "transaction {tx_hash} not found after {max_retries} attempts: {e}"
-                        );
-                    }
                     debug!(
                         attempt = attempt,
                         error = %e,
                         "transaction not yet found, retrying"
                     );
+                    last_err = Some(e);
                 }
             }
         }
 
-        unreachable!()
+        eyre::bail!(
+            "transaction {tx_hash} not found after {max_retries} attempts: {}",
+            last_err.expect("retry loop ran at least once")
+        )
     }
 }

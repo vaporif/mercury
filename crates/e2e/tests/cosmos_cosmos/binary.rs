@@ -8,13 +8,15 @@ use super::setup_context;
 #[tokio::test]
 #[ignore = "requires Docker"]
 async fn binary_smoke() {
-    tracing_subscriber::fmt().with_env_filter("info").init();
+    super::init_tracing();
 
     let ctx = setup_context().await.expect("IBC setup");
-    let relay = ctx.start_relay_binary().expect("start binary relay");
+    let mut relay = ctx.start_relay_binary().expect("start binary relay");
 
-    // Wait for relayer to initialize
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    relay
+        .wait_until_ready(Duration::from_secs(30))
+        .await
+        .expect("relayer ready");
 
     ctx.send_transfer_a_to_b(1000, "stake")
         .await

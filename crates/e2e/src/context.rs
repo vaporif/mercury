@@ -157,12 +157,75 @@ impl TestContext {
         Ok(())
     }
 
-    /// Compute the IBC denom for tokens transferred via a given path.
+    /// Send an IBC v2 transfer from chain B user1 to chain A user1.
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn send_transfer_b_to_a(&self, amount: u64, denom: &str) -> Result<()> {
+        let user_b = &self.handle_b.user_wallets()[0];
+        let user_a = &self.handle_a.user_wallets()[0];
+
+        let user_chain = build_cosmos_chain_with_wallet(&self.handle_b, user_b).await?;
+
+        let packet_data = serde_json::json!({
+            "denom": denom,
+            "amount": amount.to_string(),
+            "sender": user_b.address,
+            "receiver": user_a.address,
+            "memo": "",
+        });
+
+        let timeout = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 600;
+
+        let msg = MsgSendPacket {
+            source_client: self.client_id_b.to_string(),
+            timeout_timestamp: timeout,
+            payloads: vec![Payload {
+                source_port: "transfer".to_string(),
+                destination_port: "transfer".to_string(),
+                version: "ics20-1".to_string(),
+                encoding: "application/json".to_string(),
+                value: serde_json::to_vec(&packet_data)?,
+            }],
+            signer: user_b.address.clone(),
+        };
+
+        let cosmos_msg = CosmosMessage {
+            type_url: MsgSendPacket::type_url(),
+            value: msg.encode_to_vec(),
+        };
+
+        let responses = user_chain
+            .send_messages(vec![cosmos_msg])
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+
+        info!(
+            tx_hash = %responses.first().map_or("?", |r| r.hash.as_str()),
+            "IBC v2 transfer submitted on chain B"
+        );
+        Ok(())
+    }
+
+    /// Compute the IBC denom hash for on-chain balance queries.
+    ///
+    /// Returns `ibc/<SHA256_HEX>` — the bank module denomination.
     #[must_use]
     pub fn ibc_denom(port_id: &str, client_id: &str, base_denom: &str) -> String {
-        let path = format!("{port_id}/{client_id}/{base_denom}");
+        let path = Self::denom_trace_path(port_id, client_id, base_denom);
         let hash = Sha256::digest(path.as_bytes());
         format!("ibc/{}", hex::encode_upper(hash))
+    }
+
+    /// Build the IBC denomination trace path for packet data.
+    ///
+    /// Returns `<port_id>/<client_id>/<base_denom>` — the format used in
+    /// `FungibleTokenPacketData` when sending IBC vouchers back via IBC v2.
+    #[must_use]
+    pub fn denom_trace_path(port_id: &str, client_id: &str, base_denom: &str) -> String {
+        format!("{port_id}/{client_id}/{base_denom}")
     }
 
     /// Query balance via `simd query bank balances` in the container.

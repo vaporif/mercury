@@ -15,6 +15,7 @@ pub trait Worker: Send + 'static {
 }
 
 /// Spawn a [`Worker`] as a Tokio task, returning its join handle.
+#[must_use]
 pub fn spawn_worker<W: Worker>(worker: W) -> JoinHandle<Result<()>> {
     let name = worker.name().to_owned();
     tokio::spawn(async move {

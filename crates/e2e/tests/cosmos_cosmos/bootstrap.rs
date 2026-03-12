@@ -5,7 +5,7 @@ use tendermint_rpc::Client;
 #[tokio::test]
 #[ignore = "requires Docker"]
 async fn bootstrap_smoke() {
-    tracing_subscriber::fmt().with_env_filter("info").init();
+    super::init_tracing();
 
     let bootstrap = CosmosDockerBootstrap::new("mercury-test");
     let handle = bootstrap.start().await.expect("bootstrap should succeed");

@@ -28,6 +28,9 @@ enum Commands {
         /// Path to config file
         #[arg(short, long)]
         config: PathBuf,
+        /// Optional health-check port — serves HTTP 200 once relays are running
+        #[arg(long)]
+        health_port: Option<u16>,
     },
     /// Query chain status
     Status {
@@ -50,8 +53,11 @@ async fn main() -> eyre::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start { config } => {
-            run_start(&config).await?;
+        Commands::Start {
+            config,
+            health_port,
+        } => {
+            run_start(&config, health_port).await?;
         }
         Commands::Status { config, chain } => {
             run_status(&config, &chain).await?;
@@ -95,7 +101,7 @@ enum ConnectedChain {
 }
 
 #[instrument(skip_all, name = "run_start")]
-async fn run_start(config_path: &Path) -> eyre::Result<()> {
+async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result<()> {
     let cfg = config::load_config(config_path)?;
     let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
 
@@ -142,6 +148,10 @@ async fn run_start(config_path: &Path) -> eyre::Result<()> {
     }
 
     tracing::info!(count = handles.len(), "all relay pairs running");
+
+    if let Some(port) = health_port {
+        tokio::spawn(serve_health(port));
+    }
 
     tokio::select! {
         (result, _index, remaining) = futures::future::select_all(handles) => {
@@ -203,6 +213,31 @@ async fn connect_chain(
             }
 
             Ok(ConnectedChain::Cosmos(chain))
+        }
+    }
+}
+
+async fn serve_health(port: u16) {
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
+
+    let addr = format!("127.0.0.1:{port}");
+    let listener = match TcpListener::bind(&addr).await {
+        Ok(l) => {
+            tracing::info!(port, "health endpoint listening");
+            l
+        }
+        Err(e) => {
+            tracing::error!(port, error = %e, "failed to bind health endpoint");
+            return;
+        }
+    };
+
+    let response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+    loop {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let _ = stream.write_all(response).await;
+            let _ = stream.shutdown().await;
         }
     }
 }
