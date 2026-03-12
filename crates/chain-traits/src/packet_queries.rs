@@ -3,6 +3,7 @@ use mercury_core::error::Result;
 
 use crate::types::{HasChainTypes, HasPacketTypes};
 
+/// Queries a packet commitment by sequence number at a given height.
 #[async_trait]
 pub trait CanQueryPacketCommitment<Counterparty: HasChainTypes + ?Sized>:
     HasPacketTypes<Counterparty>
@@ -15,6 +16,7 @@ pub trait CanQueryPacketCommitment<Counterparty: HasChainTypes + ?Sized>:
     ) -> Result<(Option<Self::PacketCommitment>, Self::CommitmentProof)>;
 }
 
+/// Queries a packet receipt by sequence number at a given height.
 #[async_trait]
 pub trait CanQueryPacketReceipt<Counterparty: HasChainTypes + ?Sized>:
     HasPacketTypes<Counterparty>
@@ -27,6 +29,7 @@ pub trait CanQueryPacketReceipt<Counterparty: HasChainTypes + ?Sized>:
     ) -> Result<(Option<Self::PacketReceipt>, Self::CommitmentProof)>;
 }
 
+/// Queries a packet acknowledgement by sequence number at a given height.
 #[async_trait]
 pub trait CanQueryPacketAcknowledgement<Counterparty: HasChainTypes + ?Sized>:
     HasPacketTypes<Counterparty>

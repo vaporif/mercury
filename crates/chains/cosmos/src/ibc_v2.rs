@@ -7,6 +7,7 @@
 pub mod channel {
     use prost::Message;
 
+    /// An IBC v2 packet with source/destination clients and payloads.
     #[derive(Clone, PartialEq, Eq, Message)]
     pub struct Packet {
         #[prost(uint64, tag = "1")]
@@ -21,6 +22,7 @@ pub mod channel {
         pub payloads: Vec<Payload>,
     }
 
+    /// A single payload within an IBC v2 packet.
     #[derive(Clone, PartialEq, Eq, Message)]
     pub struct Payload {
         #[prost(string, tag = "1")]
@@ -35,12 +37,14 @@ pub mod channel {
         pub value: Vec<u8>,
     }
 
+    /// Acknowledgement containing per-payload ack bytes.
     #[derive(Clone, PartialEq, Eq, Message)]
     pub struct Acknowledgement {
         #[prost(bytes = "vec", repeated, tag = "1")]
         pub app_acknowledgements: Vec<Vec<u8>>,
     }
 
+    /// Message to receive a packet on the destination chain.
     #[derive(Clone, PartialEq, Eq, Message)]
     pub struct MsgRecvPacket {
         #[prost(message, optional, tag = "1")]
@@ -64,6 +68,7 @@ pub mod channel {
         }
     }
 
+    /// Message to time out an undelivered packet on the source chain.
     #[derive(Clone, PartialEq, Eq, Message)]
     pub struct MsgTimeout {
         #[prost(message, optional, tag = "1")]
@@ -88,6 +93,7 @@ pub mod channel {
         }
     }
 
+    /// Message to submit a packet acknowledgement on the source chain.
     #[derive(Clone, PartialEq, Eq, Message)]
     pub struct MsgAcknowledgement {
         #[prost(message, optional, tag = "1")]
@@ -118,6 +124,7 @@ pub mod channel {
 pub mod client {
     use prost::Message;
 
+    /// Message to register a counterparty client for IBC v2.
     #[derive(Clone, PartialEq, Eq, Message)]
     pub struct MsgRegisterCounterparty {
         #[prost(string, tag = "1")]

@@ -29,6 +29,7 @@ use crate::workers::tx_worker::{SrcTxWorker, TxWorker};
 
 const CHANNEL_BUFFER: usize = 256;
 
+/// Unidirectional relay context between a source and destination chain.
 pub struct RelayContext<Src, Dst>
 where
     Src: Chain<Dst>,

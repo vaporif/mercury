@@ -2,6 +2,7 @@ use mercury_core::ThreadSafe;
 
 use crate::types::{Chain, HasIbcTypes};
 
+/// A unidirectional relay context between a source and destination chain.
 pub trait Relay: ThreadSafe {
     type SrcChain: Chain<Self::DstChain>;
     type DstChain: Chain<Self::SrcChain>;

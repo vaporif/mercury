@@ -18,6 +18,7 @@ use mercury_chain_traits::types::{
     HasRevisionNumber,
 };
 
+/// A Cosmos SDK chain connected via RPC and gRPC.
 #[derive(Clone, Debug)]
 pub struct CosmosChain<S: CosmosSigner> {
     pub config: CosmosChainConfig,

@@ -14,6 +14,7 @@ use mercury_core::worker::Worker;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 
+/// Polls the source chain for new blocks and extracts IBC packet events.
 pub struct EventWatcher<R: Relay> {
     pub relay: Arc<R>,
     pub sender: mpsc::Sender<Vec<IbcEvent<R>>>,

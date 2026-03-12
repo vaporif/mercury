@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+/// Configuration for connecting to a Cosmos SDK chain.
 #[derive(Clone, Debug, Deserialize)]
 pub struct CosmosChainConfig {
     pub chain_id: String,
@@ -24,6 +25,7 @@ pub struct CosmosChainConfig {
     pub max_clock_drift: Option<Duration>,
 }
 
+/// Gas price amount and denomination for fee calculation.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GasPrice {
     pub amount: f64,

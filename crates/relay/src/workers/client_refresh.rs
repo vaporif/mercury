@@ -20,6 +20,7 @@ use crate::workers::DstTxRequest;
 
 const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_secs(300);
 
+/// Periodically refreshes the destination client to prevent expiry.
 pub struct ClientRefreshWorker<R: Relay> {
     pub relay: Arc<R>,
     pub sender: mpsc::Sender<DstTxRequest<R>>,

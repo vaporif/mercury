@@ -4,6 +4,7 @@ use mercury_core::error::Result;
 use super::context::Relay;
 use crate::types::{HasChainTypes, HasMessageTypes, HasPacketTypes};
 
+/// Builds receive-packet messages for the destination chain.
 #[async_trait]
 pub trait CanBuildReceivePacketMessages: Relay {
     async fn build_receive_packet_messages(
@@ -13,6 +14,7 @@ pub trait CanBuildReceivePacketMessages: Relay {
     ) -> Result<Vec<<Self::DstChain as HasMessageTypes>::Message>>;
 }
 
+/// Builds acknowledgement-packet messages for the destination chain.
 #[async_trait]
 pub trait CanBuildAckPacketMessages: Relay {
     async fn build_ack_packet_messages(

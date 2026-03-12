@@ -3,6 +3,7 @@ use mercury_core::error::Result;
 
 use super::context::Relay;
 
+/// Updates the IBC light clients on the source and destination chains.
 #[async_trait]
 pub trait CanUpdateClient: Relay {
     async fn update_src_client(&self) -> Result<()>;

@@ -6,6 +6,7 @@ use mercury_core::error::Result;
 
 use crate::types::HasMessageTypes;
 
+/// Associated types for transaction submission (signer, nonce, fee, tx hash).
 pub trait HasTxTypes: HasMessageTypes {
     type Signer: ThreadSafe;
     type Nonce: Clone + ThreadSafe;
@@ -13,6 +14,7 @@ pub trait HasTxTypes: HasMessageTypes {
     type TxHash: Clone + Debug + Display + ThreadSafe;
 }
 
+/// Submits a signed transaction with messages to the chain.
 #[async_trait]
 pub trait CanSubmitTx: HasTxTypes {
     async fn submit_tx(
@@ -24,6 +26,7 @@ pub trait CanSubmitTx: HasTxTypes {
     ) -> Result<Self::TxHash>;
 }
 
+/// Estimates the fee for a set of messages.
 #[async_trait]
 pub trait CanEstimateFee: HasTxTypes {
     async fn estimate_fee(
@@ -33,11 +36,13 @@ pub trait CanEstimateFee: HasTxTypes {
     ) -> Result<Self::Fee>;
 }
 
+/// Queries the current nonce (sequence number) for a signer.
 #[async_trait]
 pub trait CanQueryNonce: HasTxTypes {
     async fn query_nonce(&self, signer: &Self::Signer) -> Result<Self::Nonce>;
 }
 
+/// Polls for a transaction response by its hash.
 #[async_trait]
 pub trait CanPollTxResponse: HasTxTypes {
     type TxResponse: ThreadSafe;

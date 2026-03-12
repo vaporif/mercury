@@ -15,6 +15,7 @@ use crate::ibc_v2::channel::{
 use crate::keys::CosmosSigner;
 use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgement};
 
+/// Proof data needed to build packet relay messages.
 #[derive(Clone, Debug)]
 pub struct CosmosProofPayload {
     pub proof: MerkleProof,

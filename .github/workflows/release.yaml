@@ -32,7 +32,7 @@ jobs:
           archive: $bin-$target-$tag
           checksum: sha256
           token: ${{ secrets.GITHUB_TOKEN }}
-          include: README.md,LICENSE
+          include: README.md,LICENSE,docs/why-rewrite.md,docs/architecture.md,docs/ibc-v2.md
 
   publish:
     name: Publish to crates.io

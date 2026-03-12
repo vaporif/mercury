@@ -4,6 +4,7 @@ use mercury_core::error::Result;
 
 use crate::types::{HasChainTypes, HasPacketTypes};
 
+/// Extracts send-packet and write-ack events from raw chain events.
 pub trait CanExtractPacketEvents<Counterparty: HasChainTypes + ?Sized>:
     HasPacketTypes<Counterparty>
 {
@@ -19,6 +20,7 @@ pub trait CanExtractPacketEvents<Counterparty: HasChainTypes + ?Sized>:
 }
 
 #[async_trait]
+/// Queries events from a block and tracks the latest chain height.
 pub trait CanQueryBlockEvents: HasChainTypes {
     async fn query_block_events(&self, height: &Self::Height) -> Result<Vec<Self::Event>>;
     async fn query_latest_height(&self) -> Result<Self::Height>;

@@ -4,6 +4,7 @@ use eyre::Context;
 use mercury_cosmos::config::CosmosChainConfig;
 use serde::Deserialize;
 
+/// Top-level relayer configuration with chains and relay paths.
 #[derive(Debug, Deserialize)]
 pub struct RelayerConfig {
     #[serde(default)]
@@ -12,6 +13,7 @@ pub struct RelayerConfig {
     pub relays: Vec<RelayConfig>,
 }
 
+/// Chain backend configuration, tagged by type.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 pub enum ChainConfig {
@@ -20,12 +22,14 @@ pub enum ChainConfig {
 }
 
 impl ChainConfig {
+    /// Returns the chain identifier.
     pub fn chain_id(&self) -> &str {
         match self {
             Self::Cosmos(c) => &c.chain_id,
         }
     }
 
+    /// Returns the RPC endpoint address.
     pub fn rpc_addr(&self) -> &str {
         match self {
             Self::Cosmos(c) => &c.rpc_addr,
@@ -33,6 +37,7 @@ impl ChainConfig {
     }
 }
 
+/// Defines a single relay path between two chains.
 #[derive(Debug, Deserialize)]
 pub struct RelayConfig {
     pub src_chain: String,
@@ -41,6 +46,7 @@ pub struct RelayConfig {
     pub dst_client_id: String,
 }
 
+/// Reads and parses a TOML relayer config from the given path.
 pub fn load_config(path: &Path) -> eyre::Result<RelayerConfig> {
     let content = std::fs::read_to_string(path)
         .wrap_err_with(|| format!("reading config {}", path.display()))?;

@@ -4,6 +4,7 @@ use mercury_core::error::Result;
 
 use crate::types::{HasChainTypes, HasMessageTypes, HasPacketTypes};
 
+/// Builds a receive-packet message from a counterparty packet and proof payload.
 #[async_trait]
 pub trait CanBuildReceivePacketMessage<Counterparty>:
     HasMessageTypes + HasPacketTypes<Counterparty>
@@ -18,6 +19,7 @@ where
     ) -> Result<Self::Message>;
 }
 
+/// Builds an acknowledgement-packet message from a packet, ack, and proof payload.
 #[async_trait]
 pub trait CanBuildAckPacketMessage<Counterparty>:
     HasMessageTypes + HasPacketTypes<Counterparty>
@@ -33,6 +35,7 @@ where
     ) -> Result<Self::Message>;
 }
 
+/// Builds a timeout-packet message from a packet and proof payload.
 #[async_trait]
 pub trait CanBuildTimeoutPacketMessage<Counterparty>:
     HasMessageTypes + HasPacketTypes<Counterparty>

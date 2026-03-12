@@ -51,6 +51,7 @@ pub trait CosmosSigner: ThreadSafe + fmt::Debug + Clone {
     fn account_address(&self) -> Result<String>;
 }
 
+/// An in-memory secp256k1 signing key pair with bech32 address derivation.
 #[derive(Clone)]
 pub struct Secp256k1KeyPair {
     secret_key: SecretKey,
@@ -68,6 +69,7 @@ impl fmt::Debug for Secp256k1KeyPair {
 }
 
 impl Secp256k1KeyPair {
+    /// Create a key pair from a raw secret key and bech32 account prefix.
     #[must_use]
     pub fn from_secret_key(secret_key: SecretKey, account_prefix: &str) -> Self {
         let secp = Secp256k1::new();

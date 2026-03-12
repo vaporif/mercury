@@ -12,6 +12,7 @@ use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
 use crate::queries::grpc_unary;
 
+/// Transaction fee with gas limit and token denomination.
 #[derive(Clone, Debug)]
 pub struct CosmosFee {
     pub amount: u64,
@@ -19,6 +20,7 @@ pub struct CosmosFee {
     pub gas_limit: u64,
 }
 
+/// Account number and sequence for transaction replay protection.
 #[derive(Clone, Debug)]
 pub struct CosmosNonce {
     pub account_number: u64,

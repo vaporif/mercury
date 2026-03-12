@@ -25,12 +25,14 @@ const DEFAULT_UNBONDING_PERIOD: Duration = Duration::from_secs(21 * 24 * 3600);
 const DEFAULT_MAX_CLOCK_DRIFT: Duration = Duration::from_secs(40);
 const HEADER_FETCH_CONCURRENCY: usize = 8;
 
+/// Payload for creating a Tendermint light client on a counterparty chain.
 #[derive(Clone, Debug)]
 pub struct CosmosCreateClientPayload {
     pub client_state: Any,
     pub consensus_state: Any,
 }
 
+/// Payload containing headers to update a Tendermint light client.
 #[derive(Clone, Debug)]
 pub struct CosmosUpdateClientPayload {
     pub headers: Vec<Any>,

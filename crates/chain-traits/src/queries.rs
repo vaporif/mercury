@@ -5,11 +5,13 @@ use mercury_core::error::Result;
 
 use crate::types::{HasChainStatusType, HasChainTypes, HasIbcTypes};
 
+/// Queries the current status (height and timestamp) of the chain.
 #[async_trait]
 pub trait CanQueryChainStatus: HasChainStatusType {
     async fn query_chain_status(&self) -> Result<Self::ChainStatus>;
 }
 
+/// Queries the client state for a given client ID at a specific height.
 #[async_trait]
 pub trait CanQueryClientState<Counterparty: HasChainTypes + ?Sized>:
     HasIbcTypes<Counterparty>
@@ -21,6 +23,7 @@ pub trait CanQueryClientState<Counterparty: HasChainTypes + ?Sized>:
     ) -> Result<Self::ClientState>;
 }
 
+/// Queries the consensus state for a given client at a specific consensus height.
 #[async_trait]
 pub trait CanQueryConsensusState<Counterparty: HasChainTypes + ?Sized>:
     HasIbcTypes<Counterparty>
@@ -33,12 +36,14 @@ pub trait CanQueryConsensusState<Counterparty: HasChainTypes + ?Sized>:
     ) -> Result<Self::ConsensusState>;
 }
 
+/// Provides the trusting period from a client state.
 pub trait HasTrustingPeriod<Counterparty: HasChainTypes + ?Sized>:
     HasIbcTypes<Counterparty>
 {
     fn trusting_period(client_state: &Self::ClientState) -> Option<Duration>;
 }
 
+/// Extracts the latest height tracked by a client state.
 pub trait HasClientLatestHeight<Counterparty: HasChainTypes + ?Sized>:
     HasIbcTypes<Counterparty>
 {

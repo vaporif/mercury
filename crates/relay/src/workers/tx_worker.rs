@@ -80,6 +80,7 @@ async fn run_tx_loop<M: Send + 'static>(
     Ok(())
 }
 
+/// Submits batched messages to the destination chain.
 pub struct TxWorker<R: Relay> {
     pub relay: Arc<R>,
     pub receiver: mpsc::Receiver<DstTxRequest<R>>,
@@ -119,6 +120,7 @@ impl<R: Relay> Worker for TxWorker<R> {
     }
 }
 
+/// Submits batched messages to the source chain (e.g. timeouts).
 pub struct SrcTxWorker<R: Relay> {
     pub relay: Arc<R>,
     pub receiver: mpsc::Receiver<SrcTxRequest<R>>,

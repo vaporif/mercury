@@ -30,6 +30,7 @@ const PROOF_FETCH_CONCURRENCY: usize = 8;
 const PROOF_FETCH_MAX_RETRIES: usize = 3;
 const PROOF_FETCH_RETRY_DELAY: Duration = Duration::from_millis(500);
 
+/// Receives IBC events and builds relay messages (recv, ack, timeout).
 pub struct PacketWorker<R: Relay> {
     pub relay: Arc<R>,
     pub receiver: mpsc::Receiver<Vec<IbcEvent<R>>>,
