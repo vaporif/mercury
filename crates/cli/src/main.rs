@@ -243,10 +243,7 @@ fn spawn_relay_pair(
                     dst = %dst_name,
                     "running bidirectional relay"
                 );
-                let (res_a, res_b) = tokio::join!(
-                    Arc::clone(&fwd).run(),
-                    Arc::clone(&rev).run(),
-                );
+                let (res_a, res_b) = tokio::join!(Arc::clone(&fwd).run(), Arc::clone(&rev).run(),);
                 if let Err(ref e) = res_a {
                     tracing::error!(direction = "a→b", error = %e, "relay direction failed");
                 }

@@ -1,7 +1,7 @@
 //! Traits for encoding and decoding values into byte representations.
 
-use crate::error::Result;
 use crate::ThreadSafe;
+use crate::error::Result;
 
 /// A codec that can encode and decode values to/from bytes.
 pub trait Encoding: ThreadSafe {

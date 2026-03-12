@@ -32,7 +32,10 @@ pub fn load_cosmos_signer(key_file: &Path, account_prefix: &str) -> Result<Secp2
     let result = SecretKey::from_byte_array(secret_arr).map_err(Error::report);
     secret_arr.zeroize();
     let secret_key = result?;
-    Ok(Secp256k1KeyPair::from_secret_key(secret_key, account_prefix))
+    Ok(Secp256k1KeyPair::from_secret_key(
+        secret_key,
+        account_prefix,
+    ))
 }
 
 /// Trait for Cosmos transaction signing backends.

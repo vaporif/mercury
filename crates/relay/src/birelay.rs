@@ -1,5 +1,5 @@
-use mercury_chain_traits::relay::birelay::BiRelay;
 use mercury_chain_traits::relay::Relay;
+use mercury_chain_traits::relay::birelay::BiRelay;
 
 /// Holds two opposing relay directions for bidirectional relaying.
 pub struct BiRelayContext<R1: Relay, R2: Relay> {

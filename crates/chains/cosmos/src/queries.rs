@@ -214,6 +214,7 @@ impl<S: CosmosSigner> HasTrustingPeriod<Self> for CosmosChain<S> {
 impl<S: CosmosSigner> HasClientLatestHeight<Self> for CosmosChain<S> {
     fn client_latest_height(client_state: &Self::ClientState) -> Self::Height {
         let h = client_state.latest_height.revision_height();
-        tendermint::block::Height::try_from(h.max(1)).unwrap_or_else(|_| tendermint::block::Height::from(1_u32))
+        tendermint::block::Height::try_from(h.max(1))
+            .unwrap_or_else(|_| tendermint::block::Height::from(1_u32))
     }
 }
