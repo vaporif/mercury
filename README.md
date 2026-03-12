@@ -8,6 +8,18 @@ Mercury relays packets between IBC-connected blockchains. Unlike [hermes-sdk](ht
 
 Early active development. Core IBC v2 relay pipeline is implemented but **not yet tested against live chains**. No unit or integration tests yet. Use at your own risk. Or better don't even try to use until I add unit/integration/e2e tests.
 
+## How it works
+
+```
+EventWatcher → PacketWorker → TxWorker (dst chain)
+                    ↓
+               SrcTxWorker (src chain)
+
+ClientRefreshWorker → TxWorker (dst chain)
+```
+
+Each relay direction (A→B, B→A) runs its own set of workers connected by `tokio::mpsc` channels. See [Architecture](./docs/architecture.md) for the full pipeline, crate layout, and trait hierarchy.
+
 ## Docs
 
 - [Why rewrite?](./docs/why-rewrite.md)
