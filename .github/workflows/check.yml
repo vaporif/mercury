@@ -118,6 +118,9 @@ jobs:
       - name: Nix flake check
         run: nix flake check
 
+      - name: Nix build
+        run: nix build
+
   deny:
     name: Deny
     runs-on: ubuntu-latest
