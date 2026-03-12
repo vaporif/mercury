@@ -31,25 +31,32 @@ pub struct CosmosChain<S: CosmosSigner> {
 
 impl<S: CosmosSigner> CosmosChain<S> {
     pub async fn new(config: CosmosChainConfig, signer: S) -> mercury_core::error::Result<Self> {
-        use mercury_core::error::Error;
+        use mercury_core::error::WrapErr;
         use tendermint_rpc::Client;
 
-        let rpc_client = HttpClient::new(config.rpc_addr.as_str()).map_err(Error::report)?;
+        let rpc_client =
+            HttpClient::new(config.rpc_addr.as_str()).wrap_err("creating RPC client")?;
 
-        let status = rpc_client.status().await.map_err(Error::report)?;
-        let chain_id = ChainId::new(status.node_info.network.as_str())
-            .map_err(|e| Error::report(eyre::eyre!("{e}")))?;
+        let status = rpc_client
+            .status()
+            .await
+            .wrap_err("querying chain status")?;
+        let chain_id =
+            ChainId::new(status.node_info.network.as_str()).map_err(|e| eyre::eyre!("{e}"))?;
 
         let grpc_endpoint = tonic::transport::Channel::from_shared(config.grpc_addr.clone())
-            .map_err(Error::report)?;
+            .wrap_err("parsing gRPC address")?;
         let grpc_endpoint = if config.grpc_addr.starts_with("https") {
             grpc_endpoint
                 .tls_config(tonic::transport::ClientTlsConfig::new().with_native_roots())
-                .map_err(Error::report)?
+                .wrap_err("configuring TLS")?
         } else {
             grpc_endpoint
         };
-        let grpc_channel = grpc_endpoint.connect().await.map_err(Error::report)?;
+        let grpc_channel = grpc_endpoint
+            .connect()
+            .await
+            .wrap_err("connecting to gRPC")?;
 
         Ok(Self {
             block_time: config.block_time,

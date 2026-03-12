@@ -14,7 +14,7 @@ use tracing::instrument;
 use mercury_chain_traits::payload_builders::{
     CanBuildCreateClientPayload, CanBuildUpdateClientPayload,
 };
-use mercury_core::error::{Error, Result};
+use mercury_core::error::Result;
 use tendermint::account;
 use tendermint::block::Height as TmHeight;
 use tendermint::validator::{Info as ValidatorInfo, Set as ValidatorSet};
@@ -47,16 +47,12 @@ impl<S: CosmosSigner> CanBuildCreateClientPayload<Self> for CosmosChain<S> {
 
     #[instrument(skip_all, name = "build_create_client_payload")]
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
-        let latest_block = self
-            .rpc_client
-            .latest_block()
-            .await
-            .map_err(Error::report)?;
+        let latest_block = self.rpc_client.latest_block().await?;
 
         let latest_height = latest_block.block.header.height;
 
         let ibc_height = Height::new(self.chain_id.revision_number(), latest_height.value())
-            .map_err(|e| Error::report(eyre::eyre!("{e}")))?;
+            .map_err(|e| eyre::eyre!("{e}"))?;
 
         let trusting_period = self
             .config
@@ -85,7 +81,7 @@ impl<S: CosmosSigner> CanBuildCreateClientPayload<Self> for CosmosChain<S> {
                 after_misbehaviour: true,
             },
         )
-        .map_err(|e| Error::report(eyre::eyre!("{e}")))?;
+        .map_err(|e| eyre::eyre!("{e}"))?;
 
         let consensus_state = TendermintConsensusState::from(latest_block.block.header);
 
@@ -110,9 +106,9 @@ impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
         let target_height_value = target_height.value();
 
         if target_height_value <= trusted_height_value {
-            return Err(Error::report(eyre::eyre!(
+            eyre::bail!(
                 "target height ({target_height_value}) must be greater than trusted height ({trusted_height_value})"
-            )));
+            );
         }
 
         let (trusted_validators_response, trusted_commit_response) = tokio::try_join!(
@@ -120,13 +116,13 @@ impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
                 self.rpc_client
                     .validators(*trusted_height, Paging::All)
                     .await
-                    .map_err(Error::report)
+                    .map_err(eyre::Report::from)
             },
             async {
                 self.rpc_client
                     .commit(*trusted_height)
                     .await
-                    .map_err(Error::report)
+                    .map_err(eyre::Report::from)
             },
         )?;
 
@@ -141,7 +137,7 @@ impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
             ValidatorSet::new(trusted_validators_response.validators, trusted_proposer);
 
         let ibc_trusted_height = Height::new(self.chain_id.revision_number(), trusted_height_value)
-            .map_err(|e| Error::report(eyre::eyre!("{e}")))?;
+            .map_err(|e| eyre::eyre!("{e}"))?;
 
         let heights: Vec<u64> = ((trusted_height_value + 1)..=target_height_value).collect();
 
@@ -150,14 +146,14 @@ impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
                 let rpc = &self.rpc_client;
                 let trusted_vs = &trusted_next_validator_set;
                 async move {
-                    let height = TmHeight::try_from(h).map_err(Error::report)?;
+                    let height = TmHeight::try_from(h)?;
 
                     let (commit_response, validators_response) = tokio::try_join!(
-                        async { rpc.commit(height).await.map_err(Error::report) },
+                        async { rpc.commit(height).await.map_err(eyre::Report::from) },
                         async {
                             rpc.validators(height, Paging::All)
                                 .await
-                                .map_err(Error::report)
+                                .map_err(eyre::Report::from)
                         },
                     )?;
 
@@ -174,7 +170,7 @@ impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
                         trusted_next_validator_set: trusted_vs.clone(),
                     };
 
-                    Ok(header.into())
+                    Ok::<_, eyre::Report>(header.into())
                 }
             })
             .buffered(HEADER_FETCH_CONCURRENCY)

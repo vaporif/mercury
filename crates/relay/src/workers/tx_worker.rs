@@ -10,7 +10,7 @@ use tracing::{info, instrument, warn};
 
 use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::relay::context::Relay;
-use mercury_core::error::{Error, Result};
+use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
 use crate::workers::{DstTxRequest, SrcTxRequest};
@@ -64,7 +64,7 @@ async fn run_tx_loop<M: Send + 'static>(
 
         let msg_count = messages.len();
         let permit = tokio::select! {
-            permit = semaphore.clone().acquire_owned() => permit.map_err(Error::report)?,
+            permit = semaphore.clone().acquire_owned() => permit?,
             () = token.cancelled() => {
                 warn!("{label}: dropping {msg_count} batched messages due to cancellation");
                 break;

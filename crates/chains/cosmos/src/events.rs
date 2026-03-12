@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use mercury_chain_traits::events::{CanExtractPacketEvents, CanQueryBlockEvents};
-use mercury_core::error::{Error, Result};
+use mercury_core::error::Result;
 use prost::Message as _;
 use tendermint_rpc::Client;
 
@@ -105,11 +105,7 @@ impl<S: CosmosSigner> CanQueryBlockEvents for CosmosChain<S> {
         &self,
         height: &tendermint::block::Height,
     ) -> Result<Vec<CosmosEvent>> {
-        let results = self
-            .rpc_client
-            .block_results(*height)
-            .await
-            .map_err(Error::report)?;
+        let results = self.rpc_client.block_results(*height).await?;
 
         let mut events = Vec::new();
 
@@ -143,7 +139,7 @@ impl<S: CosmosSigner> CanQueryBlockEvents for CosmosChain<S> {
     }
 
     async fn query_latest_height(&self) -> Result<tendermint::block::Height> {
-        let status = self.rpc_client.status().await.map_err(Error::report)?;
+        let status = self.rpc_client.status().await?;
         Ok(status.sync_info.latest_block_height)
     }
 

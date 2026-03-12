@@ -6,8 +6,6 @@ use mercury_chain_traits::packet_queries::{
     CanQueryPacketAcknowledgement, CanQueryPacketCommitment, CanQueryPacketReceipt,
 };
 use mercury_core::error::Result;
-
-use mercury_core::error::Error;
 use tendermint::block::Height as TmHeight;
 
 use crate::chain::CosmosChain;
@@ -23,7 +21,7 @@ fn proof_query_height(height: TmHeight) -> Result<TmHeight> {
         .value()
         .checked_sub(1)
         .and_then(|v| TmHeight::try_from(v).ok())
-        .ok_or_else(|| Error::report(eyre::eyre!("proof height underflow")))?;
+        .ok_or_else(|| eyre::eyre!("proof height underflow"))?;
     Ok(h)
 }
 

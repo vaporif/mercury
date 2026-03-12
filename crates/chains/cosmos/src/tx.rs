@@ -6,7 +6,7 @@ use tracing::{debug, instrument};
 use mercury_chain_traits::tx::{
     CanEstimateFee, CanPollTxResponse, CanQueryNonce, CanSubmitTx, HasTxTypes,
 };
-use mercury_core::error::{Error, Result};
+use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
@@ -139,16 +139,14 @@ impl<S: CosmosSigner> CanQueryNonce for CosmosChain<S> {
             "/cosmos.auth.v1beta1.Query/Account",
             request,
         )
-        .await
-        .map_err(Error::report)?
+        .await?
         .into_inner();
 
         let account_any = response
             .account
-            .ok_or_else(|| Error::report(eyre::eyre!("account not found: {address}")))?;
+            .ok_or_else(|| eyre::eyre!("account not found: {address}"))?;
 
-        let base_account =
-            BaseAccount::decode(account_any.value.as_slice()).map_err(Error::report)?;
+        let base_account = BaseAccount::decode(account_any.value.as_slice())?;
 
         Ok(CosmosNonce {
             account_number: base_account.account_number,
@@ -189,13 +187,12 @@ impl<S: CosmosSigner> CosmosChain<S> {
             "/cosmos.tx.v1beta1.Service/Simulate",
             request,
         )
-        .await
-        .map_err(Error::report)?
+        .await?
         .into_inner();
 
         let gas_info = response
             .gas_info
-            .ok_or_else(|| Error::report(eyre::eyre!("no gas info in simulate response")))?;
+            .ok_or_else(|| eyre::eyre!("no gas info in simulate response"))?;
 
         let gas_used = gas_info.gas_used;
         #[allow(
@@ -262,18 +259,14 @@ impl<S: CosmosSigner> CanSubmitTx for CosmosChain<S> {
             "broadcasting transaction"
         );
 
-        let response = self
-            .rpc_client
-            .broadcast_tx_sync(tx_bytes)
-            .await
-            .map_err(Error::report)?;
+        let response = self.rpc_client.broadcast_tx_sync(tx_bytes).await?;
 
         if response.code.is_err() {
-            return Err(Error::report(eyre::eyre!(
+            eyre::bail!(
                 "broadcast_tx_sync failed: code={}, log={}",
                 response.code.value(),
                 response.log
-            )));
+            );
         }
 
         let tx_hash = response.hash.to_string();
@@ -292,11 +285,7 @@ impl<S: CosmosSigner> CanPollTxResponse for CosmosChain<S> {
         use tendermint::Hash;
         use tendermint_rpc::Client;
 
-        let hash = Hash::from_bytes(
-            tendermint::hash::Algorithm::Sha256,
-            &hex::decode(tx_hash).map_err(Error::report)?,
-        )
-        .map_err(Error::report)?;
+        let hash = Hash::from_bytes(tendermint::hash::Algorithm::Sha256, &hex::decode(tx_hash)?)?;
 
         let max_retries = 10;
         let poll_interval = self.block_time / 2;
@@ -314,11 +303,11 @@ impl<S: CosmosSigner> CanPollTxResponse for CosmosChain<S> {
             match self.rpc_client.tx(hash, false).await {
                 Ok(response) => {
                     if response.tx_result.code.is_err() {
-                        return Err(Error::report(eyre::eyre!(
+                        eyre::bail!(
                             "transaction failed: code={}, log={}",
                             response.tx_result.code.value(),
                             response.tx_result.log
-                        )));
+                        );
                     }
 
                     let events = response
@@ -353,9 +342,9 @@ impl<S: CosmosSigner> CanPollTxResponse for CosmosChain<S> {
                 }
                 Err(e) => {
                     if attempt == max_retries {
-                        return Err(Error::report(eyre::eyre!(
+                        eyre::bail!(
                             "transaction {tx_hash} not found after {max_retries} attempts: {e}"
-                        )));
+                        );
                     }
                     debug!(
                         attempt = attempt,

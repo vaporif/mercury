@@ -8,7 +8,7 @@ use mercury_core::error::Result;
 use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
 
-fn is_sequence_mismatch(e: &mercury_core::error::Error) -> bool {
+fn is_sequence_mismatch(e: &eyre::Report) -> bool {
     let msg = e.to_string();
     msg.contains("account sequence mismatch")
 }

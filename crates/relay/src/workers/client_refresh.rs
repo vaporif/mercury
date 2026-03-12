@@ -64,7 +64,7 @@ where
                     .dst_chain()
                     .query_client_state(self.relay.dst_client_id(), &dst_height)
                     .await?;
-                Ok::<_, mercury_core::error::Error>((dst_height, cs))
+                Ok::<_, eyre::Report>((dst_height, cs))
             }
             .await
             {

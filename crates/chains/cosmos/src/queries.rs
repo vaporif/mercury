@@ -16,7 +16,7 @@ use mercury_chain_traits::queries::{
     HasTrustingPeriod,
 };
 use mercury_chain_traits::types::HasChainTypes;
-use mercury_core::error::{Error, Result};
+use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
@@ -112,7 +112,7 @@ where
 impl<S: CosmosSigner> CanQueryChainStatus for CosmosChain<S> {
     #[instrument(skip_all, name = "query_chain_status")]
     async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
-        let status = self.rpc_client.status().await.map_err(Error::report)?;
+        let status = self.rpc_client.status().await?;
         Ok(CosmosChainStatus {
             height: status.sync_info.latest_block_height,
             timestamp: status.sync_info.latest_block_time,
@@ -132,28 +132,25 @@ impl<S: CosmosSigner> CanQueryClientState<Self> for CosmosChain<S> {
             client_id: client_id.to_string(),
         });
 
-        request.metadata_mut().insert(
-            "x-cosmos-block-height",
-            height.value().to_string().parse().map_err(Error::report)?,
-        );
+        request
+            .metadata_mut()
+            .insert("x-cosmos-block-height", height.value().to_string().parse()?);
 
         let response = grpc_unary::<QueryClientStateRequest, QueryClientStateResponse>(
             self.grpc_channel.clone(),
             "/ibc.core.client.v1.Query/ClientState",
             request,
         )
-        .await
-        .map_err(Error::report)?
+        .await?
         .into_inner();
 
         let any = response
             .client_state
-            .ok_or_else(|| Error::report(eyre::eyre!("client state not found for {client_id}")))?;
+            .ok_or_else(|| eyre::eyre!("client state not found for {client_id}"))?;
 
         let client_state = <TendermintClientState as Protobuf<
             ibc_client_tendermint::types::proto::v1::ClientState,
-        >>::decode(any.value.as_slice())
-        .map_err(Error::report)?;
+        >>::decode(any.value.as_slice())?;
         Ok(client_state)
     }
 }
@@ -179,11 +176,7 @@ impl<S: CosmosSigner> CanQueryConsensusState<Self> for CosmosChain<S> {
 
         request.metadata_mut().insert(
             "x-cosmos-block-height",
-            query_height
-                .value()
-                .to_string()
-                .parse()
-                .map_err(Error::report)?,
+            query_height.value().to_string().parse()?,
         );
 
         let response = grpc_unary::<QueryConsensusStateRequest, QueryConsensusStateResponse>(
@@ -191,20 +184,16 @@ impl<S: CosmosSigner> CanQueryConsensusState<Self> for CosmosChain<S> {
             "/ibc.core.client.v1.Query/ConsensusState",
             request,
         )
-        .await
-        .map_err(Error::report)?
+        .await?
         .into_inner();
 
         let any = response.consensus_state.ok_or_else(|| {
-            Error::report(eyre::eyre!(
-                "consensus state not found for {client_id} at height {consensus_height}"
-            ))
+            eyre::eyre!("consensus state not found for {client_id} at height {consensus_height}")
         })?;
 
         let consensus_state = <TendermintConsensusState as Protobuf<
             ibc_client_tendermint::types::proto::v1::ConsensusState,
-        >>::decode(any.value.as_slice())
-        .map_err(Error::report)?;
+        >>::decode(any.value.as_slice())?;
         Ok(consensus_state)
     }
 }

@@ -166,7 +166,7 @@ where
 
         match result {
             Ok(worker_result) => worker_result,
-            Err(join_err) => Err(mercury_core::error::Error::report(join_err)),
+            Err(join_err) => Err(eyre::eyre!(join_err)),
         }
     }
 

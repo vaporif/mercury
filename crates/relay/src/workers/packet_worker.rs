@@ -21,7 +21,7 @@ use mercury_chain_traits::relay::packet::{
 };
 use mercury_chain_traits::types::HasChainStatusType;
 use mercury_chain_traits::types::{HasChainTypes, HasMessageTypes, HasPacketTypes};
-use mercury_core::error::{Error, Result};
+use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
 use crate::workers::{DstTxRequest, SrcTxRequest};
@@ -390,9 +390,7 @@ where
                             self.sender
                                 .send(DstTxRequest { messages })
                                 .await
-                                .map_err(|_| {
-                                    Error::report(eyre::eyre!("tx_worker channel closed"))
-                                })?;
+                                .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
                         }
                     }
                     Err(e) => {
@@ -417,9 +415,7 @@ where
                             self.src_sender
                                 .send(SrcTxRequest { messages })
                                 .await
-                                .map_err(|_| {
-                                    Error::report(eyre::eyre!("src_tx_worker channel closed"))
-                                })?;
+                                .map_err(|_| eyre::eyre!("src_tx_worker channel closed"))?;
                         }
                     }
                     Err(e) => {

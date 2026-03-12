@@ -3,7 +3,7 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use mercury_core::ThreadSafe;
-use mercury_core::error::{Error, Result};
+use mercury_core::error::Result;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use serde::Deserialize;
 use zeroize::Zeroize;
@@ -18,18 +18,19 @@ struct CosmosKeyFile {
 /// The key file must contain a `secret_key` field with a hex-encoded
 /// secp256k1 secret key.
 pub fn load_cosmos_signer(key_file: &Path, account_prefix: &str) -> Result<Secp256k1KeyPair> {
+    use mercury_core::error::WrapErr;
+
     let content = std::fs::read_to_string(key_file)
-        .map_err(|e| Error::report(eyre::eyre!("reading key file {}: {e}", key_file.display())))?;
+        .wrap_err_with(|| format!("reading key file {}", key_file.display()))?;
     let key_toml: CosmosKeyFile = toml::from_str(&content)
-        .map_err(|e| Error::report(eyre::eyre!("parsing key file {}: {e}", key_file.display())))?;
-    let mut secret_bytes = hex::decode(&key_toml.secret_key)
-        .map_err(|e| Error::report(eyre::eyre!("decoding secret key hex: {e}")))?;
+        .wrap_err_with(|| format!("parsing key file {}", key_file.display()))?;
+    let mut secret_bytes = hex::decode(&key_toml.secret_key).wrap_err("decoding secret key hex")?;
     let mut secret_arr: [u8; 32] = secret_bytes
         .as_slice()
         .try_into()
-        .map_err(|_| Error::report(eyre::eyre!("secret key must be exactly 32 bytes")))?;
+        .map_err(|_| eyre::eyre!("secret key must be exactly 32 bytes"))?;
     secret_bytes.zeroize();
-    let result = SecretKey::from_byte_array(secret_arr).map_err(Error::report);
+    let result = SecretKey::from_byte_array(secret_arr).wrap_err("invalid secret key");
     secret_arr.zeroize();
     let secret_key = result?;
     Ok(Secp256k1KeyPair::from_secret_key(
@@ -105,9 +106,8 @@ impl CosmosSigner for Secp256k1KeyPair {
         let pub_key_bytes = self.public_key.serialize();
         let sha_hash = Sha256::digest(pub_key_bytes);
         let address_bytes = Ripemd160::digest(sha_hash);
-        let hrp = Hrp::parse(&self.account_prefix).map_err(Error::report)?;
-        let encoded =
-            bech32::encode::<bech32::Bech32>(hrp, &address_bytes).map_err(Error::report)?;
+        let hrp = Hrp::parse(&self.account_prefix)?;
+        let encoded = bech32::encode::<bech32::Bech32>(hrp, &address_bytes)?;
         Ok(encoded)
     }
 }
