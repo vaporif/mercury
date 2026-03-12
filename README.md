@@ -1,6 +1,7 @@
 # Mercury
 
 [![CI](https://github.com/vaporif/mercury/actions/workflows/check.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/check.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 An IBC v2 relayer in Rust. Plain traits, no frameworks.
 
@@ -22,10 +23,19 @@ ClientRefreshWorker → TxWorker (dst chain)
 
 Each relay direction (A→B, B→A) runs its own set of workers connected by `tokio::mpsc` channels. See [Architecture](./docs/architecture.md) for the full pipeline, crate layout, and trait hierarchy.
 
+## Crates
+
+| Crate | Description |
+|-------|-------------|
+| `mercury-cli` | CLI binary — `mercury start`, `mercury status` |
+| `mercury-cosmos` | Cosmos chain implementation — RPC, protobuf, tx signing |
+| `mercury-relay` | Worker pipeline, generic over chain traits |
+| `mercury-chain-traits` | Chain types, messaging, queries, relay traits |
+| `mercury-core` | Error types, encoding, worker trait |
+
 ## Docs
 
 - [Why rewrite?](./docs/why-rewrite.md)
-- [Architecture](./docs/architecture.md)  
 - [IBC v2](./docs/ibc-v2.md)
 
 ## Usage
