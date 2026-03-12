@@ -1,0 +1,13 @@
+target/
+result
+.direnv/
+.envrc
+.git/
+.github/
+.gitignore
+docs/
+*.md
+*.nix
+*.lock
+!Cargo.lock
+flake.lock
