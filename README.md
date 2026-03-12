@@ -6,8 +6,7 @@ Mercury relays packets between IBC-connected blockchains. Unlike [hermes-sdk](ht
 
 ## Status
 
-Early development.
-Active development phase.
+Early active development phase.
 
 ## Docs
 
