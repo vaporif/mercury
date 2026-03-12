@@ -1,0 +1,44 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+      - ".claude/**"
+      - ".serena/**"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - ".gitignore"
+      - ".claude/**"
+      - ".serena/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: e2e
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: E2E tests
+        run: cargo nextest run -p mercury-e2e --run-ignored all
+        timeout-minutes: 15

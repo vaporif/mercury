@@ -1,6 +1,7 @@
 # Mercury
 
 [![CI](https://github.com/vaporif/mercury/actions/workflows/check.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/check.yml)
+[![E2E](https://github.com/vaporif/mercury/actions/workflows/e2e.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/e2e.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 
@@ -10,7 +11,7 @@ Mercury relays packets between IBC-connected blockchains. Unlike [hermes-sdk](ht
 
 ## Status
 
-Early active development. Core IBC v2 relay pipeline is implemented but **not yet tested against live chains**. No unit or integration tests yet. Use at your own risk. Or better don't even try to use until I add unit/integration/e2e tests.
+Early active development. Core IBC v2 relay pipeline is implemented with CI checks (clippy, fmt, MSRV, cross-compilation) and Docker-based E2E tests for Cosmos-to-Cosmos relaying. Not yet tested against live chains — use at your own risk.
 
 ## How it works
 
