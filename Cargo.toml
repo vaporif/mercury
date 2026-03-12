@@ -13,7 +13,7 @@ members = [
 [workspace.package]
 version = "0.1.0-alpha.1"
 edition = "2024"
-rust-version = "1.86.0"
+rust-version = "1.88.0"
 description = "IBC v2 relayer in Rust — plain traits, no macro frameworks"
 license = "Apache-2.0"
 repository = "https://github.com/vaporif/mercury"
