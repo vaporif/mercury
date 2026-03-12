@@ -32,6 +32,26 @@ pub struct GasPrice {
     pub denom: String,
 }
 
+impl CosmosChainConfig {
+    pub fn validate(&self) -> eyre::Result<()> {
+        for (name, addr) in [("rpc_addr", &self.rpc_addr), ("grpc_addr", &self.grpc_addr)] {
+            if !addr.starts_with("http://") && !addr.starts_with("https://") {
+                eyre::bail!(
+                    "chain '{}': {name} must start with http:// or https://, got '{addr}'",
+                    self.chain_id,
+                );
+            }
+        }
+        if self.gas_price.amount < 0.0 {
+            eyre::bail!(
+                "chain '{}': gas_price.amount must be non-negative",
+                self.chain_id,
+            );
+        }
+        Ok(())
+    }
+}
+
 const fn default_block_time() -> Duration {
     Duration::from_secs(3)
 }

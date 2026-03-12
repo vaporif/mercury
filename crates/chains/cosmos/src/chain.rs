@@ -40,11 +40,16 @@ impl<S: CosmosSigner> CosmosChain<S> {
         let chain_id = ChainId::new(status.node_info.network.as_str())
             .map_err(|e| Error::report(eyre::eyre!("{e}")))?;
 
-        let grpc_channel = tonic::transport::Channel::from_shared(config.grpc_addr.clone())
-            .map_err(Error::report)?
-            .connect()
-            .await
+        let grpc_endpoint = tonic::transport::Channel::from_shared(config.grpc_addr.clone())
             .map_err(Error::report)?;
+        let grpc_endpoint = if config.grpc_addr.starts_with("https") {
+            grpc_endpoint
+                .tls_config(tonic::transport::ClientTlsConfig::new().with_native_roots())
+                .map_err(Error::report)?
+        } else {
+            grpc_endpoint
+        };
+        let grpc_channel = grpc_endpoint.connect().await.map_err(Error::report)?;
 
         Ok(Self {
             block_time: config.block_time,

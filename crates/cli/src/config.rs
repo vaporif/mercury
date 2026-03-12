@@ -52,5 +52,10 @@ pub fn load_config(path: &Path) -> eyre::Result<RelayerConfig> {
         .wrap_err_with(|| format!("reading config {}", path.display()))?;
     let config: RelayerConfig =
         toml::from_str(&content).wrap_err_with(|| format!("parsing config {}", path.display()))?;
+    for chain in &config.chains {
+        match chain {
+            ChainConfig::Cosmos(c) => c.validate()?,
+        }
+    }
     Ok(config)
 }

@@ -164,12 +164,7 @@ impl<S: CosmosSigner> CanQueryConsensusState<Self> for CosmosChain<S> {
         query_height: &Self::Height,
     ) -> Result<Self::ConsensusState> {
         let revision_height = consensus_height.value();
-        let revision_number = self
-            .chain_id
-            .to_string()
-            .rsplit_once('-')
-            .and_then(|(_, n)| n.parse::<u64>().ok())
-            .unwrap_or(0);
+        let revision_number = self.chain_id.revision_number();
 
         let mut request = tonic::Request::new(QueryConsensusStateRequest {
             client_id: client_id.to_string(),
@@ -218,7 +213,7 @@ impl<S: CosmosSigner> HasTrustingPeriod<Self> for CosmosChain<S> {
 
 impl<S: CosmosSigner> HasClientLatestHeight<Self> for CosmosChain<S> {
     fn client_latest_height(client_state: &Self::ClientState) -> Self::Height {
-        tendermint::block::Height::try_from(client_state.latest_height.revision_height())
-            .expect("valid height")
+        let h = client_state.latest_height.revision_height();
+        tendermint::block::Height::try_from(h.max(1)).unwrap_or_else(|_| tendermint::block::Height::from(1_u32))
     }
 }
