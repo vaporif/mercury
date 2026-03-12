@@ -13,7 +13,6 @@ use mercury_chain_traits::payload_builders::{
     CanBuildCreateClientPayload, CanBuildUpdateClientPayload,
 };
 use mercury_core::error::{Error, Result};
-use prost::Message;
 use tendermint::block::Height as TmHeight;
 use tendermint::validator::Set as ValidatorSet;
 use tendermint_rpc::{Client, Paging};
@@ -27,13 +26,13 @@ const HEADER_FETCH_CONCURRENCY: usize = 8;
 
 #[derive(Clone, Debug)]
 pub struct CosmosCreateClientPayload {
-    pub client_state_bytes: Vec<u8>,
-    pub consensus_state_bytes: Vec<u8>,
+    pub client_state: Any,
+    pub consensus_state: Any,
 }
 
 #[derive(Clone, Debug)]
 pub struct CosmosUpdateClientPayload {
-    pub headers: Vec<Vec<u8>>,
+    pub headers: Vec<Any>,
 }
 
 #[async_trait]
@@ -70,15 +69,9 @@ impl CanBuildCreateClientPayload<Self> for CosmosChain {
 
         let consensus_state = TendermintConsensusState::from(latest_block.block.header);
 
-        let client_state_any: Any = client_state.into();
-        let consensus_state_any: Any = consensus_state.into();
-
-        let client_state_bytes = client_state_any.encode_to_vec();
-        let consensus_state_bytes = consensus_state_any.encode_to_vec();
-
         Ok(CosmosCreateClientPayload {
-            client_state_bytes,
-            consensus_state_bytes,
+            client_state: client_state.into(),
+            consensus_state: consensus_state.into(),
         })
     }
 }
@@ -115,7 +108,7 @@ impl CanBuildUpdateClientPayload<Self> for CosmosChain {
 
         let heights: Vec<u64> = ((trusted_height_value + 1)..=target_height_value).collect();
 
-        let headers: Vec<Vec<u8>> = stream::iter(heights)
+        let headers: Vec<Any> = stream::iter(heights)
             .map(|h| {
                 let rpc = &self.rpc_client;
                 let trusted_vs = &trusted_next_validator_set;
@@ -140,8 +133,7 @@ impl CanBuildUpdateClientPayload<Self> for CosmosChain {
                         trusted_next_validator_set: trusted_vs.clone(),
                     };
 
-                    let header_any: Any = header.into();
-                    Ok(header_any.encode_to_vec())
+                    Ok(header.into())
                 }
             })
             .buffered(HEADER_FETCH_CONCURRENCY)

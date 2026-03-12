@@ -1,56 +1,19 @@
 use async_trait::async_trait;
-use prost::Message;
 
+use ibc_proto::ibc::core::client::v1::{MsgCreateClient, MsgUpdateClient};
 use mercury_chain_traits::message_builders::{
     CanBuildCreateClientMessage, CanBuildUpdateClientMessage, CanRegisterCounterparty,
 };
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
+use crate::encoding::to_any;
+use crate::ibc_v2::client::MsgRegisterCounterparty;
 use crate::payload_builders::{CosmosCreateClientPayload, CosmosUpdateClientPayload};
 use crate::types::CosmosMessage;
 
-/// IBC v2 `MsgCreateClient` — not yet in ibc-proto 0.52, so we define it manually.
-#[derive(Clone, PartialEq, Message)]
-struct MsgCreateClient {
-    #[prost(string, tag = "1")]
-    client_type: String,
-    #[prost(bytes = "vec", tag = "2")]
-    client_state: Vec<u8>,
-    #[prost(bytes = "vec", tag = "3")]
-    consensus_state: Vec<u8>,
-    #[prost(string, tag = "4")]
-    signer: String,
-}
-
-/// IBC v2 `MsgUpdateClient` — not yet in ibc-proto 0.52, so we define it manually.
-#[derive(Clone, PartialEq, Message)]
-struct MsgUpdateClient {
-    #[prost(string, tag = "1")]
-    client_id: String,
-    #[prost(bytes = "vec", tag = "2")]
-    client_message: Vec<u8>,
-    #[prost(string, tag = "3")]
-    signer: String,
-}
-
-/// IBC v2 `MsgRegisterCounterparty` — not yet in ibc-proto 0.52, so we define it manually.
-#[derive(Clone, PartialEq, Message)]
-struct MsgRegisterCounterparty {
-    #[prost(string, tag = "1")]
-    client_id: String,
-    #[prost(string, tag = "2")]
-    counterparty_client_id: String,
-    #[prost(string, tag = "3")]
-    signer: String,
-}
-
-fn encode_v2_msg(type_url: &str, msg: &impl Message) -> CosmosMessage {
-    CosmosMessage {
-        type_url: type_url.to_string(),
-        value: msg.encode_to_vec(),
-    }
-}
+/// Default IBC store merkle prefix used by Cosmos SDK chains.
+const DEFAULT_MERKLE_PREFIX: &[&[u8]] = &[b"ibc", b""];
 
 #[async_trait]
 impl CanBuildCreateClientMessage<Self> for CosmosChain {
@@ -61,13 +24,12 @@ impl CanBuildCreateClientMessage<Self> for CosmosChain {
         let signer = self.signer.account_address()?;
 
         let msg = MsgCreateClient {
-            client_type: "07-tendermint".to_string(),
-            client_state: payload.client_state_bytes,
-            consensus_state: payload.consensus_state_bytes,
+            client_state: Some(payload.client_state),
+            consensus_state: Some(payload.consensus_state),
             signer,
         };
 
-        Ok(encode_v2_msg("/ibc.core.client.v2.MsgCreateClient", &msg))
+        Ok(to_any(&msg))
     }
 }
 
@@ -83,13 +45,13 @@ impl CanBuildUpdateClientMessage<Self> for CosmosChain {
         let messages = payload
             .headers
             .into_iter()
-            .map(|header_bytes| {
+            .map(|header_any| {
                 let msg = MsgUpdateClient {
                     client_id: client_id.to_string(),
-                    client_message: header_bytes,
+                    client_message: Some(header_any),
                     signer: signer.clone(),
                 };
-                encode_v2_msg("/ibc.core.client.v2.MsgUpdateClient", &msg)
+                to_any(&msg)
             })
             .collect();
 
@@ -108,13 +70,11 @@ impl CanRegisterCounterparty<Self> for CosmosChain {
 
         let msg = MsgRegisterCounterparty {
             client_id: client_id.to_string(),
+            counterparty_merkle_prefix: DEFAULT_MERKLE_PREFIX.iter().map(|s| s.to_vec()).collect(),
             counterparty_client_id: counterparty_client_id.to_string(),
             signer,
         };
 
-        Ok(encode_v2_msg(
-            "/ibc.core.client.v2.MsgRegisterCounterparty",
-            &msg,
-        ))
+        Ok(to_any(&msg))
     }
 }

@@ -2,6 +2,7 @@ pub mod chain;
 pub mod config;
 pub mod encoding;
 pub mod events;
+pub mod ibc_v2;
 pub mod keys;
 pub mod message_builders;
 pub mod messaging;

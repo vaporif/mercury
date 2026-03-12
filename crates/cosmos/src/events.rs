@@ -17,20 +17,13 @@ fn get_attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
 fn parse_payloads(attrs: &[(String, String)]) -> Vec<PacketPayload> {
     let mut payloads = Vec::new();
     let mut idx = 0u32;
-    let mut key_buf = String::with_capacity(48);
     loop {
         let prefix = format!("packet_payload_{idx}_");
-        let mut attr = |suffix: &str| -> Option<&str> {
-            key_buf.clear();
-            key_buf.push_str(&prefix);
-            key_buf.push_str(suffix);
-            get_attr(attrs, &key_buf)
-        };
-        let source_port = attr("source_port");
-        let dest_port = attr("dest_port");
-        let version = attr("version");
-        let encoding = attr("encoding");
-        let data = attr("data");
+        let source_port = get_attr(attrs, &format!("{prefix}source_port"));
+        let dest_port = get_attr(attrs, &format!("{prefix}dest_port"));
+        let version = get_attr(attrs, &format!("{prefix}version"));
+        let encoding = get_attr(attrs, &format!("{prefix}encoding"));
+        let data = get_attr(attrs, &format!("{prefix}data"));
 
         if let (Some(sp), Some(dp), Some(v), Some(enc), Some(d)) =
             (source_port, dest_port, version, encoding, data)

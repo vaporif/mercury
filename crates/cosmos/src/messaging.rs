@@ -22,9 +22,7 @@ impl CanSendMessages for CosmosChain {
         // that could cause sequence conflicts.
         let nonce = self.query_nonce(&self.signer).await?;
         let fee = self.estimate_fee(&self.signer, &messages).await?;
-        let tx_hash = self
-            .submit_tx(&self.signer, &nonce, &fee, messages)
-            .await?;
+        let tx_hash = self.submit_tx(&self.signer, &nonce, &fee, messages).await?;
 
         info!("tx submitted: {tx_hash}");
 
