@@ -32,6 +32,7 @@ branches_sharing_code = "allow"
 [workspace.dependencies]
 async-trait = "0.1"
 eyre = "0.6"
+color-eyre = "0.6"
 tracing = "0.1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
