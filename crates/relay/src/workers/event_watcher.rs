@@ -4,7 +4,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 use mercury_chain_traits::events::{CanExtractPacketEvents, CanQueryBlockEvents};
 use mercury_chain_traits::relay::context::Relay;
@@ -30,6 +30,7 @@ where
         "event_watcher"
     }
 
+    #[instrument(skip_all, name = "event_watcher")]
     async fn run(self) -> Result<()> {
         let src = self.relay.src_chain();
         let mut last_height = src.query_latest_height().await?;
@@ -64,6 +65,8 @@ where
                         break;
                     }
                 };
+
+                debug!(height = %h, event_count = block_events.len(), "polled block events");
 
                 let mut ibc_events = Vec::new();
                 for event in &block_events {

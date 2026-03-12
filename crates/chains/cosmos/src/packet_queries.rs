@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use tracing::instrument;
 
 use mercury_chain_traits::packet_queries::{
     CanQueryPacketAcknowledgement, CanQueryPacketCommitment, CanQueryPacketReceipt,
@@ -52,6 +53,7 @@ fn extract_proof(response: &tendermint_rpc::endpoint::abci_query::AbciQuery) -> 
 
 #[async_trait]
 impl<S: CosmosSigner> CanQueryPacketCommitment<Self> for CosmosChain<S> {
+    #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
     async fn query_packet_commitment(
         &self,
         client_id: &Self::ClientId,
@@ -79,6 +81,7 @@ impl<S: CosmosSigner> CanQueryPacketCommitment<Self> for CosmosChain<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> CanQueryPacketReceipt<Self> for CosmosChain<S> {
+    #[instrument(skip_all, name = "query_packet_receipt", fields(seq = sequence))]
     async fn query_packet_receipt(
         &self,
         client_id: &Self::ClientId,
@@ -106,6 +109,7 @@ impl<S: CosmosSigner> CanQueryPacketReceipt<Self> for CosmosChain<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> CanQueryPacketAcknowledgement<Self> for CosmosChain<S> {
+    #[instrument(skip_all, name = "query_packet_ack", fields(seq = sequence))]
     async fn query_packet_acknowledgement(
         &self,
         client_id: &Self::ClientId,

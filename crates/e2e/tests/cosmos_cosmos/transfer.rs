@@ -8,7 +8,9 @@ use super::setup_context;
 #[tokio::test]
 #[ignore = "requires Docker"]
 async fn ibc_transfer() {
-    tracing_subscriber::fmt().with_env_filter("info").init();
+    tracing_subscriber::fmt()
+        .with_env_filter("info,mercury_relay=debug,mercury_cosmos::events=debug")
+        .init();
 
     let ctx = setup_context().await.expect("IBC setup");
     let relay = ctx.start_relay_library().expect("start relay");

@@ -6,7 +6,7 @@ use futures::future::BoxFuture;
 use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 
 use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::relay::context::Relay;
@@ -21,6 +21,7 @@ const FORWARD_BUFFER: usize = 256;
 const BACKOFF_BASE: Duration = Duration::from_secs(1);
 const BACKOFF_CAP: Duration = Duration::from_secs(30);
 
+#[instrument(skip_all, name = "tx_loop", fields(label = label))]
 async fn run_tx_loop<M: Send + 'static>(
     label: &'static str,
     receiver: &mut mpsc::Receiver<Vec<M>>,
@@ -100,6 +101,7 @@ impl<R: Relay> Worker for TxWorker<R> {
         "tx_worker"
     }
 
+    #[instrument(skip_all, name = "tx_worker")]
     async fn run(mut self) -> Result<()> {
         let (mut msg_rx, fwd_task) = forward_requests(self.receiver);
         let relay = self.relay;
@@ -140,6 +142,7 @@ impl<R: Relay> Worker for SrcTxWorker<R> {
         "src_tx_worker"
     }
 
+    #[instrument(skip_all, name = "src_tx_worker")]
     async fn run(mut self) -> Result<()> {
         let (mut msg_rx, fwd_task) = forward_requests(self.receiver);
         let relay = self.relay;

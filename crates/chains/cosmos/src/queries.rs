@@ -9,6 +9,7 @@ use ibc_proto::ibc::core::client::v1::{
 use prost::Message;
 use tendermint_rpc::Client;
 use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
+use tracing::instrument;
 
 use mercury_chain_traits::queries::{
     CanQueryChainStatus, CanQueryClientState, CanQueryConsensusState, HasClientLatestHeight,
@@ -109,6 +110,7 @@ where
 
 #[async_trait]
 impl<S: CosmosSigner> CanQueryChainStatus for CosmosChain<S> {
+    #[instrument(skip_all, name = "query_chain_status")]
     async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
         let status = self.rpc_client.status().await.map_err(Error::report)?;
         Ok(CosmosChainStatus {
@@ -120,6 +122,7 @@ impl<S: CosmosSigner> CanQueryChainStatus for CosmosChain<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> CanQueryClientState<Self> for CosmosChain<S> {
+    #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
         client_id: &Self::ClientId,
@@ -157,6 +160,7 @@ impl<S: CosmosSigner> CanQueryClientState<Self> for CosmosChain<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> CanQueryConsensusState<Self> for CosmosChain<S> {
+    #[instrument(skip_all, name = "query_consensus_state", fields(client_id = %client_id))]
     async fn query_consensus_state(
         &self,
         client_id: &Self::ClientId,

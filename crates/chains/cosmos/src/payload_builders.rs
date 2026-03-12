@@ -9,6 +9,8 @@ use ibc_client_tendermint::types::{
     Header as TmIbcHeader, TrustThreshold,
 };
 use ibc_proto::google::protobuf::Any;
+use tracing::instrument;
+
 use mercury_chain_traits::payload_builders::{
     CanBuildCreateClientPayload, CanBuildUpdateClientPayload,
 };
@@ -42,6 +44,7 @@ pub struct CosmosUpdateClientPayload {
 impl<S: CosmosSigner> CanBuildCreateClientPayload<Self> for CosmosChain<S> {
     type CreateClientPayload = CosmosCreateClientPayload;
 
+    #[instrument(skip_all, name = "build_create_client_payload")]
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
         let latest_block = self
             .rpc_client
@@ -96,6 +99,7 @@ impl<S: CosmosSigner> CanBuildCreateClientPayload<Self> for CosmosChain<S> {
 impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
     type UpdateClientPayload = CosmosUpdateClientPayload;
 
+    #[instrument(skip_all, name = "build_update_client_payload", fields(trusted = %trusted_height, target = %target_height))]
     async fn build_update_client_payload(
         &self,
         trusted_height: &Self::Height,

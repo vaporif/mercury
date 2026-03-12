@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use prost::Message;
 use sha2::{Digest, Sha256};
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use mercury_chain_traits::tx::{
     CanEstimateFee, CanPollTxResponse, CanQueryNonce, CanSubmitTx, HasTxTypes,
@@ -121,6 +121,7 @@ async fn build_tx_bytes(
 
 #[async_trait]
 impl<S: CosmosSigner> CanQueryNonce for CosmosChain<S> {
+    #[instrument(skip_all, name = "query_nonce")]
     async fn query_nonce(&self, signer: &Self::Signer) -> Result<Self::Nonce> {
         use ibc_proto::cosmos::auth::v1beta1::{
             BaseAccount, QueryAccountRequest, QueryAccountResponse,
@@ -157,6 +158,7 @@ impl<S: CosmosSigner> CanQueryNonce for CosmosChain<S> {
 }
 
 impl<S: CosmosSigner> CosmosChain<S> {
+    #[instrument(skip_all, name = "estimate_fee", fields(msg_count = messages.len()))]
     pub async fn estimate_fee_with_nonce(
         &self,
         signer: &S,
@@ -240,6 +242,7 @@ impl<S: CosmosSigner> CanEstimateFee for CosmosChain<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> CanSubmitTx for CosmosChain<S> {
+    #[instrument(skip_all, name = "submit_tx", fields(seq = nonce.sequence, gas = fee.gas_limit))]
     async fn submit_tx(
         &self,
         signer: &Self::Signer,
@@ -284,6 +287,7 @@ impl<S: CosmosSigner> CanSubmitTx for CosmosChain<S> {
 impl<S: CosmosSigner> CanPollTxResponse for CosmosChain<S> {
     type TxResponse = crate::types::CosmosTxResponse;
 
+    #[instrument(skip_all, name = "poll_tx_response", fields(tx_hash = %tx_hash))]
     async fn poll_tx_response(&self, tx_hash: &Self::TxHash) -> Result<Self::TxResponse> {
         use tendermint::Hash;
         use tendermint_rpc::Client;

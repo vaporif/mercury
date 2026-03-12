@@ -44,6 +44,30 @@ pub mod channel {
         pub app_acknowledgements: Vec<Vec<u8>>,
     }
 
+    /// Message to send a packet from the source chain.
+    #[derive(Clone, PartialEq, Eq, Message)]
+    pub struct MsgSendPacket {
+        #[prost(string, tag = "1")]
+        pub source_client: String,
+        #[prost(uint64, tag = "2")]
+        pub timeout_timestamp: u64,
+        #[prost(message, repeated, tag = "3")]
+        pub payloads: Vec<Payload>,
+        #[prost(string, tag = "4")]
+        pub signer: String,
+    }
+
+    impl prost::Name for MsgSendPacket {
+        const NAME: &'static str = "MsgSendPacket";
+        const PACKAGE: &'static str = "ibc.core.channel.v2";
+        fn full_name() -> String {
+            "ibc.core.channel.v2.MsgSendPacket".into()
+        }
+        fn type_url() -> String {
+            "/ibc.core.channel.v2.MsgSendPacket".into()
+        }
+    }
+
     /// Message to receive a packet on the destination chain.
     #[derive(Clone, PartialEq, Eq, Message)]
     pub struct MsgRecvPacket {

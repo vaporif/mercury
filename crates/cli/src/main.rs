@@ -7,6 +7,7 @@ use mercury_cosmos::chain::CosmosChain;
 use mercury_cosmos::keys::{Secp256k1KeyPair, load_cosmos_signer};
 use mercury_relay::context::RelayContext;
 use tokio::task::JoinHandle;
+use tracing::instrument;
 use tracing_subscriber::EnvFilter;
 
 mod config;
@@ -93,6 +94,7 @@ enum ConnectedChain {
     Cosmos(CosmosChain<Secp256k1KeyPair>),
 }
 
+#[instrument(skip_all, name = "run_start")]
 async fn run_start(config_path: &Path) -> eyre::Result<()> {
     let cfg = config::load_config(config_path)?;
     let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
@@ -160,6 +162,7 @@ async fn run_start(config_path: &Path) -> eyre::Result<()> {
     Ok(())
 }
 
+#[instrument(skip_all, name = "connect_chain")]
 async fn connect_chain(
     chain_config: &ChainConfig,
     config_dir: &Path,

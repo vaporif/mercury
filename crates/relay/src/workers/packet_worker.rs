@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 use mercury_chain_traits::events::CanExtractPacketEvents;
 use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
@@ -57,6 +57,7 @@ where
     <R::SrcChain as HasPacketTypes<R::DstChain>>::Acknowledgement:
         Borrow<<R::DstChain as HasPacketTypes<R::SrcChain>>::Acknowledgement>,
 {
+    #[instrument(skip_all, name = "build_dst_update_client")]
     async fn build_dst_update_client_messages(
         &self,
     ) -> Result<(
@@ -97,6 +98,7 @@ where
         Ok((src_height, update_msgs))
     }
 
+    #[instrument(skip_all, name = "build_src_update_client")]
     async fn build_src_update_client_messages(
         &self,
     ) -> Result<(
@@ -137,6 +139,7 @@ where
         Ok((dst_height, update_msgs))
     }
 
+    #[instrument(skip_all, name = "build_recv_and_ack")]
     async fn build_recv_and_ack_messages(
         &self,
         send_packets: SendEvents<R>,
@@ -208,6 +211,7 @@ where
         messages
     }
 
+    #[instrument(skip_all, name = "build_timeout")]
     async fn build_timeout_messages(
         &self,
         timed_out: SendEvents<R>,
@@ -259,6 +263,7 @@ type WriteAckEvents<R> =
 
 /// Classify events into send packets, timed-out send packets, and write acks.
 /// Uses the destination chain's timestamp for timeout detection instead of local time.
+#[instrument(skip_all, name = "classify_events", fields(event_count = events.len()))]
 fn classify_events<R: Relay>(
     events: Vec<IbcEvent<R>>,
     dst_timestamp_secs: u64,
@@ -293,6 +298,7 @@ fn classify_events<R: Relay>(
     (send_packets, timed_out, write_acks)
 }
 
+#[instrument(skip_all, name = "retry_proof_fetch")]
 async fn retry_proof_fetch<F, Fut, T>(f: F) -> Result<T>
 where
     F: Fn() -> Fut,
@@ -337,6 +343,7 @@ where
         "packet_worker"
     }
 
+    #[instrument(skip_all, name = "packet_worker")]
     async fn run(mut self) -> Result<()> {
         type DstChain<R> = <R as Relay>::DstChain;
 

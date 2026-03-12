@@ -1,7 +1,7 @@
 use std::borrow::Borrow;
 
 use async_trait::async_trait;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use mercury_chain_traits::packet_builders::{
     CanBuildAckPacketMessage, CanBuildReceivePacketMessage, CanBuildTimeoutPacketMessage,
@@ -31,6 +31,7 @@ where
         u64,
     )>,
 {
+    #[instrument(skip_all, name = "build_receive_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_receive_packet_messages(
         &self,
         packet: &<Src as HasPacketTypes<Dst>>::Packet,
@@ -74,6 +75,7 @@ where
     <Dst as HasPacketTypes<Src>>::Acknowledgement:
         Borrow<<Src as HasPacketTypes<Dst>>::Acknowledgement>,
 {
+    #[instrument(skip_all, name = "build_ack_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_ack_packet_messages(
         &self,
         packet: &<Src as HasPacketTypes<Dst>>::Packet,
@@ -116,6 +118,7 @@ where
     )>,
     <Src as HasPacketTypes<Dst>>::Packet: Borrow<<Dst as HasPacketTypes<Src>>::Packet>,
 {
+    #[instrument(skip_all, name = "build_timeout_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_timeout_packet_messages(
         &self,
         packet: &<Src as HasPacketTypes<Dst>>::Packet,

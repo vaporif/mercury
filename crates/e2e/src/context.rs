@@ -9,8 +9,11 @@ use mercury_chain_traits::messaging::CanSendMessages;
 use mercury_chain_traits::payload_builders::CanBuildCreateClientPayload;
 use mercury_cosmos::chain::CosmosChain;
 use mercury_cosmos::config::{CosmosChainConfig, GasPrice};
+use mercury_cosmos::ibc_v2::channel::{MsgSendPacket, Payload};
 use mercury_cosmos::keys::Secp256k1KeyPair;
-use mercury_cosmos::types::CosmosTxResponse;
+use mercury_cosmos::types::{CosmosMessage, CosmosTxResponse};
+use prost::Message;
+use prost::Name as _;
 use sha2::{Digest, Sha256};
 use tracing::info;
 
@@ -97,25 +100,59 @@ impl TestContext {
         })
     }
 
-    /// Send an IBC transfer from chain A user1 to chain B user1.
+    /// Send an IBC v2 transfer from chain A user1 to chain B user1.
     ///
-    /// Uses `simd tx ibc-transfer transfer` via container exec since
-    /// `MsgTransfer` v2 proto is not yet defined in mercury-cosmos.
-    #[allow(clippy::future_not_send)]
+    /// Builds and submits a `MsgSendPacket` with JSON-encoded
+    /// `FungibleTokenPacketData` as the payload.
     pub async fn send_transfer_a_to_b(&self, amount: u64, denom: &str) -> Result<()> {
+        let user_a = &self.handle_a.user_wallets()[0];
         let user_b = &self.handle_b.user_wallets()[0];
-        let cmd = format!(
-            "simd tx ibc-transfer transfer transfer {} {} {}{}  \
-             --from user1 --keyring-backend test --home /root/.simapp \
-             --chain-id {} --fees 500stake -y --output json 2>/dev/null",
-            self.client_id_a,
-            user_b.address,
-            amount,
-            denom,
-            self.handle_a.chain_id(),
+
+        // Build a CosmosChain with user1's key for signing
+        let user_chain = build_cosmos_chain_with_wallet(&self.handle_a, user_a).await?;
+
+        // JSON-encoded FungibleTokenPacketData (ICS-20 v1)
+        let packet_data = serde_json::json!({
+            "denom": denom,
+            "amount": amount.to_string(),
+            "sender": user_a.address,
+            "receiver": user_b.address,
+            "memo": "",
+        });
+
+        let timeout = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 600; // 10 minutes from now
+
+        let msg = MsgSendPacket {
+            source_client: self.client_id_a.to_string(),
+            timeout_timestamp: timeout,
+            payloads: vec![Payload {
+                source_port: "transfer".to_string(),
+                destination_port: "transfer".to_string(),
+                version: "ics20-1".to_string(),
+                encoding: "application/json".to_string(),
+                value: serde_json::to_vec(&packet_data)?,
+            }],
+            signer: user_a.address.clone(),
+        };
+
+        let cosmos_msg = CosmosMessage {
+            type_url: MsgSendPacket::type_url(),
+            value: msg.encode_to_vec(),
+        };
+
+        let responses = user_chain
+            .send_messages(vec![cosmos_msg])
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+
+        info!(
+            tx_hash = %responses.first().map(|r| r.hash.as_str()).unwrap_or("?"),
+            "IBC v2 transfer submitted on chain A"
         );
-        let output = self.handle_a.exec_cmd(&cmd).await?;
-        info!(output = %output.trim(), "transfer tx submitted on chain A");
         Ok(())
     }
 
@@ -210,6 +247,33 @@ fn build_signer_from_wallet(
         secret_key,
         account_prefix,
     ))
+}
+
+async fn build_cosmos_chain_with_wallet(
+    handle: &CosmosDockerHandle,
+    wallet: &crate::bootstrap::traits::Wallet,
+) -> Result<CosmosChain<Secp256k1KeyPair>> {
+    let signer = build_signer_from_wallet(wallet, "cosmos")?;
+    let config = CosmosChainConfig {
+        chain_id: handle.chain_id().to_string(),
+        rpc_addr: handle.rpc_endpoint().to_string(),
+        grpc_addr: handle.grpc_endpoint().to_string(),
+        account_prefix: "cosmos".to_string(),
+        key_name: "user".to_string(),
+        key_file: std::path::PathBuf::new(),
+        gas_price: GasPrice {
+            amount: 0.0,
+            denom: "stake".to_string(),
+        },
+        block_time: Duration::from_secs(1),
+        max_msg_num: 30,
+        trusting_period: None,
+        unbonding_period: None,
+        max_clock_drift: None,
+    };
+    CosmosChain::new(config, signer)
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))
 }
 
 async fn build_cosmos_chain(handle: &CosmosDockerHandle) -> Result<CosmosChain<Secp256k1KeyPair>> {

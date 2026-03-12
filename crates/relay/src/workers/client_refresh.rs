@@ -4,7 +4,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 
 use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
 use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
@@ -41,6 +41,7 @@ where
         "client_refresh"
     }
 
+    #[instrument(skip_all, name = "client_refresh")]
     async fn run(self) -> Result<()> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
