@@ -14,7 +14,11 @@ By the time async Rust matured, the sync model was load-bearing and too costly t
 
 ## Hermes SDK: CGP Complexity
 
-[Hermes SDK](https://github.com/informalsystems/hermes-sdk) was built on [Context-Generic Programming](https://github.com/contextgeneric/cgp) (CGP), a custom Rust framework that provides compile-time polymorphism without runtime dispatch. In practice, it made the codebase difficult to contribute to.
+[Hermes SDK](https://github.com/informalsystems/hermes-sdk) was built on [Context-Generic Programming](https://github.com/contextgeneric/cgp) (CGP), a custom Rust framework that provides compile-time polymorphism without runtime dispatch.
+
+The problems CGP targets are real. Hermes v1's monolithic `ChainHandle` trait was hardcoded to Cosmos, and IBC is expanding to Starknet, Sovereign rollups, Substrate — chains with fundamentally different APIs, signing, and proof systems. CGP allows generic relay logic to declare only the capabilities it needs, abstracts away infrastructure (no deps on tokio, std, or Cosmos crates in core logic), and works around Rust's coherence and orphan rules that otherwise block composing chain adapters from independent crates.
+
+The issue is that the complexity cost is disproportionate to the benefits. In practice, it made the codebase difficult to contribute to.
 
 ## What CGP Actually Is
 
