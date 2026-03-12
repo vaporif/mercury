@@ -31,7 +31,7 @@
     formatter = nixpkgs.lib.genAttrs systems (system: nixpkgs.legacyPackages.${system}.alejandra);
 
     overlays.default = final: _prev: {
-      mercury = self.packages.${final.stdenv.hostPlatform.system}.default;
+      mercury-relayer = self.packages.${final.stdenv.hostPlatform.system}.default;
     };
 
     packages = forAllSystems ({
@@ -42,7 +42,7 @@
       src = craneLib.cleanCargoSource ./.;
       commonArgs = {
         inherit src;
-        pname = "mercury";
+        pname = "mercury-relayer";
         strictDeps = true;
         nativeBuildInputs = [
           pkgs.cmake
@@ -57,7 +57,7 @@
       meta = {
         description = "Mercury";
         license = pkgs.lib.licenses.mit;
-        mainProgram = "mercury";
+        mainProgram = "mercury-relayer";
       };
     in {
       default = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts meta;});

@@ -12,6 +12,6 @@ FROM alpine:3
 
 RUN apk add --no-cache ca-certificates
 
-COPY --from=builder /build/target/release/mercury /usr/local/bin/mercury
+COPY --from=builder /build/target/release/mercury-relayer /usr/local/bin/mercury-relayer
 
-ENTRYPOINT ["mercury"]
+ENTRYPOINT ["mercury-relayer"]
