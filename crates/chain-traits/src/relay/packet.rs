@@ -2,29 +2,32 @@ use async_trait::async_trait;
 use mercury_core::error::Result;
 
 use super::context::Relay;
-use crate::types::HasPacketTypes;
+use crate::types::{HasChainTypes, HasMessageTypes, HasPacketTypes};
 
 #[async_trait]
-pub trait CanRelayReceivePacket: Relay {
-    async fn relay_receive_packet(
+pub trait CanBuildReceivePacketMessages: Relay {
+    async fn build_receive_packet_messages(
         &self,
         packet: &<Self::SrcChain as HasPacketTypes<Self::DstChain>>::Packet,
-    ) -> Result<()>;
+        proof_height: &<Self::SrcChain as HasChainTypes>::Height,
+    ) -> Result<Vec<<Self::DstChain as HasMessageTypes>::Message>>;
 }
 
 #[async_trait]
-pub trait CanRelayAckPacket: Relay {
-    async fn relay_ack_packet(
+pub trait CanBuildAckPacketMessages: Relay {
+    async fn build_ack_packet_messages(
         &self,
         packet: &<Self::SrcChain as HasPacketTypes<Self::DstChain>>::Packet,
         ack: &<Self::DstChain as HasPacketTypes<Self::SrcChain>>::Acknowledgement,
-    ) -> Result<()>;
+        proof_height: &<Self::SrcChain as HasChainTypes>::Height,
+    ) -> Result<Vec<<Self::DstChain as HasMessageTypes>::Message>>;
 }
 
 #[async_trait]
-pub trait CanRelayTimeoutPacket: Relay {
-    async fn relay_timeout_packet(
+pub trait CanBuildTimeoutPacketMessages: Relay {
+    async fn build_timeout_packet_messages(
         &self,
         packet: &<Self::SrcChain as HasPacketTypes<Self::DstChain>>::Packet,
-    ) -> Result<()>;
+        proof_height: &<Self::DstChain as HasChainTypes>::Height,
+    ) -> Result<Vec<<Self::DstChain as HasMessageTypes>::Message>>;
 }

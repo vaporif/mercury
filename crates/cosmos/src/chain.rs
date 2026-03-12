@@ -79,6 +79,14 @@ impl<S: CosmosSigner> HasPacketTypes<Self> for CosmosChain<S> {
     type PacketCommitment = PacketCommitment;
     type PacketReceipt = PacketReceipt;
     type Acknowledgement = PacketAcknowledgement;
+
+    fn packet_sequence(packet: &CosmosPacket) -> u64 {
+        packet.sequence
+    }
+
+    fn packet_timeout_timestamp(packet: &CosmosPacket) -> u64 {
+        packet.timeout_timestamp
+    }
 }
 
 impl<S: CosmosSigner> HasChainStatusType for CosmosChain<S> {

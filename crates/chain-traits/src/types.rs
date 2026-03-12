@@ -29,6 +29,9 @@ pub trait HasPacketTypes<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Coun
     type PacketCommitment: ThreadSafe;
     type PacketReceipt: ThreadSafe;
     type Acknowledgement: ThreadSafe;
+
+    fn packet_sequence(packet: &Self::Packet) -> u64;
+    fn packet_timeout_timestamp(packet: &Self::Packet) -> u64;
 }
 
 pub trait Chain<Counterparty: HasChainTypes + ?Sized>:

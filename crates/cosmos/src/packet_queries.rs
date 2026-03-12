@@ -10,6 +10,33 @@ use crate::keys::CosmosSigner;
 use crate::rpc::query_abci;
 use crate::types::{MerkleProof, PacketAcknowledgement, PacketCommitment, PacketReceipt};
 
+/// IBC v2 commitment key: `source_client_bytes` || 0x01 || `sequence_be_bytes`
+fn commitment_key(source_client: &str, sequence: u64) -> Vec<u8> {
+    let mut key = Vec::new();
+    key.extend_from_slice(source_client.as_bytes());
+    key.push(0x01);
+    key.extend_from_slice(&sequence.to_be_bytes());
+    key
+}
+
+/// IBC v2 receipt key: `dest_client_bytes` || 0x02 || `sequence_be_bytes`
+fn receipt_key(dest_client: &str, sequence: u64) -> Vec<u8> {
+    let mut key = Vec::new();
+    key.extend_from_slice(dest_client.as_bytes());
+    key.push(0x02);
+    key.extend_from_slice(&sequence.to_be_bytes());
+    key
+}
+
+/// IBC v2 ack key: `dest_client_bytes` || 0x03 || `sequence_be_bytes`
+fn ack_key(dest_client: &str, sequence: u64) -> Vec<u8> {
+    let mut key = Vec::new();
+    key.extend_from_slice(dest_client.as_bytes());
+    key.push(0x03);
+    key.extend_from_slice(&sequence.to_be_bytes());
+    key
+}
+
 fn extract_proof(response: &tendermint_rpc::endpoint::abci_query::AbciQuery) -> MerkleProof {
     let proof_bytes = response
         .proof
@@ -31,11 +58,10 @@ impl<S: CosmosSigner> CanQueryPacketCommitment<Self> for CosmosChain<S> {
         sequence: u64,
         height: &Self::Height,
     ) -> Result<(Option<PacketCommitment>, MerkleProof)> {
-        let key = format!("ibc/{client_id}/commitments/{sequence}");
         let response = query_abci(
             &self.rpc_client,
             "store/ibc/key",
-            key.into_bytes(),
+            commitment_key(client_id.as_str(), sequence),
             Some(*height),
             true,
         )
@@ -59,11 +85,10 @@ impl<S: CosmosSigner> CanQueryPacketReceipt<Self> for CosmosChain<S> {
         sequence: u64,
         height: &Self::Height,
     ) -> Result<(Option<PacketReceipt>, MerkleProof)> {
-        let key = format!("ibc/{client_id}/receipts/{sequence}");
         let response = query_abci(
             &self.rpc_client,
             "store/ibc/key",
-            key.into_bytes(),
+            receipt_key(client_id.as_str(), sequence),
             Some(*height),
             true,
         )
@@ -87,11 +112,10 @@ impl<S: CosmosSigner> CanQueryPacketAcknowledgement<Self> for CosmosChain<S> {
         sequence: u64,
         height: &Self::Height,
     ) -> Result<(Option<PacketAcknowledgement>, MerkleProof)> {
-        let key = format!("ibc/{client_id}/acks/{sequence}");
         let response = query_abci(
             &self.rpc_client,
             "store/ibc/key",
-            key.into_bytes(),
+            ack_key(client_id.as_str(), sequence),
             Some(*height),
             true,
         )

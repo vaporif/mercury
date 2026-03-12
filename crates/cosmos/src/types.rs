@@ -62,3 +62,9 @@ pub struct PacketAcknowledgement(pub Vec<u8>);
 pub struct SendPacketEvent {
     pub packet: CosmosPacket,
 }
+
+#[derive(Clone, Debug)]
+pub struct WriteAckEvent {
+    pub packet: CosmosPacket,
+    pub ack: PacketAcknowledgement,
+}

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use mercury_core::error::Result;
 
@@ -29,4 +31,14 @@ pub trait CanQueryConsensusState<Counterparty: HasChainTypes + ?Sized>:
         consensus_height: &Counterparty::Height,
         query_height: &Self::Height,
     ) -> Result<Self::ConsensusState>;
+}
+
+pub trait HasTrustingPeriod<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Counterparty> {
+    fn trusting_period(client_state: &Self::ClientState) -> Option<Duration>;
+}
+
+pub trait HasClientLatestHeight<Counterparty: HasChainTypes + ?Sized>:
+    HasIbcTypes<Counterparty>
+{
+    fn client_latest_height(client_state: &Self::ClientState) -> Counterparty::Height;
 }

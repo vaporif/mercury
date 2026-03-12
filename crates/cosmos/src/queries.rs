@@ -11,7 +11,8 @@ use tendermint_rpc::Client;
 use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 
 use mercury_chain_traits::queries::{
-    CanQueryChainStatus, CanQueryClientState, CanQueryConsensusState,
+    CanQueryChainStatus, CanQueryClientState, CanQueryConsensusState, HasClientLatestHeight,
+    HasTrustingPeriod,
 };
 use mercury_chain_traits::types::HasChainTypes;
 use mercury_core::error::{Error, Result};
@@ -206,5 +207,18 @@ impl<S: CosmosSigner> CanQueryConsensusState<Self> for CosmosChain<S> {
         >>::decode(any.value.as_slice())
         .map_err(Error::report)?;
         Ok(consensus_state)
+    }
+}
+
+impl<S: CosmosSigner> HasTrustingPeriod<Self> for CosmosChain<S> {
+    fn trusting_period(client_state: &Self::ClientState) -> Option<std::time::Duration> {
+        Some(client_state.trusting_period)
+    }
+}
+
+impl<S: CosmosSigner> HasClientLatestHeight<Self> for CosmosChain<S> {
+    fn client_latest_height(client_state: &Self::ClientState) -> Self::Height {
+        tendermint::block::Height::try_from(client_state.latest_height.revision_height())
+            .expect("valid height")
     }
 }

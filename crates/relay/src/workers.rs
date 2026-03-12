@@ -1,3 +1,4 @@
+pub mod client_refresh;
 pub mod event_watcher;
 pub mod packet_worker;
 pub mod tx_worker;

@@ -17,6 +17,8 @@ mercury-core = { workspace = true }
 mercury-chain-traits = { workspace = true }
 
 async-trait = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

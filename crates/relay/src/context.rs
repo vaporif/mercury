@@ -1,12 +1,24 @@
+use std::borrow::Borrow;
 use std::sync::Arc;
 
+use mercury_chain_traits::events::CanQueryBlockEvents;
+use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
+use mercury_chain_traits::packet_builders::{
+    CanBuildAckPacketMessage, CanBuildReceivePacketMessage,
+};
+use mercury_chain_traits::packet_queries::{CanQueryPacketAcknowledgement, CanQueryPacketCommitment};
+use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
+use mercury_chain_traits::queries::{
+    CanQueryChainStatus, CanQueryClientState, HasClientLatestHeight, HasTrustingPeriod,
+};
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::{Chain, HasIbcTypes};
+use mercury_chain_traits::types::{Chain, HasChainStatusType, HasChainTypes, HasIbcTypes, HasPacketTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::workers::client_refresh::ClientRefreshWorker;
 use crate::workers::event_watcher::EventWatcher;
 use crate::workers::packet_worker::PacketWorker;
 use crate::workers::tx_worker::TxWorker;
@@ -51,8 +63,31 @@ where
 
 impl<Src, Dst> RelayContext<Src, Dst>
 where
-    Src: Chain<Dst>,
-    Dst: Chain<Src>,
+    Src: Chain<Dst>
+        + CanQueryBlockEvents
+        + CanQueryChainStatus
+        + HasChainStatusType
+        + CanBuildUpdateClientPayload<Dst>
+        + CanQueryPacketCommitment<Dst>
+        + CanQueryPacketAcknowledgement<Dst>,
+    Dst: Chain<Src>
+        + CanQueryChainStatus
+        + HasChainStatusType
+        + CanQueryClientState<Src>
+        + HasClientLatestHeight<Src>
+        + HasTrustingPeriod<Src>
+        + CanBuildUpdateClientMessage<Src>
+        + CanBuildReceivePacketMessage<Src>
+        + CanBuildAckPacketMessage<Src>,
+    <Dst as CanBuildReceivePacketMessage<Src>>::ReceivePacketPayload:
+        From<(<Src as HasIbcTypes<Dst>>::CommitmentProof, <Src as HasChainTypes>::Height)>,
+    <Dst as CanBuildAckPacketMessage<Src>>::AckPacketPayload:
+        From<(<Src as HasIbcTypes<Dst>>::CommitmentProof, <Src as HasChainTypes>::Height)>,
+    <Src as HasPacketTypes<Dst>>::Packet: Borrow<<Dst as HasPacketTypes<Src>>::Packet>,
+    <Src as HasPacketTypes<Dst>>::Acknowledgement:
+        Borrow<<Dst as HasPacketTypes<Src>>::Acknowledgement>,
+    <Dst as HasPacketTypes<Src>>::Acknowledgement:
+        Borrow<<Src as HasPacketTypes<Dst>>::Acknowledgement>,
 {
     pub async fn run(self: Arc<Self>) -> Result<()> {
         let token = CancellationToken::new();
@@ -65,12 +100,20 @@ where
             sender: event_tx,
             token: token.clone(),
         };
+
+        let client_refresh = ClientRefreshWorker {
+            relay: Arc::clone(&self),
+            sender: tx_req_tx.clone(),
+            token: token.clone(),
+        };
+
         let packet_worker = PacketWorker {
             relay: Arc::clone(&self),
             receiver: event_rx,
             sender: tx_req_tx,
             token: token.clone(),
         };
+
         let tx_worker = TxWorker {
             relay: Arc::clone(&self),
             receiver: tx_req_rx,
@@ -80,11 +123,13 @@ where
         let event_watcher_handle = spawn_worker(event_watcher);
         let packet_worker_handle = spawn_worker(packet_worker);
         let tx_worker_handle = spawn_worker(tx_worker);
+        let client_refresh_handle = spawn_worker(client_refresh);
 
         let result = tokio::select! {
             res = event_watcher_handle => res,
             res = packet_worker_handle => res,
             res = tx_worker_handle => res,
+            res = client_refresh_handle => res,
         };
 
         token.cancel();

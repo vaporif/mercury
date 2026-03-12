@@ -1855,6 +1855,8 @@ name = "mercury-relay"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "eyre",
+ "futures",
  "mercury-chain-traits",
  "mercury-core",
  "tokio",

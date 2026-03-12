@@ -1,12 +1,16 @@
 use async_trait::async_trait;
-use ibc::core::host::types::identifiers::ClientId;
 use mercury_chain_traits::events::{CanExtractPacketEvents, CanQueryBlockEvents};
 use mercury_core::error::{Error, Result};
+use prost::Message as _;
 use tendermint_rpc::Client;
 
 use crate::chain::CosmosChain;
+use crate::ibc_v2::channel;
 use crate::keys::CosmosSigner;
-use crate::types::{CosmosEvent, CosmosPacket, PacketPayload, SendPacketEvent};
+use crate::types::{
+    CosmosEvent, CosmosPacket, PacketAcknowledgement, PacketPayload, SendPacketEvent,
+    WriteAckEvent,
+};
 
 fn get_attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
     attrs
@@ -15,117 +19,67 @@ fn get_attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
-fn parse_payloads(attrs: &[(String, String)]) -> Vec<PacketPayload> {
-    let mut payloads = Vec::new();
-    let mut idx = 0u32;
-    loop {
-        let prefix = format!("packet_payload_{idx}_");
-        let source_port = get_attr(attrs, &format!("{prefix}source_port"));
-        let dest_port = get_attr(attrs, &format!("{prefix}dest_port"));
-        let version = get_attr(attrs, &format!("{prefix}version"));
-        let encoding = get_attr(attrs, &format!("{prefix}encoding"));
-        let data = get_attr(attrs, &format!("{prefix}data"));
-
-        if let (Some(sp), Some(dp), Some(v), Some(enc), Some(d)) =
-            (source_port, dest_port, version, encoding, data)
-        {
-            let data_bytes = hex::decode(d).unwrap_or_else(|e| {
-                tracing::warn!(error = %e, "failed to hex-decode packet payload data, using raw bytes");
-                d.as_bytes().to_vec()
-            });
-            payloads.push(PacketPayload {
-                source_port: sp.to_string(),
-                dest_port: dp.to_string(),
-                version: v.to_string(),
-                encoding: enc.to_string(),
-                data: data_bytes,
-            });
-            idx += 1;
-        } else {
-            break;
-        }
-    }
-
-    // JSON fallback: try "packet_payloads" attribute
-    if payloads.is_empty()
-        && let Some(json_str) = get_attr(attrs, "packet_payloads")
-        && let Ok(parsed) = serde_json::from_str::<Vec<serde_json::Value>>(json_str)
-    {
-        for val in parsed {
-            let source_port = val
-                .get("source_port")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            let dest_port = val
-                .get("dest_port")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            let version = val
-                .get("version")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            let encoding = val
-                .get("encoding")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            let data_str = val
-                .get("data")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            let data_bytes = hex::decode(data_str).unwrap_or_else(|e| {
-                tracing::warn!(error = %e, "failed to hex-decode packet payload data, using raw bytes");
-                data_str.as_bytes().to_vec()
-            });
-
-            payloads.push(PacketPayload {
-                source_port: source_port.to_string(),
-                dest_port: dest_port.to_string(),
-                version: version.to_string(),
-                encoding: encoding.to_string(),
-                data: data_bytes,
-            });
-        }
-    }
-
-    payloads
+fn v2_packet_to_cosmos(pkt: channel::Packet) -> Option<CosmosPacket> {
+    let source_client_id = pkt.source_client.parse().ok()?;
+    let dest_client_id = pkt.destination_client.parse().ok()?;
+    Some(CosmosPacket {
+        source_client_id,
+        dest_client_id,
+        sequence: pkt.sequence,
+        timeout_timestamp: pkt.timeout_timestamp,
+        payloads: pkt
+            .payloads
+            .into_iter()
+            .map(|p| PacketPayload {
+                source_port: p.source_port,
+                dest_port: p.destination_port,
+                version: p.version,
+                encoding: p.encoding,
+                data: p.value,
+            })
+            .collect(),
+    })
 }
 
 impl<S: CosmosSigner> CanExtractPacketEvents<Self> for CosmosChain<S> {
     type SendPacketEvent = SendPacketEvent;
+    type WriteAckEvent = WriteAckEvent;
 
     fn try_extract_send_packet_event(event: &CosmosEvent) -> Option<SendPacketEvent> {
         if event.kind != "send_packet" {
             return None;
         }
-
-        let sequence: u64 = get_attr(&event.attributes, "packet_sequence")?
-            .parse()
-            .ok()?;
-        let source_client_id: ClientId = get_attr(&event.attributes, "packet_src_client")?
-            .parse()
-            .ok()?;
-        let dest_client_id: ClientId = get_attr(&event.attributes, "packet_dst_client")?
-            .parse()
-            .ok()?;
-        let timeout_timestamp: u64 = get_attr(&event.attributes, "packet_timeout_timestamp")?
-            .parse()
-            .ok()?;
-
-        let payloads = parse_payloads(&event.attributes);
-
+        let hex_str = get_attr(&event.attributes, "encoded_packet_hex")?;
+        let bytes = hex::decode(hex_str).ok()?;
+        let pkt = channel::Packet::decode(bytes.as_slice()).ok()?;
         Some(SendPacketEvent {
-            packet: CosmosPacket {
-                source_client_id,
-                dest_client_id,
-                sequence,
-                timeout_timestamp,
-                payloads,
-            },
+            packet: v2_packet_to_cosmos(pkt)?,
+        })
+    }
+
+    fn try_extract_write_ack_event(event: &CosmosEvent) -> Option<WriteAckEvent> {
+        if event.kind != "write_acknowledgement" {
+            return None;
+        }
+        let pkt_hex = get_attr(&event.attributes, "encoded_packet_hex")?;
+        let ack_hex = get_attr(&event.attributes, "encoded_acknowledgement_hex")?;
+        let pkt_bytes = hex::decode(pkt_hex).ok()?;
+        let ack_bytes = hex::decode(ack_hex).ok()?;
+        let pkt = channel::Packet::decode(pkt_bytes.as_slice()).ok()?;
+        Some(WriteAckEvent {
+            packet: v2_packet_to_cosmos(pkt)?,
+            ack: PacketAcknowledgement(ack_bytes),
         })
     }
 
     fn packet_from_send_event(event: &SendPacketEvent) -> &CosmosPacket {
         &event.packet
+    }
+
+    fn packet_from_write_ack_event(
+        event: &WriteAckEvent,
+    ) -> (&CosmosPacket, &PacketAcknowledgement) {
+        (&event.packet, &event.ack)
     }
 }
 
@@ -192,5 +146,9 @@ impl<S: CosmosSigner> CanQueryBlockEvents for CosmosChain<S> {
     async fn query_latest_height(&self) -> Result<tendermint::block::Height> {
         let status = self.rpc_client.status().await.map_err(Error::report)?;
         Ok(status.sync_info.latest_block_height)
+    }
+
+    fn increment_height(height: &tendermint::block::Height) -> Option<tendermint::block::Height> {
+        height.value().checked_add(1).and_then(|v| tendermint::block::Height::try_from(v).ok())
     }
 }

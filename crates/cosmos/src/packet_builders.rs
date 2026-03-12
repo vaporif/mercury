@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use prost::Message as _;
 
 use ibc_proto::ibc::core::client::v1::Height as ProtoHeight;
 use mercury_chain_traits::packet_builders::{
@@ -30,6 +31,24 @@ pub struct CosmosAckPacketPayload {
 pub struct CosmosTimeoutPacketPayload {
     pub proof: MerkleProof,
     pub proof_height: tendermint::block::Height,
+}
+
+impl From<(MerkleProof, tendermint::block::Height)> for CosmosReceivePacketPayload {
+    fn from((proof, proof_height): (MerkleProof, tendermint::block::Height)) -> Self {
+        Self { proof, proof_height }
+    }
+}
+
+impl From<(MerkleProof, tendermint::block::Height)> for CosmosAckPacketPayload {
+    fn from((proof, proof_height): (MerkleProof, tendermint::block::Height)) -> Self {
+        Self { proof, proof_height }
+    }
+}
+
+impl From<(MerkleProof, tendermint::block::Height)> for CosmosTimeoutPacketPayload {
+    fn from((proof, proof_height): (MerkleProof, tendermint::block::Height)) -> Self {
+        Self { proof, proof_height }
+    }
 }
 
 fn cosmos_packet_to_v2(packet: &CosmosPacket) -> V2Packet {
@@ -91,11 +110,14 @@ impl<S: CosmosSigner> CanBuildAckPacketMessage<Self> for CosmosChain<S> {
         ack: &PacketAcknowledgement,
         payload: Self::AckPacketPayload,
     ) -> Result<CosmosMessage> {
+        // ack.0 stores full proto-encoded Acknowledgement bytes from write_ack event
+        let acknowledgement = channel::Acknowledgement::decode(ack.0.as_slice())
+            .unwrap_or_else(|_| channel::Acknowledgement {
+                app_acknowledgements: vec![ack.0.clone()],
+            });
         let msg = MsgAcknowledgement {
             packet: Some(cosmos_packet_to_v2(packet)),
-            acknowledgement: Some(channel::Acknowledgement {
-                app_acknowledgements: vec![ack.0.clone()],
-            }),
+            acknowledgement: Some(acknowledgement),
             proof_acked: payload.proof.proof_bytes,
             proof_height: Some(to_proto_height(
                 self.chain_id.revision_number(),
