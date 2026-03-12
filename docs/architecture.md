@@ -42,14 +42,30 @@ pub trait HasIbcTypes<Counterparty: HasChainTypes>: HasChainTypes {
 
 `CosmosChain` implements `HasIbcTypes<CosmosChain>` for Cosmos-to-Cosmos relaying, and could implement `HasIbcTypes<CelestiaChain>` with different types for Cosmos-to-Celestia. The compiler prevents mixing up source and destination types.
 
+### Chain Supertrait
+
+`Chain<Counterparty>` bundles the universally required capabilities — any chain participating in IBC must have all of these:
+
+```rust
+pub trait Chain<Counterparty>:
+    HasMessageTypes
+    + HasPacketTypes<Counterparty>
+    + CanSendMessages
+    + CanExtractPacketEvents<Counterparty>
+    + CanQueryChainStatus
+{}
+```
+
+This keeps where clauses focused on only the *additional* bounds each context needs.
+
 ### Trait Groups (~35 total)
 
-- **Type traits** (4) — `HasChainTypes`, `HasMessageTypes`, `HasIbcTypes<C>`, `HasPacketTypes<C>`
-- **Query traits** (6) — chain status, client state, consensus state, packet commitments
+- **Type traits** (5) — `HasChainTypes`, `HasMessageTypes`, `HasIbcTypes<C>`, `HasPacketTypes<C>`, `HasChainStatusType`
+- **Query traits** (7) — chain status, client state, consensus state, client latest height, trusting period, block events, packet commitments/receipts/acks
 - **Message builders** (7) — create/update client, register counterparty, recv/ack/timeout packets
 - **Payload builders** (2) — create/update client payloads (counterparty side)
 - **Transaction traits** (4) — submit, estimate fee, query nonce, poll response
-- **Relay traits** (6) — packet relay, client update, event relay, bidirectional relay
+- **Relay traits** (6) — build recv/ack/timeout messages, client update, event relay, bidirectional relay
 - **Infrastructure** (2) — encoding, worker
 
 ## Crate Layout
@@ -67,15 +83,18 @@ mercury-cli              CLI binary
 
 ## Data Flow: Relaying a Packet
 
-Three workers connected by `tokio::mpsc` channels form the relay pipeline. Each relay direction (A→B, B→A) runs its own pipeline. Shutdown propagates via `CancellationToken` — first worker to exit cancels the rest.
+Four workers connected by `tokio::mpsc` channels form the relay pipeline. Each relay direction (A→B, B→A) runs its own set of workers. Shutdown propagates via `CancellationToken` — first worker to exit cancels the rest.
 
 ```
 EventWatcher ──Vec<IbcEvent>──► PacketWorker ──TxRequest──► TxWorker
+                                                    ▲
+ClientRefreshWorker ────────────TxRequest────────────┘
 ```
 
-1. **EventWatcher** watches source chain for `SendPacket` events, batches per block, sends `Vec<IbcEvent>` downstream
-2. **PacketWorker** receives event batches, queries proofs, builds update client + recv/ack/timeout messages, sends `TxRequest` downstream
-3. **TxWorker** accumulates messages, submits batched transactions to destination chain
+1. **EventWatcher** polls source chain block-by-block for `SendPacket` and `WriteAck` events, batches per block, sends `Vec<IbcEvent>` downstream
+2. **PacketWorker** receives event batches, filters timed-out packets, queries proofs concurrently, builds `MsgUpdateClient` + recv/ack messages, sends `TxRequest` downstream
+3. **ClientRefreshWorker** periodically refreshes the destination client before it expires (sleeps for 1/3 of the trusting period), sends `MsgUpdateClient` via `TxRequest`
+4. **TxWorker** accumulates messages, submits batched transactions to destination chain
 
 ## Error Handling
 
