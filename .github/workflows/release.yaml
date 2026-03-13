@@ -25,6 +25,8 @@ jobs:
             os: windows-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: mercury-relayer
@@ -40,6 +42,8 @@ jobs:
     needs: [release]
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - uses: katyo/publish-crates@v2
         with:

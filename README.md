@@ -75,6 +75,20 @@ The dev shell provides the stable Rust toolchain (cargo, clippy, rustfmt, rust-a
 
 Requires a stable Rust toolchain. Install via [rustup](https://rustup.rs).
 
+### Cloning
+
+This repo uses git submodules. Clone with:
+
+```bash
+git clone --recurse-submodules https://github.com/vaporif/mercury.git
+```
+
+To auto-pull submodules on future `git pull`/`git checkout`:
+
+```bash
+git config submodule.recurse true
+```
+
 ### Building and testing
 
 ```bash

@@ -1,0 +1,4 @@
+[submodule "external/solidity-ibc-eureka"]
+	path = external/solidity-ibc-eureka
+	url = https://github.com/cosmos/solidity-ibc-eureka.git
+	branch = main
