@@ -3,11 +3,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mercury_core::error::Result;
 
-use crate::types::{HasChainStatusType, HasChainTypes, HasIbcTypes};
+use crate::types::{HasChainTypes, HasIbcTypes};
 
 /// Queries the current status (height and timestamp) of the chain.
 #[async_trait]
-pub trait CanQueryChainStatus: HasChainStatusType {
+pub trait CanQueryChainStatus: HasChainTypes {
     async fn query_chain_status(&self) -> Result<Self::ChainStatus>;
 }
 

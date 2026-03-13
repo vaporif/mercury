@@ -2,29 +2,29 @@ use async_trait::async_trait;
 use mercury_core::error::Result;
 
 use super::context::Relay;
-use crate::types::{HasChainTypes, HasMessageTypes, HasPacketTypes};
+use crate::types::{HasChainTypes, HasIbcTypes};
 
 /// Builds relay-level packet messages (receive, ack, timeout).
 #[async_trait]
 pub trait CanBuildRelayPacketMessages: Relay {
     async fn build_receive_packet_messages(
         &self,
-        packet: &<Self::SrcChain as HasPacketTypes<Self::DstChain>>::Packet,
+        packet: &<Self::SrcChain as HasIbcTypes<Self::DstChain>>::Packet,
         proof_height: &<Self::SrcChain as HasChainTypes>::Height,
-    ) -> Result<Vec<<Self::DstChain as HasMessageTypes>::Message>>;
+    ) -> Result<Vec<<Self::DstChain as HasChainTypes>::Message>>;
 
     async fn build_ack_packet_messages(
         &self,
-        packet: &<Self::SrcChain as HasPacketTypes<Self::DstChain>>::Packet,
-        ack: &<Self::DstChain as HasPacketTypes<Self::SrcChain>>::Acknowledgement,
+        packet: &<Self::SrcChain as HasIbcTypes<Self::DstChain>>::Packet,
+        ack: &<Self::DstChain as HasIbcTypes<Self::SrcChain>>::Acknowledgement,
         proof_height: &<Self::SrcChain as HasChainTypes>::Height,
-    ) -> Result<Vec<<Self::DstChain as HasMessageTypes>::Message>>;
+    ) -> Result<Vec<<Self::DstChain as HasChainTypes>::Message>>;
 
     /// Build timeout messages to submit to the **source** chain.
     /// The proof of non-receipt comes from the destination chain.
     async fn build_timeout_packet_messages(
         &self,
-        packet: &<Self::SrcChain as HasPacketTypes<Self::DstChain>>::Packet,
+        packet: &<Self::SrcChain as HasIbcTypes<Self::DstChain>>::Packet,
         proof_height: &<Self::DstChain as HasChainTypes>::Height,
-    ) -> Result<Vec<<Self::SrcChain as HasMessageTypes>::Message>>;
+    ) -> Result<Vec<<Self::SrcChain as HasChainTypes>::Message>>;
 }

@@ -35,15 +35,15 @@ pub struct PacketWorker<R: Relay> {
 impl<R> PacketWorker<R>
 where
     R: Relay + CanBuildRelayPacketMessages,
-    <R::SrcChain as HasPacketTypes<R::DstChain>>::Acknowledgement:
-        Borrow<<R::DstChain as HasPacketTypes<R::SrcChain>>::Acknowledgement>,
+    <R::SrcChain as HasIbcTypes<R::DstChain>>::Acknowledgement:
+        Borrow<<R::DstChain as HasIbcTypes<R::SrcChain>>::Acknowledgement>,
 {
     #[instrument(skip_all, name = "build_dst_update_client")]
     async fn build_dst_update_client_messages(
         &self,
     ) -> UpdateClientResult<
         <R::SrcChain as HasChainTypes>::Height,
-        <R::DstChain as HasMessageTypes>::Message,
+        <R::DstChain as HasChainTypes>::Message,
     > {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
@@ -84,7 +84,7 @@ where
         &self,
     ) -> UpdateClientResult<
         <R::DstChain as HasChainTypes>::Height,
-        <R::SrcChain as HasMessageTypes>::Message,
+        <R::SrcChain as HasChainTypes>::Message,
     > {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
@@ -126,7 +126,7 @@ where
         send_packets: SendEvents<R>,
         write_acks: WriteAckEvents<R>,
         src_height: &<R::SrcChain as HasChainTypes>::Height,
-    ) -> Vec<<R::DstChain as HasMessageTypes>::Message> {
+    ) -> Vec<<R::DstChain as HasChainTypes>::Message> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
@@ -190,7 +190,7 @@ where
         &self,
         timed_out: SendEvents<R>,
         dst_height: &<R::DstChain as HasChainTypes>::Height,
-    ) -> Vec<<R::SrcChain as HasMessageTypes>::Message> {
+    ) -> Vec<<R::SrcChain as HasChainTypes>::Message> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
@@ -252,9 +252,9 @@ fn classify_events<R: Relay>(
                         &e,
                     );
                 let ts =
-                    <SrcChain<R> as HasPacketTypes<DstChain<R>>>::packet_timeout_timestamp(pkt);
+                    <SrcChain<R> as HasIbcTypes<DstChain<R>>>::packet_timeout_timestamp(pkt);
                 if ts > 0 && dst_timestamp_secs >= ts {
-                    let seq = <SrcChain<R> as HasPacketTypes<DstChain<R>>>::packet_sequence(pkt);
+                    let seq = <SrcChain<R> as HasIbcTypes<DstChain<R>>>::packet_sequence(pkt);
                     debug!(seq, "packet timed out, will relay timeout");
                     timed_out.push(e);
                 } else {
@@ -294,8 +294,8 @@ where
 impl<R> Worker for PacketWorker<R>
 where
     R: Relay + CanBuildRelayPacketMessages,
-    <R::SrcChain as HasPacketTypes<R::DstChain>>::Acknowledgement:
-        Borrow<<R::DstChain as HasPacketTypes<R::SrcChain>>::Acknowledgement>,
+    <R::SrcChain as HasIbcTypes<R::DstChain>>::Acknowledgement:
+        Borrow<<R::DstChain as HasIbcTypes<R::SrcChain>>::Acknowledgement>,
 {
     fn name(&self) -> &'static str {
         "packet_worker"

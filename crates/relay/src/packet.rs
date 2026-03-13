@@ -30,16 +30,16 @@ where
         <Dst as HasChainTypes>::Height,
         u64,
     )>,
-    <Src as HasPacketTypes<Dst>>::Packet: Borrow<<Dst as HasPacketTypes<Src>>::Packet>,
-    <Dst as HasPacketTypes<Src>>::Acknowledgement:
-        Borrow<<Src as HasPacketTypes<Dst>>::Acknowledgement>,
+    <Src as HasIbcTypes<Dst>>::Packet: Borrow<<Dst as HasIbcTypes<Src>>::Packet>,
+    <Dst as HasIbcTypes<Src>>::Acknowledgement:
+        Borrow<<Src as HasIbcTypes<Dst>>::Acknowledgement>,
 {
     #[instrument(skip_all, name = "build_receive_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_receive_packet_messages(
         &self,
-        packet: &<Src as HasPacketTypes<Dst>>::Packet,
+        packet: &<Src as HasIbcTypes<Dst>>::Packet,
         proof_height: &<Src as HasChainTypes>::Height,
-    ) -> Result<Vec<<Dst as HasMessageTypes>::Message>> {
+    ) -> Result<Vec<<Dst as HasChainTypes>::Message>> {
         let sequence = Src::packet_sequence(packet);
 
         let (commitment, proof) = self
@@ -66,10 +66,10 @@ where
     #[instrument(skip_all, name = "build_ack_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_ack_packet_messages(
         &self,
-        packet: &<Src as HasPacketTypes<Dst>>::Packet,
-        ack: &<Dst as HasPacketTypes<Src>>::Acknowledgement,
+        packet: &<Src as HasIbcTypes<Dst>>::Packet,
+        ack: &<Dst as HasIbcTypes<Src>>::Acknowledgement,
         proof_height: &<Src as HasChainTypes>::Height,
-    ) -> Result<Vec<<Dst as HasMessageTypes>::Message>> {
+    ) -> Result<Vec<<Dst as HasChainTypes>::Message>> {
         let sequence = Src::packet_sequence(packet);
 
         let (ack_value, proof) = self
@@ -96,9 +96,9 @@ where
     #[instrument(skip_all, name = "build_timeout_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_timeout_packet_messages(
         &self,
-        packet: &<Src as HasPacketTypes<Dst>>::Packet,
+        packet: &<Src as HasIbcTypes<Dst>>::Packet,
         proof_height: &<Dst as HasChainTypes>::Height,
-    ) -> Result<Vec<<Src as HasMessageTypes>::Message>> {
+    ) -> Result<Vec<<Src as HasChainTypes>::Message>> {
         let sequence = Src::packet_sequence(packet);
 
         let (receipt, proof) = self

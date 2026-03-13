@@ -4,10 +4,10 @@ use async_trait::async_trait;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
-use crate::types::HasMessageTypes;
+use crate::types::HasChainTypes;
 
 /// Associated types for transaction submission (signer, nonce, fee, tx hash).
-pub trait HasTxTypes: HasMessageTypes {
+pub trait HasTxTypes: HasChainTypes {
     type Signer: ThreadSafe;
     type Nonce: Clone + ThreadSafe;
     type Fee: Clone + ThreadSafe;

@@ -71,11 +71,11 @@ where
         <Dst as HasChainTypes>::Height,
         u64,
     )>,
-    <Src as HasPacketTypes<Dst>>::Packet: Borrow<<Dst as HasPacketTypes<Src>>::Packet>,
-    <Src as HasPacketTypes<Dst>>::Acknowledgement:
-        Borrow<<Dst as HasPacketTypes<Src>>::Acknowledgement>,
-    <Dst as HasPacketTypes<Src>>::Acknowledgement:
-        Borrow<<Src as HasPacketTypes<Dst>>::Acknowledgement>,
+    <Src as HasIbcTypes<Dst>>::Packet: Borrow<<Dst as HasIbcTypes<Src>>::Packet>,
+    <Src as HasIbcTypes<Dst>>::Acknowledgement:
+        Borrow<<Dst as HasIbcTypes<Src>>::Acknowledgement>,
+    <Dst as HasIbcTypes<Src>>::Acknowledgement:
+        Borrow<<Src as HasIbcTypes<Dst>>::Acknowledgement>,
 {
     pub async fn run_with_token(self: Arc<Self>, token: CancellationToken) -> Result<()> {
         let (event_tx, event_rx) = mpsc::channel(CHANNEL_BUFFER);

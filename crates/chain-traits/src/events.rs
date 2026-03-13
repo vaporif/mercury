@@ -2,11 +2,11 @@ use async_trait::async_trait;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
-use crate::types::{HasChainTypes, HasPacketTypes};
+use crate::types::{HasChainTypes, HasIbcTypes};
 
 /// Extracts send-packet and write-ack events from raw chain events.
 pub trait CanExtractPacketEvents<Counterparty: HasChainTypes>:
-    HasPacketTypes<Counterparty>
+    HasIbcTypes<Counterparty>
 {
     type SendPacketEvent: ThreadSafe;
     type WriteAckEvent: ThreadSafe;

@@ -13,10 +13,7 @@ use crate::types::{
     CosmosChainStatus, CosmosEvent, CosmosMessage, CosmosPacket, CosmosTxResponse, MerkleProof,
     PacketAcknowledgement, PacketCommitment, PacketReceipt,
 };
-use mercury_chain_traits::types::{
-    HasChainStatusType, HasChainTypes, HasIbcTypes, HasMessageTypes, HasPacketTypes,
-    HasRevisionNumber,
-};
+use mercury_chain_traits::types::{HasChainTypes, HasIbcTypes};
 
 /// A Cosmos SDK chain connected via RPC and gRPC.
 #[derive(Clone, Debug)]
@@ -74,42 +71,8 @@ impl<S: CosmosSigner> HasChainTypes for CosmosChain<S> {
     type Timestamp = TmTime;
     type ChainId = ChainId;
     type Event = CosmosEvent;
-}
-
-impl<S: CosmosSigner> HasMessageTypes for CosmosChain<S> {
     type Message = CosmosMessage;
     type MessageResponse = CosmosTxResponse;
-}
-
-impl<S: CosmosSigner> HasIbcTypes<Self> for CosmosChain<S> {
-    type ClientId = ibc::core::host::types::identifiers::ClientId;
-    type ClientState = TendermintClientState;
-    type ConsensusState = TendermintConsensusState;
-    type CommitmentProof = MerkleProof;
-}
-
-impl<S: CosmosSigner> HasPacketTypes<Self> for CosmosChain<S> {
-    type Packet = CosmosPacket;
-    type PacketCommitment = PacketCommitment;
-    type PacketReceipt = PacketReceipt;
-    type Acknowledgement = PacketAcknowledgement;
-
-    fn packet_sequence(packet: &CosmosPacket) -> u64 {
-        packet.sequence
-    }
-
-    fn packet_timeout_timestamp(packet: &CosmosPacket) -> u64 {
-        packet.timeout_timestamp
-    }
-}
-
-impl<S: CosmosSigner> HasRevisionNumber for CosmosChain<S> {
-    fn revision_number(&self) -> u64 {
-        self.chain_id.revision_number()
-    }
-}
-
-impl<S: CosmosSigner> HasChainStatusType for CosmosChain<S> {
     type ChainStatus = CosmosChainStatus;
 
     fn chain_status_height(status: &Self::ChainStatus) -> &Self::Height {
@@ -122,5 +85,28 @@ impl<S: CosmosSigner> HasChainStatusType for CosmosChain<S> {
 
     fn chain_status_timestamp_secs(status: &Self::ChainStatus) -> u64 {
         status.timestamp.unix_timestamp().try_into().unwrap_or(0)
+    }
+
+    fn revision_number(&self) -> u64 {
+        self.chain_id.revision_number()
+    }
+}
+
+impl<S: CosmosSigner> HasIbcTypes<Self> for CosmosChain<S> {
+    type ClientId = ibc::core::host::types::identifiers::ClientId;
+    type ClientState = TendermintClientState;
+    type ConsensusState = TendermintConsensusState;
+    type CommitmentProof = MerkleProof;
+    type Packet = CosmosPacket;
+    type PacketCommitment = PacketCommitment;
+    type PacketReceipt = PacketReceipt;
+    type Acknowledgement = PacketAcknowledgement;
+
+    fn packet_sequence(packet: &CosmosPacket) -> u64 {
+        packet.sequence
+    }
+
+    fn packet_timeout_timestamp(packet: &CosmosPacket) -> u64 {
+        packet.timeout_timestamp
     }
 }

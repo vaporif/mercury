@@ -10,30 +10,28 @@ use crate::packet_queries::CanQueryPacketState;
 use crate::payload_builders::CanBuildClientPayloads;
 use crate::queries::{CanQueryChainStatus, CanQueryClient};
 
-/// Core associated types for a chain (height, timestamp, chain ID, event).
+/// Core associated types for a chain: identity, messages, status, and revision.
 pub trait HasChainTypes: ThreadSafe {
     type Height: Clone + Ord + Debug + Display + ThreadSafe;
     type Timestamp: Clone + Ord + Debug + ThreadSafe;
     type ChainId: Clone + Debug + Display + ThreadSafe;
     type Event: Clone + Debug + ThreadSafe;
-}
-
-/// Associated types for chain messages and their responses.
-pub trait HasMessageTypes: HasChainTypes {
     type Message: ThreadSafe;
     type MessageResponse: ThreadSafe;
+    type ChainStatus: ThreadSafe;
+
+    fn chain_status_height(status: &Self::ChainStatus) -> &Self::Height;
+    fn chain_status_timestamp(status: &Self::ChainStatus) -> &Self::Timestamp;
+    fn chain_status_timestamp_secs(status: &Self::ChainStatus) -> u64;
+    fn revision_number(&self) -> u64;
 }
 
-/// IBC-specific types relative to a counterparty chain (client ID, client/consensus state, proofs).
+/// IBC-specific types relative to a counterparty chain (client, proofs, packets).
 pub trait HasIbcTypes<Counterparty: HasChainTypes + ?Sized>: HasChainTypes {
     type ClientId: Clone + Debug + Display + ThreadSafe;
     type ClientState: Clone + Debug + ThreadSafe;
     type ConsensusState: Clone + Debug + ThreadSafe;
     type CommitmentProof: Clone + ThreadSafe;
-}
-
-/// Packet-related types for IBC (packet, commitment, receipt, acknowledgement).
-pub trait HasPacketTypes<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Counterparty> {
     type Packet: Clone + Debug + ThreadSafe;
     type PacketCommitment: ThreadSafe;
     type PacketReceipt: ThreadSafe;
@@ -45,50 +43,35 @@ pub trait HasPacketTypes<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Coun
 
 /// Composite trait combining all capabilities needed for a fully functional IBC chain.
 pub trait Chain<Counterparty>:
-    HasMessageTypes
-    + HasPacketTypes<Counterparty>
+    HasChainTypes
+    + HasIbcTypes<Counterparty>
     + CanSendMessages
     + CanExtractPacketEvents<Counterparty>
     + CanQueryChainStatus
     + CanQueryBlockEvents
-    + HasRevisionNumber
     + CanBuildClientPayloads<Counterparty>
     + CanQueryClient<Counterparty>
     + CanBuildClientMessages<Counterparty>
     + CanQueryPacketState<Counterparty>
     + CanBuildPacketMessages<Counterparty>
 where
-    Counterparty: HasChainTypes + HasPacketTypes<Self> + CanBuildClientPayloads<Self>,
+    Counterparty: HasChainTypes + HasIbcTypes<Self> + CanBuildClientPayloads<Self>,
 {
 }
 
 impl<T, C> Chain<C> for T
 where
-    T: HasMessageTypes
-        + HasPacketTypes<C>
+    T: HasChainTypes
+        + HasIbcTypes<C>
         + CanSendMessages
         + CanExtractPacketEvents<C>
         + CanQueryChainStatus
         + CanQueryBlockEvents
-        + HasRevisionNumber
         + CanBuildClientPayloads<C>
         + CanQueryClient<C>
         + CanBuildClientMessages<C>
         + CanQueryPacketState<C>
         + CanBuildPacketMessages<C>,
-    C: HasChainTypes + HasPacketTypes<T> + CanBuildClientPayloads<T>,
+    C: HasChainTypes + HasIbcTypes<T> + CanBuildClientPayloads<T>,
 {
-}
-
-/// Provides a chain status type with accessors for height and timestamp.
-pub trait HasChainStatusType: HasChainTypes {
-    type ChainStatus: ThreadSafe;
-    fn chain_status_height(status: &Self::ChainStatus) -> &Self::Height;
-    fn chain_status_timestamp(status: &Self::ChainStatus) -> &Self::Timestamp;
-    fn chain_status_timestamp_secs(status: &Self::ChainStatus) -> u64;
-}
-
-/// Provides the revision number for the chain.
-pub trait HasRevisionNumber: HasChainTypes {
-    fn revision_number(&self) -> u64;
 }

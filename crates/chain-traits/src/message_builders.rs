@@ -2,11 +2,11 @@ use async_trait::async_trait;
 use mercury_core::error::Result;
 
 use crate::payload_builders::CanBuildClientPayloads;
-use crate::types::{HasChainTypes, HasIbcTypes, HasMessageTypes};
+use crate::types::{HasChainTypes, HasIbcTypes};
 
 /// Builds messages for creating/updating IBC clients and registering counterparties.
 #[async_trait]
-pub trait CanBuildClientMessages<Counterparty>: HasMessageTypes + HasIbcTypes<Counterparty>
+pub trait CanBuildClientMessages<Counterparty>: HasIbcTypes<Counterparty>
 where
     Counterparty: HasChainTypes + CanBuildClientPayloads<Self> + HasIbcTypes<Self>,
 {

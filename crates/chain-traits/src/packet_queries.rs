@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use mercury_core::error::Result;
 
-use crate::types::{HasChainTypes, HasPacketTypes};
+use crate::types::{HasChainTypes, HasIbcTypes};
 
 /// Queries packet commitments, receipts, and acknowledgements at a given height.
 #[async_trait]
-pub trait CanQueryPacketState<Counterparty: HasChainTypes + ?Sized>: HasPacketTypes<Counterparty> {
+pub trait CanQueryPacketState<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Counterparty> {
     async fn query_packet_commitment(
         &self,
         client_id: &Self::ClientId,
