@@ -2,12 +2,12 @@
 resolver = "2"
 
 members = [
-    "crates/core",
-    "crates/chain-traits",
-    "crates/chains/cosmos",
-    "crates/relay",
-    "crates/cli",
-    "crates/e2e",
+  "crates/core",
+  "crates/chain-traits",
+  "crates/chains/cosmos",
+  "crates/relay",
+  "crates/cli",
+  "crates/e2e",
 ]
 
 [workspace.package]
@@ -59,7 +59,11 @@ ibc-proto = { version = "0.52", default-features = false, features = ["serde"] }
 ibc-client-tendermint = { version = "0.57", default-features = false }
 prost = "0.13"
 prost-types = "0.13"
-tonic = { version = "0.14", features = ["tls-native-roots", "channel", "transport"] }
+tonic = { version = "0.14", features = [
+  "tls-native-roots",
+  "channel",
+  "transport",
+] }
 secp256k1 = { version = "0.31", features = ["serde"] }
 sha2 = "0.10"
 ripemd = "0.1"
