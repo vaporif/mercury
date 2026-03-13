@@ -18,6 +18,14 @@ Implemented in `misbehaviour_worker.rs`. Incrementally scans consensus state hei
 
 ---
 
+### ~~4. Gas Estimation / Dynamic Fees~~
+
+Simulation-based gas estimation with dynamic pricing support. `cosmos.tx.v1beta1.Service/Simulate` estimates gas per batch, with configurable multiplier (default 1.3) and optional max cap. Dynamic gas price resolution auto-detects osmosis txfees or skip feemarket backends via gRPC probes, caches the result with `OnceLock`. Message batches split by `max_msg_num` and `max_tx_size`, with parallel submission (semaphore-bounded, max 3 concurrent). Fee granter passthrough supported. Falls back to static price and default gas on simulation failure.
+
+Config: `gas_multiplier`, `max_gas`, `default_gas`, `fee_granter`, `dynamic_gas_price`, `max_tx_size` (all optional).
+
+---
+
 ## High Priority
 
 ### 2. Prometheus Metrics
@@ -46,19 +54,6 @@ Allow operators to control which packets the relayer processes. Production relay
   policy = "allow" # or "deny"
   client_ids = ["07-tendermint-0"]
   ```
-
----
-
-### 4. Gas Estimation / Dynamic Fees
-
-Replace static gas price with simulation-based estimation. Static pricing overpays on quiet chains and fails on fee-market chains (EIP-1559 style or Cosmos SDK fee market module).
-
-**Scope:**
-- Add `SimulateTx` method to chain traits — simulate message batch, return estimated gas
-- Cosmos implementation: use `cosmos.tx.v1beta1.Service/Simulate` gRPC
-- Apply configurable gas multiplier (default 1.1) for safety margin
-- Fallback to configured static price if simulation fails
-- Config: `gas_multiplier: Option<f64>`, `max_gas_price: Option<f64>`
 
 ---
 

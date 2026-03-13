@@ -89,7 +89,7 @@ Mercury consolidates co-occurring types into two traits: `ChainTypes` (chain-loc
 - **Relay traits** (4) — `Relay`, `BiRelay`, `ClientUpdater`, `RelayPacketBuilder`
 - **Infrastructure** (1) — worker
 
-Transaction details (fee estimation, nonce management, tx submission, polling) are concrete methods on `CosmosChain`, not abstract traits — they're implementation details of `MessageSender`, not part of the generic chain abstraction.
+Transaction details (fee estimation, nonce management, tx submission, polling) are concrete methods on `CosmosChain`, not abstract traits — they're implementation details of `MessageSender`, not part of the generic chain abstraction. The gas pipeline: simulate tx → apply multiplier → optionally cap at `max_gas` → resolve gas price (static or dynamic via osmosis/feemarket auto-detection) → build fee. Message batches are split by `max_msg_num` and `max_tx_size`, then submitted in parallel (semaphore-bounded, max 3 concurrent) with pre-incremented nonces.
 
 ## Crate Layout
 
@@ -162,4 +162,4 @@ Mercury keeps these as direct code rather than trait abstractions:
 - **Field access** — struct fields accessed via methods
 - **Configuration** — config values are struct fields
 - **Test infrastructure** — test setup is separate from the core trait hierarchy
-- **Transaction internals** — fee estimation, nonce management, tx signing are concrete methods on chain types, not traits
+- **Transaction internals** — fee estimation (simulation + gas multiplier + dynamic pricing), nonce management, batch splitting, parallel submission, and tx signing are concrete methods on chain types, not traits
