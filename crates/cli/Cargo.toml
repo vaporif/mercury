@@ -32,3 +32,4 @@ serde = { workspace = true }
 toml = { workspace = true }
 ibc = { workspace = true }
 futures = { workspace = true }
+tokio-util = { workspace = true }

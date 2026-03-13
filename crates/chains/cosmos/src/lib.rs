@@ -12,6 +12,8 @@ pub mod events;
 pub mod ibc_v2;
 /// Key management and transaction signing.
 pub mod keys;
+/// Misbehaviour detection and evidence construction.
+pub mod misbehaviour;
 /// gRPC/RPC queries and chain state.
 pub mod queries;
 /// Transaction building, signing, and broadcasting.

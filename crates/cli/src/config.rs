@@ -48,6 +48,8 @@ pub struct RelayConfig {
     pub lookback_window_secs: Option<u64>,
     #[serde(default)]
     pub clearing_interval_secs: Option<u64>,
+    #[serde(default)]
+    pub misbehaviour_scan_interval_secs: Option<u64>,
 }
 
 /// Reads and parses a TOML relayer config from the given path.

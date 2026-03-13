@@ -2223,6 +2223,7 @@ dependencies = [
  "mercury-relay",
  "serde",
  "tokio",
+ "tokio-util",
  "toml",
  "tracing",
  "tracing-subscriber",

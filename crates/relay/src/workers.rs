@@ -4,6 +4,8 @@ pub mod clearing_worker;
 pub mod client_refresh;
 /// Source chain block event poller.
 pub mod event_watcher;
+/// Monitors for light client misbehaviour.
+pub mod misbehaviour_worker;
 /// Packet proof building and message construction.
 pub mod packet_worker;
 /// Transaction submission workers for source and destination chains.

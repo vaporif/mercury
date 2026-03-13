@@ -281,7 +281,13 @@ fn spawn_relay_pair(
                 clearing_interval: relay
                     .clearing_interval_secs
                     .map(std::time::Duration::from_secs),
+                misbehaviour_scan_interval: relay
+                    .misbehaviour_scan_interval_secs
+                    .map(std::time::Duration::from_secs),
             };
+
+            // Shared token so misbehaviour detection can shut down both directions
+            let shared_token = tokio_util::sync::CancellationToken::new();
 
             Ok(tokio::spawn(async move {
                 tracing::info!(
@@ -290,8 +296,8 @@ fn spawn_relay_pair(
                     "running bidirectional relay"
                 );
                 let (res_a, res_b) = tokio::join!(
-                    Arc::clone(&fwd).run(worker_config),
-                    Arc::clone(&rev).run(worker_config),
+                    Arc::clone(&fwd).run_with_token(shared_token.clone(), worker_config),
+                    Arc::clone(&rev).run_with_token(shared_token, worker_config),
                 );
                 if let Err(ref e) = res_a {
                     tracing::error!(direction = "a→b", error = %e, "relay direction failed");

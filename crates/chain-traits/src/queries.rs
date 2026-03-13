@@ -3,6 +3,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mercury_core::error::Result;
 
+use crate::builders::MisbehaviourDetector;
 use crate::types::{ChainTypes, IbcTypes};
 
 /// Queries the current status (height and timestamp) of the chain.
@@ -35,6 +36,26 @@ pub trait ClientQuery<Counterparty: ChainTypes + ?Sized>: IbcTypes<Counterparty>
     fn trusting_period(client_state: &Self::ClientState) -> Option<Duration>;
 
     fn client_latest_height(client_state: &Self::ClientState) -> Counterparty::Height;
+}
+
+/// Queries consensus state heights and update headers for misbehaviour detection.
+#[async_trait]
+pub trait MisbehaviourQuery<Counterparty: ChainTypes + MisbehaviourDetector<Self> + ?Sized>:
+    IbcTypes<Counterparty>
+{
+    /// List all consensus state heights for a client, in descending order.
+    async fn query_consensus_state_heights(
+        &self,
+        client_id: &Self::ClientId,
+    ) -> Result<Vec<Counterparty::Height>>;
+
+    /// Returns the decoded header from the `UpdateClient` tx at the given consensus height.
+    /// Returns None if the event has been pruned from the tx index.
+    async fn query_update_client_header(
+        &self,
+        client_id: &Self::ClientId,
+        consensus_height: &Counterparty::Height,
+    ) -> Result<Option<Counterparty::UpdateHeader>>;
 }
 
 /// Queries packet commitments, receipts, and acknowledgements at a given height.

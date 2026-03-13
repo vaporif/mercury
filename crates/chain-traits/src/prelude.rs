@@ -2,5 +2,5 @@
 
 pub use crate::builders::*;
 pub use crate::events::PacketEvents;
-pub use crate::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
+pub use crate::queries::{ChainStatusQuery, ClientQuery, MisbehaviourQuery, PacketStateQuery};
 pub use crate::types::*;

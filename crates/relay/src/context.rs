@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use crate::workers::clearing_worker::ClearingWorker;
 use crate::workers::client_refresh::ClientRefreshWorker;
 use crate::workers::event_watcher::EventWatcher;
+use crate::workers::misbehaviour_worker::MisbehaviourWorker;
 use crate::workers::packet_worker::PacketWorker;
 use crate::workers::tx_worker::{SrcTxWorker, TxWorker};
 
@@ -22,6 +23,7 @@ const CHANNEL_BUFFER: usize = 256;
 pub struct RelayWorkerConfig {
     pub lookback: Option<Duration>,
     pub clearing_interval: Option<Duration>,
+    pub misbehaviour_scan_interval: Option<Duration>,
 }
 
 /// Unidirectional relay context between a source and destination chain.
@@ -63,8 +65,8 @@ where
 
 impl<Src, Dst> RelayContext<Src, Dst>
 where
-    Src: Chain<Dst>,
-    Dst: Chain<Src>,
+    Src: Chain<Dst> + MisbehaviourDetector<Dst>,
+    Dst: Chain<Src> + MisbehaviourQuery<Src> + MisbehaviourMessageBuilder<Src>,
     <Dst as PacketMessageBuilder<Src>>::ReceivePacketPayload: From<(
         <Src as IbcTypes<Dst>>::CommitmentProof,
         <Src as ChainTypes>::Height,
@@ -154,6 +156,18 @@ where
             },
         );
 
+        let misbehaviour_handle = config.misbehaviour_scan_interval.map_or_else(
+            || tokio::spawn(futures::future::pending()),
+            |interval| {
+                let misbehaviour_worker = MisbehaviourWorker {
+                    relay: Arc::clone(&self),
+                    token: token.clone(),
+                    scan_interval: interval,
+                };
+                spawn_worker(misbehaviour_worker)
+            },
+        );
+
         let result = tokio::select! {
             res = event_watcher_handle => res,
             res = packet_worker_handle => res,
@@ -161,6 +175,7 @@ where
             res = src_tx_worker_handle => res,
             res = client_refresh_handle => res,
             res = clearing_handle => res,
+            res = misbehaviour_handle => res,
         };
 
         token.cancel();
