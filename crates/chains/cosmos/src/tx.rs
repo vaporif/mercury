@@ -259,7 +259,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
 
         let max_retries = 10;
         let poll_interval = self.block_time / 2;
-        let mut last_err = None;
+        let mut last_err = eyre::eyre!("no attempts made");
 
         for attempt in 1..=max_retries {
             debug!(
@@ -317,14 +317,13 @@ impl<S: CosmosSigner> CosmosChain<S> {
                         error = %e,
                         "transaction not yet found, retrying"
                     );
-                    last_err = Some(e);
+                    last_err = e.into();
                 }
             }
         }
 
         eyre::bail!(
-            "transaction {tx_hash} not found after {max_retries} attempts: {}",
-            last_err.expect("retry loop ran at least once")
+            "transaction {tx_hash} not found after {max_retries} attempts: {last_err}"
         )
     }
 }
