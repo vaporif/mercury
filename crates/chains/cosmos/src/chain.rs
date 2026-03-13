@@ -97,6 +97,15 @@ impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
             .checked_add(1)
             .and_then(|v| TmHeight::try_from(v).ok())
     }
+
+    fn sub_height(height: &TmHeight, n: u64) -> Option<TmHeight> {
+        let val = height.value().saturating_sub(n).max(1);
+        TmHeight::try_from(val).ok()
+    }
+
+    fn block_time(&self) -> Duration {
+        self.block_time
+    }
 }
 
 impl<S: CosmosSigner> IbcTypes<Self> for CosmosChain<S> {
@@ -173,6 +182,27 @@ mod tests {
         };
         let seq = TestChain::packet_sequence(&packet);
         assert_eq!(seq, 99);
+    }
+
+    #[test]
+    fn sub_height_normal() {
+        let h = TmHeight::try_from(10u64).unwrap();
+        let result = TestChain::sub_height(&h, 3).unwrap();
+        assert_eq!(result.value(), 7);
+    }
+
+    #[test]
+    fn sub_height_clamps_to_one() {
+        let h = TmHeight::try_from(5u64).unwrap();
+        let result = TestChain::sub_height(&h, 100).unwrap();
+        assert_eq!(result.value(), 1);
+    }
+
+    #[test]
+    fn sub_height_zero() {
+        let h = TmHeight::try_from(10u64).unwrap();
+        let result = TestChain::sub_height(&h, 0).unwrap();
+        assert_eq!(result.value(), 10);
     }
 
     #[test]

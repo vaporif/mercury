@@ -274,6 +274,9 @@ fn spawn_relay_pair(
 
             let src_name = relay.src_chain.clone();
             let dst_name = relay.dst_chain.clone();
+            let lookback = relay
+                .lookback_window_secs
+                .map(std::time::Duration::from_secs);
 
             Ok(tokio::spawn(async move {
                 tracing::info!(
@@ -281,7 +284,10 @@ fn spawn_relay_pair(
                     dst = %dst_name,
                     "running bidirectional relay"
                 );
-                let (res_a, res_b) = tokio::join!(Arc::clone(&fwd).run(), Arc::clone(&rev).run(),);
+                let (res_a, res_b) = tokio::join!(
+                    Arc::clone(&fwd).run(lookback),
+                    Arc::clone(&rev).run(lookback),
+                );
                 if let Err(ref e) = res_a {
                     tracing::error!(direction = "a→b", error = %e, "relay direction failed");
                 }

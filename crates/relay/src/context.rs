@@ -1,5 +1,6 @@
 use std::borrow::Borrow;
 use std::sync::Arc;
+use std::time::Duration;
 
 use mercury_chain_traits::prelude::*;
 use mercury_chain_traits::relay::Relay;
@@ -75,7 +76,20 @@ where
     <Src as IbcTypes<Dst>>::Acknowledgement: Borrow<<Dst as IbcTypes<Src>>::Acknowledgement>,
     <Dst as IbcTypes<Src>>::Acknowledgement: Borrow<<Src as IbcTypes<Dst>>::Acknowledgement>,
 {
-    pub async fn run_with_token(self: Arc<Self>, token: CancellationToken) -> Result<()> {
+    pub async fn run_with_token(
+        self: Arc<Self>,
+        token: CancellationToken,
+        clear_past_blocks: Option<Duration>,
+    ) -> Result<()> {
+        let start_height = if let Some(lookback) = clear_past_blocks {
+            let latest = self.src_chain.query_latest_height().await?;
+            let block_time = self.src_chain.block_time();
+            let blocks_back = (lookback.as_secs() / block_time.as_secs().max(1)).max(1);
+            Src::sub_height(&latest, blocks_back)
+        } else {
+            None
+        };
+
         let (event_tx, event_rx) = mpsc::channel(CHANNEL_BUFFER);
         let (tx_req_tx, tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
         let (src_tx_req_tx, src_tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
@@ -84,6 +98,7 @@ where
             relay: Arc::clone(&self),
             sender: event_tx,
             token: token.clone(),
+            start_height,
         };
 
         let client_refresh = ClientRefreshWorker {
@@ -134,7 +149,8 @@ where
         }
     }
 
-    pub async fn run(self: Arc<Self>) -> Result<()> {
-        self.run_with_token(CancellationToken::new()).await
+    pub async fn run(self: Arc<Self>, lookback: Option<Duration>) -> Result<()> {
+        self.run_with_token(CancellationToken::new(), lookback)
+            .await
     }
 }

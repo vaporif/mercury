@@ -117,8 +117,10 @@ impl TestContext {
         let token_ab = token.clone();
         let token_ba = token.clone();
 
-        let join_ab = tokio::spawn(async move { relay_ab.run_with_token(token_ab).await });
-        let join_ba = tokio::spawn(async move { relay_ba.run_with_token(token_ba).await });
+        let join_ab =
+            tokio::spawn(async move { relay_ab.run_with_token(token_ab, None).await });
+        let join_ba =
+            tokio::spawn(async move { relay_ba.run_with_token(token_ba, None).await });
 
         Ok(RelayHandle {
             cancel: token,

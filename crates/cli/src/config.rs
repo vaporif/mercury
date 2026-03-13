@@ -44,6 +44,8 @@ pub struct RelayConfig {
     pub dst_chain: String,
     pub src_client_id: String,
     pub dst_client_id: String,
+    #[serde(default)]
+    pub lookback_window_secs: Option<u64>,
 }
 
 /// Reads and parses a TOML relayer config from the given path.

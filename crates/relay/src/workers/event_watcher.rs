@@ -18,6 +18,7 @@ pub struct EventWatcher<R: Relay> {
     pub relay: Arc<R>,
     pub sender: mpsc::Sender<Vec<IbcEvent<R>>>,
     pub token: CancellationToken,
+    pub start_height: Option<<R::SrcChain as ChainTypes>::Height>,
 }
 
 #[async_trait]
@@ -29,7 +30,10 @@ impl<R: Relay> Worker for EventWatcher<R> {
     #[instrument(skip_all, name = "event_watcher")]
     async fn run(self) -> Result<()> {
         let src = self.relay.src_chain();
-        let mut last_height = src.query_latest_height().await?;
+        let mut last_height = match self.start_height {
+            Some(h) => h,
+            None => src.query_latest_height().await?,
+        };
 
         loop {
             tokio::select! {

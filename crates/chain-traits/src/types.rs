@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Display};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use mercury_core::ThreadSafe;
@@ -23,6 +24,8 @@ pub trait ChainTypes: ThreadSafe {
     fn chain_status_timestamp_secs(status: &Self::ChainStatus) -> u64;
     fn revision_number(&self) -> u64;
     fn increment_height(height: &Self::Height) -> Option<Self::Height>;
+    fn sub_height(height: &Self::Height, n: u64) -> Option<Self::Height>;
+    fn block_time(&self) -> Duration;
 }
 
 /// IBC-specific types relative to a counterparty chain (client, proofs, packets).
