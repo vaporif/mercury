@@ -10,3 +10,6 @@ pub mod context;
 pub mod packet;
 /// Background worker tasks for the relay pipeline.
 pub mod workers;
+
+#[cfg(test)]
+pub(crate) mod testhelpers;

@@ -4,20 +4,21 @@ Production readiness tasks ordered by priority. Each item is scoped as an indepe
 
 ---
 
-## High Priority
+## Completed
 
-### 1. Packet Clearing / Flushing
+### ~~1. Packet Clearing / Flushing~~
 
-Periodically scan source and destination chains for unrelayed packet commitments and clear them. On startup (and at configurable intervals), query all outstanding `PacketCommitment`s on the source chain, check which lack a corresponding `PacketReceipt` or `Acknowledgement` on the destination, and relay the missing ones. This catches packets missed due to RPC blips, reorgs, or relay downtime — the lookback window only partially addresses this.
-
-**Scope:**
-- Add `PacketCommitmentQuery` to chain traits (query all commitments for a client)
-- Add a `ClearingWorker` that runs on startup and periodically (configurable interval)
-- Cross-reference source commitments against destination receipts/acks
-- Feed missing packets into the existing `PacketWorker` pipeline
-- Config: `clearing_interval_secs: Option<u64>` (None = startup only)
+Implemented in `clearing_worker.rs`. Periodically scans source chain for unrelayed packet commitments, cross-references against destination receipts, and feeds recovered `SendPacket` events into the event pipeline. Enabled via `clearing_interval` config.
 
 ---
+
+### ~~5. Misbehaviour Detection~~
+
+Implemented in `misbehaviour_worker.rs`. Incrementally scans consensus state heights, verifies update headers against the source chain. On detection, submits `MsgSubmitMisbehaviour` and terminates the relay. Enabled via `misbehaviour_scan_interval` config.
+
+---
+
+## High Priority
 
 ### 2. Prometheus Metrics
 
@@ -58,19 +59,6 @@ Replace static gas price with simulation-based estimation. Static pricing overpa
 - Apply configurable gas multiplier (default 1.1) for safety margin
 - Fallback to configured static price if simulation fails
 - Config: `gas_multiplier: Option<f64>`, `max_gas_price: Option<f64>`
-
----
-
-### 5. Misbehaviour Detection
-
-Detect and submit evidence when a light client is fed conflicting headers at the same height. This is a security-critical feature — without it, a compromised validator set can forge state proofs.
-
-**Scope:**
-- On each client update, compare the new header against the existing consensus state at that height
-- If mismatch detected, build and submit `MsgSubmitMisbehaviour`
-- Add `MisbehaviourBuilder` trait to chain traits
-- Cosmos implementation: construct `MsgSubmitMisbehaviour` with two conflicting headers
-- Log at error level and emit metric on detection
 
 ---
 
@@ -169,7 +157,19 @@ Support relaying across >2 chains without requiring N^2 relay config entries. Cu
 
 ---
 
-### 13. Memo Support
+### 13. IBC Incentivized Packet Fee Filtering
+
+Allow operators to filter packets by minimum relay fees, only relaying packets that offer sufficient incentives. Blocked on IBC v2 fee incentivization — the v1 fee module (`ibc.applications.fee.v1`) uses port/channel identifiers which don't exist in IBC v2. Once a v2 fee mechanism exists, implement:
+
+**Scope:**
+- `IncentivizedPacketQuery` trait in `chain-traits` for querying packet fees
+- Fee filter config per relay (keyed by client ID in v2)
+- Filter applied in `PacketWorker` before building recv messages
+- ANY-of-ANY matching semantics (matching hermes behavior)
+
+---
+
+### 14. Memo Support
 
 Allow operators to set a custom memo field on relayed packets for attribution and analytics.
 
