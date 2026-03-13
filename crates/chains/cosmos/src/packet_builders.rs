@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use prost::Message as _;
 
 use ibc_proto::ibc::core::client::v1::Height as ProtoHeight;
-use mercury_chain_traits::packet_builders::CanBuildPacketMessages;
+use mercury_chain_traits::builders::CanBuildPacketMessages;
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;

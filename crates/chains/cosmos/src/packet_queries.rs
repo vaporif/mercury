@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use prost::Message;
 use tracing::{instrument, warn};
 
-use mercury_chain_traits::packet_queries::CanQueryPacketState;
+use mercury_chain_traits::queries::CanQueryPacketState;
 use mercury_core::error::Result;
 use tendermint::block::Height as TmHeight;
 

@@ -1,14 +1,12 @@
 use std::fmt::{Debug, Display};
 
+use async_trait::async_trait;
 use mercury_core::ThreadSafe;
+use mercury_core::error::Result;
 
+use crate::builders::{CanBuildClientMessages, CanBuildPacketMessages};
 use crate::events::{CanExtractPacketEvents, CanQueryBlockEvents};
-use crate::message_builders::CanBuildClientMessages;
-use crate::messaging::CanSendMessages;
-use crate::packet_builders::CanBuildPacketMessages;
-use crate::packet_queries::CanQueryPacketState;
-use crate::payload_builders::CanBuildClientPayloads;
-use crate::queries::{CanQueryChainStatus, CanQueryClient};
+use crate::queries::{CanQueryChainStatus, CanQueryClient, CanQueryPacketState};
 
 /// Core associated types for a chain: identity, messages, status, and revision.
 pub trait HasChainTypes: ThreadSafe {
@@ -39,6 +37,15 @@ pub trait HasIbcTypes<Counterparty: HasChainTypes + ?Sized>: HasChainTypes {
 
     fn packet_sequence(packet: &Self::Packet) -> u64;
     fn packet_timeout_timestamp(packet: &Self::Packet) -> u64;
+}
+
+/// Sends a batch of messages to the chain.
+#[async_trait]
+pub trait CanSendMessages: HasChainTypes {
+    async fn send_messages(
+        &self,
+        messages: Vec<Self::Message>,
+    ) -> Result<Vec<Self::MessageResponse>>;
 }
 
 /// Composite trait combining all capabilities needed for a fully functional IBC chain.
@@ -75,3 +82,6 @@ where
     C: HasChainTypes + HasIbcTypes<T> + CanBuildClientPayloads<T>,
 {
 }
+
+// Re-export CanBuildClientPayloads from builders so Chain bounds work
+pub use crate::builders::CanBuildClientPayloads;

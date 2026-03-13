@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use ibc_proto::ibc::core::client::v1::{MsgCreateClient, MsgUpdateClient};
-use mercury_chain_traits::message_builders::CanBuildClientMessages;
+use mercury_chain_traits::builders::CanBuildClientMessages;
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;

@@ -11,7 +11,7 @@ use ibc_client_tendermint::types::{
 use ibc_proto::google::protobuf::Any;
 use tracing::instrument;
 
-use mercury_chain_traits::payload_builders::CanBuildClientPayloads;
+use mercury_chain_traits::builders::CanBuildClientPayloads;
 use mercury_core::error::Result;
 use tendermint::account;
 use tendermint::block::Height as TmHeight;
