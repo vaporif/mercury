@@ -7,7 +7,7 @@ pub mod packet_worker;
 /// Transaction submission workers for source and destination chains.
 pub mod tx_worker;
 
-use mercury_chain_traits::relay::context::Relay;
+use mercury_chain_traits::relay::Relay;
 use mercury_chain_traits::types::HasChainTypes;
 
 /// A batch of messages to submit to the destination chain.

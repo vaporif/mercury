@@ -4,8 +4,7 @@ use async_trait::async_trait;
 use tracing::{debug, instrument};
 
 use mercury_chain_traits::prelude::*;
-use mercury_chain_traits::relay::context::Relay;
-use mercury_chain_traits::relay::packet::CanBuildRelayPacketMessages;
+use mercury_chain_traits::relay::{CanBuildRelayPacketMessages, Relay};
 use mercury_core::error::Result;
 
 use crate::context::RelayContext;

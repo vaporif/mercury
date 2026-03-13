@@ -7,8 +7,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, warn};
 
 use mercury_chain_traits::prelude::*;
-use mercury_chain_traits::relay::context::Relay;
-use mercury_chain_traits::relay::ibc_event::IbcEvent;
+use mercury_chain_traits::relay::{IbcEvent, Relay};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
