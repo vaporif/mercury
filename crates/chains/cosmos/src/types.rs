@@ -1,4 +1,5 @@
 use ibc::core::host::types::identifiers::ClientId;
+use prost::Message;
 use tendermint::block::Height as TmHeight;
 
 /// An ABCI event with a type string and key-value attributes.
@@ -13,6 +14,15 @@ pub struct CosmosEvent {
 pub struct CosmosMessage {
     pub type_url: String,
     pub value: Vec<u8>,
+}
+
+/// Encode a protobuf message into a [`CosmosMessage`] with its type URL.
+#[must_use]
+pub fn to_any<M: prost::Name + Message>(msg: &M) -> CosmosMessage {
+    CosmosMessage {
+        type_url: M::type_url(),
+        value: msg.encode_to_vec(),
+    }
 }
 
 /// Result of a confirmed transaction including hash, height, and events.

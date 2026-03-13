@@ -23,7 +23,7 @@ use mercury_chain_traits::builders::{
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
-use crate::encoding::to_any;
+use crate::types::to_any;
 use crate::ibc_v2::channel::{
     self, MsgAcknowledgement, MsgRecvPacket, MsgTimeout, Packet as V2Packet,
 };
