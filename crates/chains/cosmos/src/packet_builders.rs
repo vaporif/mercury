@@ -2,9 +2,7 @@ use async_trait::async_trait;
 use prost::Message as _;
 
 use ibc_proto::ibc::core::client::v1::Height as ProtoHeight;
-use mercury_chain_traits::packet_builders::{
-    CanBuildAckPacketMessage, CanBuildReceivePacketMessage, CanBuildTimeoutPacketMessage,
-};
+use mercury_chain_traits::packet_builders::CanBuildPacketMessages;
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
@@ -63,8 +61,10 @@ fn to_proto_height(revision_number: u64, h: tendermint::block::Height) -> ProtoH
 }
 
 #[async_trait]
-impl<S: CosmosSigner> CanBuildReceivePacketMessage<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> CanBuildPacketMessages<Self> for CosmosChain<S> {
     type ReceivePacketPayload = CosmosProofPayload;
+    type AckPacketPayload = CosmosProofPayload;
+    type TimeoutPacketPayload = CosmosProofPayload;
 
     async fn build_receive_packet_message(
         &self,
@@ -82,11 +82,6 @@ impl<S: CosmosSigner> CanBuildReceivePacketMessage<Self> for CosmosChain<S> {
         };
         Ok(to_any(&msg))
     }
-}
-
-#[async_trait]
-impl<S: CosmosSigner> CanBuildAckPacketMessage<Self> for CosmosChain<S> {
-    type AckPacketPayload = CosmosProofPayload;
 
     async fn build_ack_packet_message(
         &self,
@@ -113,11 +108,6 @@ impl<S: CosmosSigner> CanBuildAckPacketMessage<Self> for CosmosChain<S> {
         };
         Ok(to_any(&msg))
     }
-}
-
-#[async_trait]
-impl<S: CosmosSigner> CanBuildTimeoutPacketMessage<Self> for CosmosChain<S> {
-    type TimeoutPacketPayload = CosmosProofPayload;
 
     async fn build_timeout_packet_message(
         &self,

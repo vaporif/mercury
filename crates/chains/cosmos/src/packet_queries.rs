@@ -2,9 +2,7 @@ use async_trait::async_trait;
 use prost::Message;
 use tracing::{instrument, warn};
 
-use mercury_chain_traits::packet_queries::{
-    CanQueryPacketAcknowledgement, CanQueryPacketCommitment, CanQueryPacketReceipt,
-};
+use mercury_chain_traits::packet_queries::CanQueryPacketState;
 use mercury_core::error::Result;
 use tendermint::block::Height as TmHeight;
 
@@ -70,7 +68,7 @@ fn extract_proof(
 }
 
 #[async_trait]
-impl<S: CosmosSigner> CanQueryPacketCommitment<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> CanQueryPacketState<Self> for CosmosChain<S> {
     #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
     async fn query_packet_commitment(
         &self,
@@ -96,10 +94,7 @@ impl<S: CosmosSigner> CanQueryPacketCommitment<Self> for CosmosChain<S> {
         };
         Ok((commitment, proof))
     }
-}
 
-#[async_trait]
-impl<S: CosmosSigner> CanQueryPacketReceipt<Self> for CosmosChain<S> {
     #[instrument(skip_all, name = "query_packet_receipt", fields(seq = sequence))]
     async fn query_packet_receipt(
         &self,
@@ -125,10 +120,7 @@ impl<S: CosmosSigner> CanQueryPacketReceipt<Self> for CosmosChain<S> {
         };
         Ok((receipt, proof))
     }
-}
 
-#[async_trait]
-impl<S: CosmosSigner> CanQueryPacketAcknowledgement<Self> for CosmosChain<S> {
     #[instrument(skip_all, name = "query_packet_ack", fields(seq = sequence))]
     async fn query_packet_acknowledgement(
         &self,

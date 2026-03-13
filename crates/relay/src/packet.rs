@@ -3,33 +3,36 @@ use std::borrow::Borrow;
 use async_trait::async_trait;
 use tracing::{debug, instrument};
 
-use mercury_chain_traits::packet_builders::{
-    CanBuildAckPacketMessage, CanBuildReceivePacketMessage, CanBuildTimeoutPacketMessage,
-};
-use mercury_chain_traits::packet_queries::{
-    CanQueryPacketAcknowledgement, CanQueryPacketCommitment, CanQueryPacketReceipt,
-};
+use mercury_chain_traits::prelude::*;
 use mercury_chain_traits::relay::context::Relay;
-use mercury_chain_traits::relay::packet::{
-    CanBuildAckPacketMessages, CanBuildReceivePacketMessages, CanBuildTimeoutPacketMessages,
-};
-use mercury_chain_traits::types::{
-    Chain, HasChainTypes, HasIbcTypes, HasMessageTypes, HasPacketTypes, HasRevisionNumber,
-};
+use mercury_chain_traits::relay::packet::CanBuildRelayPacketMessages;
 use mercury_core::error::Result;
 
 use crate::context::RelayContext;
 
 #[async_trait]
-impl<Src, Dst> CanBuildReceivePacketMessages for RelayContext<Src, Dst>
+impl<Src, Dst> CanBuildRelayPacketMessages for RelayContext<Src, Dst>
 where
-    Src: Chain<Dst> + CanQueryPacketCommitment<Dst> + HasRevisionNumber,
-    Dst: Chain<Src> + CanBuildReceivePacketMessage<Src>,
-    <Dst as CanBuildReceivePacketMessage<Src>>::ReceivePacketPayload: From<(
+    Src: Chain<Dst>,
+    Dst: Chain<Src>,
+    <Dst as CanBuildPacketMessages<Src>>::ReceivePacketPayload: From<(
         <Src as HasIbcTypes<Dst>>::CommitmentProof,
         <Src as HasChainTypes>::Height,
         u64,
     )>,
+    <Dst as CanBuildPacketMessages<Src>>::AckPacketPayload: From<(
+        <Src as HasIbcTypes<Dst>>::CommitmentProof,
+        <Src as HasChainTypes>::Height,
+        u64,
+    )>,
+    <Src as CanBuildPacketMessages<Dst>>::TimeoutPacketPayload: From<(
+        <Dst as HasIbcTypes<Src>>::CommitmentProof,
+        <Dst as HasChainTypes>::Height,
+        u64,
+    )>,
+    <Src as HasPacketTypes<Dst>>::Packet: Borrow<<Dst as HasPacketTypes<Src>>::Packet>,
+    <Dst as HasPacketTypes<Src>>::Acknowledgement:
+        Borrow<<Src as HasPacketTypes<Dst>>::Acknowledgement>,
 {
     #[instrument(skip_all, name = "build_receive_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_receive_packet_messages(
@@ -59,22 +62,7 @@ where
 
         Ok(vec![msg])
     }
-}
 
-#[async_trait]
-impl<Src, Dst> CanBuildAckPacketMessages for RelayContext<Src, Dst>
-where
-    Src: Chain<Dst> + CanQueryPacketAcknowledgement<Dst> + HasRevisionNumber,
-    Dst: Chain<Src> + CanBuildAckPacketMessage<Src>,
-    <Dst as CanBuildAckPacketMessage<Src>>::AckPacketPayload: From<(
-        <Src as HasIbcTypes<Dst>>::CommitmentProof,
-        <Src as HasChainTypes>::Height,
-        u64,
-    )>,
-    <Src as HasPacketTypes<Dst>>::Packet: Borrow<<Dst as HasPacketTypes<Src>>::Packet>,
-    <Dst as HasPacketTypes<Src>>::Acknowledgement:
-        Borrow<<Src as HasPacketTypes<Dst>>::Acknowledgement>,
-{
     #[instrument(skip_all, name = "build_ack_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_ack_packet_messages(
         &self,
@@ -104,20 +92,7 @@ where
 
         Ok(vec![msg])
     }
-}
 
-#[async_trait]
-impl<Src, Dst> CanBuildTimeoutPacketMessages for RelayContext<Src, Dst>
-where
-    Src: Chain<Dst> + CanBuildTimeoutPacketMessage<Dst>,
-    Dst: Chain<Src> + CanQueryPacketReceipt<Src> + HasRevisionNumber,
-    <Src as CanBuildTimeoutPacketMessage<Dst>>::TimeoutPacketPayload: From<(
-        <Dst as HasIbcTypes<Src>>::CommitmentProof,
-        <Dst as HasChainTypes>::Height,
-        u64,
-    )>,
-    <Src as HasPacketTypes<Dst>>::Packet: Borrow<<Dst as HasPacketTypes<Src>>::Packet>,
-{
     #[instrument(skip_all, name = "build_timeout_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_timeout_packet_messages(
         &self,

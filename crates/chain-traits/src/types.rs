@@ -2,9 +2,13 @@ use std::fmt::{Debug, Display};
 
 use mercury_core::ThreadSafe;
 
-use crate::events::CanExtractPacketEvents;
+use crate::events::{CanExtractPacketEvents, CanQueryBlockEvents};
+use crate::message_builders::CanBuildClientMessages;
 use crate::messaging::CanSendMessages;
-use crate::queries::CanQueryChainStatus;
+use crate::packet_builders::CanBuildPacketMessages;
+use crate::packet_queries::CanQueryPacketState;
+use crate::payload_builders::CanBuildClientPayloads;
+use crate::queries::{CanQueryChainStatus, CanQueryClient};
 
 /// Core associated types for a chain (height, timestamp, chain ID, event).
 pub trait HasChainTypes: ThreadSafe {
@@ -40,12 +44,21 @@ pub trait HasPacketTypes<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Coun
 }
 
 /// Composite trait combining all capabilities needed for a fully functional IBC chain.
-pub trait Chain<Counterparty: HasChainTypes + ?Sized>:
+pub trait Chain<Counterparty>:
     HasMessageTypes
     + HasPacketTypes<Counterparty>
     + CanSendMessages
     + CanExtractPacketEvents<Counterparty>
     + CanQueryChainStatus
+    + CanQueryBlockEvents
+    + HasRevisionNumber
+    + CanBuildClientPayloads<Counterparty>
+    + CanQueryClient<Counterparty>
+    + CanBuildClientMessages<Counterparty>
+    + CanQueryPacketState<Counterparty>
+    + CanBuildPacketMessages<Counterparty>
+where
+    Counterparty: HasChainTypes + HasPacketTypes<Self> + CanBuildClientPayloads<Self>,
 {
 }
 
@@ -55,8 +68,15 @@ where
         + HasPacketTypes<C>
         + CanSendMessages
         + CanExtractPacketEvents<C>
-        + CanQueryChainStatus,
-    C: HasChainTypes + ?Sized,
+        + CanQueryChainStatus
+        + CanQueryBlockEvents
+        + HasRevisionNumber
+        + CanBuildClientPayloads<C>
+        + CanQueryClient<C>
+        + CanBuildClientMessages<C>
+        + CanQueryPacketState<C>
+        + CanBuildPacketMessages<C>,
+    C: HasChainTypes + HasPacketTypes<T> + CanBuildClientPayloads<T>,
 {
 }
 

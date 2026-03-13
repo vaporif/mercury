@@ -8,19 +8,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, warn};
 
-use mercury_chain_traits::events::CanExtractPacketEvents;
-use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
-use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
-use mercury_chain_traits::queries::{
-    CanQueryChainStatus, CanQueryClientState, HasClientLatestHeight,
-};
+use mercury_chain_traits::prelude::*;
 use mercury_chain_traits::relay::context::Relay;
 use mercury_chain_traits::relay::ibc_event::IbcEvent;
-use mercury_chain_traits::relay::packet::{
-    CanBuildAckPacketMessages, CanBuildReceivePacketMessages, CanBuildTimeoutPacketMessages,
-};
-use mercury_chain_traits::types::HasChainStatusType;
-use mercury_chain_traits::types::{HasChainTypes, HasMessageTypes, HasPacketTypes};
+use mercury_chain_traits::relay::packet::CanBuildRelayPacketMessages;
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -43,19 +34,7 @@ pub struct PacketWorker<R: Relay> {
 
 impl<R> PacketWorker<R>
 where
-    R: Relay
-        + CanBuildReceivePacketMessages
-        + CanBuildAckPacketMessages
-        + CanBuildTimeoutPacketMessages,
-    R::SrcChain: CanBuildUpdateClientPayload<R::DstChain>
-        + CanQueryClientState<R::DstChain>
-        + HasClientLatestHeight<R::DstChain>
-        + CanBuildUpdateClientMessage<R::DstChain>,
-    R::DstChain: CanQueryChainStatus
-        + CanQueryClientState<R::SrcChain>
-        + HasClientLatestHeight<R::SrcChain>
-        + CanBuildUpdateClientMessage<R::SrcChain>
-        + CanBuildUpdateClientPayload<R::SrcChain>,
+    R: Relay + CanBuildRelayPacketMessages,
     <R::SrcChain as HasPacketTypes<R::DstChain>>::Acknowledgement:
         Borrow<<R::DstChain as HasPacketTypes<R::SrcChain>>::Acknowledgement>,
 {
@@ -314,19 +293,7 @@ where
 #[async_trait]
 impl<R> Worker for PacketWorker<R>
 where
-    R: Relay
-        + CanBuildReceivePacketMessages
-        + CanBuildAckPacketMessages
-        + CanBuildTimeoutPacketMessages,
-    R::SrcChain: CanBuildUpdateClientPayload<R::DstChain>
-        + CanQueryClientState<R::DstChain>
-        + HasClientLatestHeight<R::DstChain>
-        + CanBuildUpdateClientMessage<R::DstChain>,
-    R::DstChain: CanQueryChainStatus
-        + CanQueryClientState<R::SrcChain>
-        + HasClientLatestHeight<R::SrcChain>
-        + CanBuildUpdateClientMessage<R::SrcChain>
-        + CanBuildUpdateClientPayload<R::SrcChain>,
+    R: Relay + CanBuildRelayPacketMessages,
     <R::SrcChain as HasPacketTypes<R::DstChain>>::Acknowledgement:
         Borrow<<R::DstChain as HasPacketTypes<R::SrcChain>>::Acknowledgement>,
 {

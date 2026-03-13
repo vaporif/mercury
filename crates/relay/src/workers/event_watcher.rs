@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, warn};
 
-use mercury_chain_traits::events::{CanExtractPacketEvents, CanQueryBlockEvents};
+use mercury_chain_traits::prelude::*;
 use mercury_chain_traits::relay::context::Relay;
 use mercury_chain_traits::relay::ibc_event::IbcEvent;
 use mercury_core::error::Result;
@@ -22,10 +22,7 @@ pub struct EventWatcher<R: Relay> {
 }
 
 #[async_trait]
-impl<R: Relay> Worker for EventWatcher<R>
-where
-    R::SrcChain: CanQueryBlockEvents,
-{
+impl<R: Relay> Worker for EventWatcher<R> {
     fn name(&self) -> &'static str {
         "event_watcher"
     }

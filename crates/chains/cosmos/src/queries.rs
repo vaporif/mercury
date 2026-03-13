@@ -11,10 +11,7 @@ use tendermint_rpc::Client;
 use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use tracing::instrument;
 
-use mercury_chain_traits::queries::{
-    CanQueryChainStatus, CanQueryClientState, CanQueryConsensusState, HasClientLatestHeight,
-    HasTrustingPeriod,
-};
+use mercury_chain_traits::queries::{CanQueryChainStatus, CanQueryClient};
 use mercury_chain_traits::types::HasChainTypes;
 use mercury_core::error::Result;
 
@@ -121,7 +118,7 @@ impl<S: CosmosSigner> CanQueryChainStatus for CosmosChain<S> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> CanQueryClientState<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> CanQueryClient<Self> for CosmosChain<S> {
     #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
@@ -153,10 +150,7 @@ impl<S: CosmosSigner> CanQueryClientState<Self> for CosmosChain<S> {
         >>::decode(any.value.as_slice())?;
         Ok(client_state)
     }
-}
 
-#[async_trait]
-impl<S: CosmosSigner> CanQueryConsensusState<Self> for CosmosChain<S> {
     #[instrument(skip_all, name = "query_consensus_state", fields(client_id = %client_id))]
     async fn query_consensus_state(
         &self,
@@ -196,15 +190,11 @@ impl<S: CosmosSigner> CanQueryConsensusState<Self> for CosmosChain<S> {
         >>::decode(any.value.as_slice())?;
         Ok(consensus_state)
     }
-}
 
-impl<S: CosmosSigner> HasTrustingPeriod<Self> for CosmosChain<S> {
     fn trusting_period(client_state: &Self::ClientState) -> Option<std::time::Duration> {
         Some(client_state.trusting_period)
     }
-}
 
-impl<S: CosmosSigner> HasClientLatestHeight<Self> for CosmosChain<S> {
     fn client_latest_height(client_state: &Self::ClientState) -> Self::Height {
         let h = client_state.latest_height.revision_height();
         tendermint::block::Height::try_from(h.max(1))

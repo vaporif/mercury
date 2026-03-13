@@ -1,9 +1,7 @@
 use async_trait::async_trait;
 
 use ibc_proto::ibc::core::client::v1::{MsgCreateClient, MsgUpdateClient};
-use mercury_chain_traits::message_builders::{
-    CanBuildCreateClientMessage, CanBuildUpdateClientMessage, CanRegisterCounterparty,
-};
+use mercury_chain_traits::message_builders::CanBuildClientMessages;
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
@@ -17,7 +15,7 @@ use crate::types::CosmosMessage;
 const DEFAULT_MERKLE_PREFIX: &[&[u8]] = &[b"ibc", b""];
 
 #[async_trait]
-impl<S: CosmosSigner> CanBuildCreateClientMessage<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> CanBuildClientMessages<Self> for CosmosChain<S> {
     async fn build_create_client_message(
         &self,
         payload: CosmosCreateClientPayload,
@@ -32,10 +30,7 @@ impl<S: CosmosSigner> CanBuildCreateClientMessage<Self> for CosmosChain<S> {
 
         Ok(to_any(&msg))
     }
-}
 
-#[async_trait]
-impl<S: CosmosSigner> CanBuildUpdateClientMessage<Self> for CosmosChain<S> {
     async fn build_update_client_message(
         &self,
         client_id: &Self::ClientId,
@@ -58,10 +53,7 @@ impl<S: CosmosSigner> CanBuildUpdateClientMessage<Self> for CosmosChain<S> {
 
         Ok(messages)
     }
-}
 
-#[async_trait]
-impl<S: CosmosSigner> CanRegisterCounterparty<Self> for CosmosChain<S> {
     async fn build_register_counterparty_message(
         &self,
         client_id: &Self::ClientId,

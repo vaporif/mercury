@@ -5,7 +5,7 @@ use mercury_core::error::Result;
 use crate::types::{HasChainTypes, HasPacketTypes};
 
 /// Extracts send-packet and write-ack events from raw chain events.
-pub trait CanExtractPacketEvents<Counterparty: HasChainTypes + ?Sized>:
+pub trait CanExtractPacketEvents<Counterparty: HasChainTypes>:
     HasPacketTypes<Counterparty>
 {
     type SendPacketEvent: ThreadSafe;

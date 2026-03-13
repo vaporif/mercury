@@ -1,22 +1,8 @@
 use std::borrow::Borrow;
 use std::sync::Arc;
 
-use mercury_chain_traits::events::CanQueryBlockEvents;
-use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
-use mercury_chain_traits::packet_builders::{
-    CanBuildAckPacketMessage, CanBuildReceivePacketMessage, CanBuildTimeoutPacketMessage,
-};
-use mercury_chain_traits::packet_queries::{
-    CanQueryPacketAcknowledgement, CanQueryPacketCommitment, CanQueryPacketReceipt,
-};
-use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
-use mercury_chain_traits::queries::{
-    CanQueryClientState, HasClientLatestHeight, HasTrustingPeriod,
-};
+use mercury_chain_traits::prelude::*;
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::{
-    Chain, HasChainTypes, HasIbcTypes, HasPacketTypes, HasRevisionNumber,
-};
 use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
@@ -68,39 +54,19 @@ where
 
 impl<Src, Dst> RelayContext<Src, Dst>
 where
-    Src: Chain<Dst>
-        + CanQueryBlockEvents
-        + CanBuildUpdateClientPayload<Dst>
-        + CanQueryPacketCommitment<Dst>
-        + CanQueryPacketAcknowledgement<Dst>
-        + HasRevisionNumber
-        // Timeout: src needs to query its client of dst, build update + timeout msgs
-        + CanQueryClientState<Dst>
-        + HasClientLatestHeight<Dst>
-        + CanBuildUpdateClientMessage<Dst>
-        + CanBuildTimeoutPacketMessage<Dst>,
-    Dst: Chain<Src>
-        + CanQueryClientState<Src>
-        + HasClientLatestHeight<Src>
-        + HasTrustingPeriod<Src>
-        + CanBuildUpdateClientMessage<Src>
-        + CanBuildReceivePacketMessage<Src>
-        + CanBuildAckPacketMessage<Src>
-        + HasRevisionNumber
-        // Timeout: dst provides receipt proof + update client payload for src
-        + CanQueryPacketReceipt<Src>
-        + CanBuildUpdateClientPayload<Src>,
-    <Dst as CanBuildReceivePacketMessage<Src>>::ReceivePacketPayload: From<(
+    Src: Chain<Dst>,
+    Dst: Chain<Src>,
+    <Dst as CanBuildPacketMessages<Src>>::ReceivePacketPayload: From<(
         <Src as HasIbcTypes<Dst>>::CommitmentProof,
         <Src as HasChainTypes>::Height,
         u64,
     )>,
-    <Dst as CanBuildAckPacketMessage<Src>>::AckPacketPayload: From<(
+    <Dst as CanBuildPacketMessages<Src>>::AckPacketPayload: From<(
         <Src as HasIbcTypes<Dst>>::CommitmentProof,
         <Src as HasChainTypes>::Height,
         u64,
     )>,
-    <Src as CanBuildTimeoutPacketMessage<Dst>>::TimeoutPacketPayload: From<(
+    <Src as CanBuildPacketMessages<Dst>>::TimeoutPacketPayload: From<(
         <Dst as HasIbcTypes<Src>>::CommitmentProof,
         <Dst as HasChainTypes>::Height,
         u64,

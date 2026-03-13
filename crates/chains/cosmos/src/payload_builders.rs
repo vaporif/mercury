@@ -11,9 +11,7 @@ use ibc_client_tendermint::types::{
 use ibc_proto::google::protobuf::Any;
 use tracing::instrument;
 
-use mercury_chain_traits::payload_builders::{
-    CanBuildCreateClientPayload, CanBuildUpdateClientPayload,
-};
+use mercury_chain_traits::payload_builders::CanBuildClientPayloads;
 use mercury_core::error::Result;
 use tendermint::account;
 use tendermint::block::Height as TmHeight;
@@ -42,8 +40,9 @@ pub struct CosmosUpdateClientPayload {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> CanBuildCreateClientPayload<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> CanBuildClientPayloads<Self> for CosmosChain<S> {
     type CreateClientPayload = CosmosCreateClientPayload;
+    type UpdateClientPayload = CosmosUpdateClientPayload;
 
     #[instrument(skip_all, name = "build_create_client_payload")]
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
@@ -90,11 +89,6 @@ impl<S: CosmosSigner> CanBuildCreateClientPayload<Self> for CosmosChain<S> {
             consensus_state: consensus_state.into(),
         })
     }
-}
-
-#[async_trait]
-impl<S: CosmosSigner> CanBuildUpdateClientPayload<Self> for CosmosChain<S> {
-    type UpdateClientPayload = CosmosUpdateClientPayload;
 
     #[instrument(skip_all, name = "build_update_client_payload", fields(trusted = %trusted_height, target = %target_height))]
     async fn build_update_client_payload(

@@ -1,11 +1,8 @@
 use async_trait::async_trait;
 
-use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
-use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
-use mercury_chain_traits::queries::{CanQueryClientState, HasClientLatestHeight};
+use mercury_chain_traits::prelude::*;
 use mercury_chain_traits::relay::client::CanUpdateClient;
 use mercury_chain_traits::relay::context::Relay;
-use mercury_chain_traits::types::Chain;
 use mercury_core::error::Result;
 
 use crate::context::RelayContext;
@@ -13,16 +10,8 @@ use crate::context::RelayContext;
 #[async_trait]
 impl<Src, Dst> CanUpdateClient for RelayContext<Src, Dst>
 where
-    Src: Chain<Dst>
-        + CanQueryClientState<Dst>
-        + CanBuildUpdateClientPayload<Dst>
-        + CanBuildUpdateClientMessage<Dst>
-        + HasClientLatestHeight<Dst>,
-    Dst: Chain<Src>
-        + CanQueryClientState<Src>
-        + CanBuildUpdateClientPayload<Src>
-        + CanBuildUpdateClientMessage<Src>
-        + HasClientLatestHeight<Src>,
+    Src: Chain<Dst>,
+    Dst: Chain<Src>,
 {
     async fn update_src_client(&self) -> Result<()> {
         let dst_status = self.dst_chain().query_chain_status().await?;

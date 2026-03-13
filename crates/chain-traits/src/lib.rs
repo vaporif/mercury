@@ -24,4 +24,7 @@ pub mod tx;
 /// Core type definitions for chains, messages, and packets.
 pub mod types;
 
+/// Re-exports all traits bundled into `Chain`.
+pub mod prelude;
+
 pub use types::*;

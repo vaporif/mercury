@@ -6,13 +6,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
-use mercury_chain_traits::message_builders::CanBuildUpdateClientMessage;
-use mercury_chain_traits::payload_builders::CanBuildUpdateClientPayload;
-use mercury_chain_traits::queries::{
-    CanQueryChainStatus, CanQueryClientState, HasClientLatestHeight, HasTrustingPeriod,
-};
+use mercury_chain_traits::prelude::*;
 use mercury_chain_traits::relay::context::Relay;
-use mercury_chain_traits::types::HasChainStatusType;
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -28,15 +23,7 @@ pub struct ClientRefreshWorker<R: Relay> {
 }
 
 #[async_trait]
-impl<R> Worker for ClientRefreshWorker<R>
-where
-    R: Relay,
-    R::SrcChain: CanBuildUpdateClientPayload<R::DstChain>,
-    R::DstChain: CanQueryClientState<R::SrcChain>
-        + HasClientLatestHeight<R::SrcChain>
-        + HasTrustingPeriod<R::SrcChain>
-        + CanBuildUpdateClientMessage<R::SrcChain>,
-{
+impl<R: Relay> Worker for ClientRefreshWorker<R> {
     fn name(&self) -> &'static str {
         "client_refresh"
     }
