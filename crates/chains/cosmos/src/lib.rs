@@ -10,8 +10,6 @@ pub mod config;
 pub mod events;
 /// Dynamic gas price querying.
 pub mod gas;
-/// IBC v2 proto message types.
-pub mod ibc_v2;
 /// Key management and transaction signing.
 pub mod keys;
 /// Misbehaviour detection and evidence construction.

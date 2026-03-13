@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use eyre::{Context, Result, bail};
 use ibc::core::host::types::identifiers::ClientId;
+use ibc_proto::ibc::core::channel::v2::{MsgSendPacket, Payload};
 use mercury_chain_traits::prelude::*;
 use mercury_cosmos::chain::CosmosChain;
 use mercury_cosmos::config::{CosmosChainConfig, GasPrice};
-use mercury_cosmos::ibc_v2::channel::{MsgSendPacket, Payload};
 use mercury_cosmos::keys::Secp256k1KeyPair;
 use mercury_cosmos::types::{CosmosMessage, CosmosTxResponse};
 use prost::Message;

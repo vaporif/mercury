@@ -6,11 +6,11 @@ use tendermint_rpc::Client;
 use tracing::warn;
 
 use crate::chain::CosmosChain;
-use crate::ibc_v2::channel;
 use crate::keys::CosmosSigner;
 use crate::types::{
     CosmosEvent, CosmosPacket, PacketAcknowledgement, PacketPayload, SendPacketEvent, WriteAckEvent,
 };
+use ibc_proto::ibc::core::channel::v2 as channel;
 
 fn get_attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
     attrs
@@ -171,8 +171,8 @@ mod tests {
     use mercury_chain_traits::events::PacketEvents;
     use prost::Message;
 
-    use crate::ibc_v2::channel::{Acknowledgement, Packet, Payload};
     use crate::keys::Secp256k1KeyPair;
+    use ibc_proto::ibc::core::channel::v2::{Acknowledgement, Packet, Payload};
 
     type TestChain = CosmosChain<Secp256k1KeyPair>;
 

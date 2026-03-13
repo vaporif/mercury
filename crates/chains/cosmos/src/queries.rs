@@ -379,7 +379,8 @@ impl<S: CosmosSigner> PacketStateQuery<Self> for CosmosChain<S> {
                     });
                     if let Some(hex_str) = hex_attr
                         && let Ok(bytes) = hex::decode(hex_str)
-                        && let Ok(pkt) = crate::ibc_v2::channel::Packet::decode(bytes.as_slice())
+                        && let Ok(pkt) =
+                            ibc_proto::ibc::core::channel::v2::Packet::decode(bytes.as_slice())
                         && pkt.source_client == client_id.as_str()
                     {
                         sequences.insert(pkt.sequence);

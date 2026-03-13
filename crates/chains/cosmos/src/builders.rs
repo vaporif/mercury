@@ -22,11 +22,12 @@ use mercury_chain_traits::builders::{
 };
 use mercury_core::error::Result;
 
-use crate::chain::CosmosChain;
-use crate::ibc_v2::channel::{
-    self, MsgAcknowledgement, MsgRecvPacket, MsgTimeout, Packet as V2Packet,
+use ibc_proto::ibc::core::channel::v2::{
+    self as channel, MsgAcknowledgement, MsgRecvPacket, MsgTimeout, Packet as V2Packet,
 };
-use crate::ibc_v2::client::MsgRegisterCounterparty;
+use ibc_proto::ibc::core::client::v2::MsgRegisterCounterparty;
+
+use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
 use crate::types::to_any;
 use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgement};

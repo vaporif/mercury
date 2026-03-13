@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn to_any_encodes_correctly() {
-        use crate::ibc_v2::client::MsgRegisterCounterparty;
+        use ibc_proto::ibc::core::client::v2::MsgRegisterCounterparty;
         use prost::{Message, Name};
 
         let msg = MsgRegisterCounterparty {
