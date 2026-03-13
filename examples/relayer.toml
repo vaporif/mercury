@@ -6,10 +6,19 @@ grpc_addr = "https://grpc.cosmos.network:443"
 account_prefix = "cosmos"
 key_name = "relayer"
 key_file = "keys/cosmoshub.toml"
+gas_multiplier = 1.3
+max_gas = 400000
+default_gas = 300000
+# fee_granter = "cosmos1..."
+# max_tx_size = 180000
 
 [chains.gas_price]
 amount = 0.025
 denom = "uatom"
+
+# [chains.dynamic_gas_price]
+# multiplier = 1.1
+# max = 0.6
 
 [[chains]]
 type = "cosmos"
@@ -19,10 +28,17 @@ grpc_addr = "https://grpc.osmosis.zone:443"
 account_prefix = "osmo"
 key_name = "relayer"
 key_file = "keys/osmosis.toml"
+gas_multiplier = 1.3
+max_gas = 400000
+default_gas = 300000
 
 [chains.gas_price]
 amount = 0.025
 denom = "uosmo"
+
+[chains.dynamic_gas_price]
+multiplier = 1.1
+max = 0.6
 
 [[relays]]
 src_chain = "cosmoshub-4"

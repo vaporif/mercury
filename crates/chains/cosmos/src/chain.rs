@@ -1,3 +1,4 @@
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use ibc::core::host::types::identifiers::ChainId;
@@ -24,6 +25,7 @@ pub struct CosmosChain<S: CosmosSigner> {
     pub grpc_channel: tonic::transport::Channel,
     pub signer: S,
     pub block_time: Duration,
+    pub dynamic_gas_backend: Arc<OnceLock<crate::gas::DynamicGasBackend>>,
 }
 
 impl<S: CosmosSigner> CosmosChain<S> {
@@ -62,6 +64,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
             rpc_client,
             grpc_channel,
             signer,
+            dynamic_gas_backend: Arc::new(OnceLock::new()),
         })
     }
 }

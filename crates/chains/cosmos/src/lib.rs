@@ -8,6 +8,8 @@ pub mod chain;
 pub mod config;
 /// Event parsing from transaction results.
 pub mod events;
+/// Dynamic gas price querying.
+pub mod gas;
 /// IBC v2 proto message types.
 pub mod ibc_v2;
 /// Key management and transaction signing.

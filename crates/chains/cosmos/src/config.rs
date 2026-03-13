@@ -3,6 +3,18 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+/// Dynamic gas price configuration (e.g. osmosis txfees, skip feemarket).
+#[derive(Clone, Debug, Deserialize)]
+pub struct DynamicGasPrice {
+    #[serde(default = "default_dynamic_gas_multiplier")]
+    pub multiplier: f64,
+    pub max: f64,
+}
+
+const fn default_dynamic_gas_multiplier() -> f64 {
+    1.1
+}
+
 /// Configuration for connecting to a Cosmos SDK chain.
 #[derive(Clone, Debug, Deserialize)]
 pub struct CosmosChainConfig {
@@ -23,6 +35,18 @@ pub struct CosmosChainConfig {
     pub unbonding_period: Option<Duration>,
     #[serde(default)]
     pub max_clock_drift: Option<Duration>,
+    #[serde(default)]
+    pub gas_multiplier: Option<f64>,
+    #[serde(default)]
+    pub max_gas: Option<u64>,
+    #[serde(default)]
+    pub default_gas: Option<u64>,
+    #[serde(default)]
+    pub fee_granter: Option<String>,
+    #[serde(default)]
+    pub dynamic_gas_price: Option<DynamicGasPrice>,
+    #[serde(default)]
+    pub max_tx_size: Option<usize>,
 }
 
 /// Gas price amount and denomination for fee calculation.
@@ -48,9 +72,66 @@ impl CosmosChainConfig {
                 self.chain_id,
             );
         }
+        if let Some(m) = self.gas_multiplier
+            && m < 1.0
+        {
+            eyre::bail!(
+                "chain '{}': gas_multiplier must be >= 1.0, got {m}",
+                self.chain_id
+            );
+        }
+        if let Some(max) = self.max_gas
+            && max == 0
+        {
+            eyre::bail!("chain '{}': max_gas must be > 0", self.chain_id);
+        }
+        if let Some(def) = self.default_gas
+            && def == 0
+        {
+            eyre::bail!("chain '{}': default_gas must be > 0", self.chain_id);
+        }
+        if let Some(ref granter) = self.fee_granter
+            && bech32::decode(granter).is_err()
+        {
+            eyre::bail!(
+                "chain '{}': fee_granter is not a valid bech32 address: {granter}",
+                self.chain_id
+            );
+        }
+        if let (Some(def), Some(max)) = (self.default_gas, self.max_gas)
+            && def > max
+        {
+            eyre::bail!(
+                "chain '{}': default_gas ({def}) must be <= max_gas ({max})",
+                self.chain_id
+            );
+        }
+        if let Some(ref dgp) = self.dynamic_gas_price
+            && dgp.multiplier < 1.0
+        {
+            eyre::bail!(
+                "chain '{}': dynamic_gas_price.multiplier must be >= 1.0",
+                self.chain_id
+            );
+        }
+        if let Some(ref dgp) = self.dynamic_gas_price
+            && dgp.max <= 0.0
+        {
+            eyre::bail!(
+                "chain '{}': dynamic_gas_price.max must be > 0",
+                self.chain_id
+            );
+        }
+        if let Some(size) = self.max_tx_size
+            && size == 0
+        {
+            eyre::bail!("chain '{}': max_tx_size must be > 0", self.chain_id);
+        }
         Ok(())
     }
 }
+
+pub(crate) const DEFAULT_MAX_TX_SIZE: usize = 180_000;
 
 const fn default_block_time() -> Duration {
     Duration::from_secs(3)
@@ -81,6 +162,12 @@ mod tests {
             trusting_period: None,
             unbonding_period: None,
             max_clock_drift: None,
+            gas_multiplier: None,
+            max_gas: None,
+            default_gas: None,
+            fee_granter: None,
+            dynamic_gas_price: None,
+            max_tx_size: None,
         }
     }
 
@@ -115,5 +202,80 @@ mod tests {
         let mut cfg = valid_config();
         cfg.gas_price.amount = -1.0;
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn gas_multiplier_below_min_fails() {
+        let mut cfg = valid_config();
+        cfg.gas_multiplier = Some(0.9);
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn gas_multiplier_at_min_passes() {
+        let mut cfg = valid_config();
+        cfg.gas_multiplier = Some(1.0);
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn max_gas_zero_fails() {
+        let mut cfg = valid_config();
+        cfg.max_gas = Some(0);
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn default_gas_exceeds_max_gas_fails() {
+        let mut cfg = valid_config();
+        cfg.max_gas = Some(100_000);
+        cfg.default_gas = Some(200_000);
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn dynamic_gas_price_multiplier_below_min_fails() {
+        let mut cfg = valid_config();
+        cfg.dynamic_gas_price = Some(DynamicGasPrice {
+            multiplier: 0.5,
+            max: 0.6,
+        });
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn max_tx_size_zero_fails() {
+        let mut cfg = valid_config();
+        cfg.max_tx_size = Some(0);
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn fee_granter_invalid_bech32_fails() {
+        let mut cfg = valid_config();
+        cfg.fee_granter = Some("notabech32address".to_string());
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn default_gas_without_max_gas_passes() {
+        let mut cfg = valid_config();
+        cfg.default_gas = Some(500_000);
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn valid_gas_config_passes() {
+        let mut cfg = valid_config();
+        cfg.gas_multiplier = Some(1.1);
+        cfg.max_gas = Some(400_000);
+        cfg.default_gas = Some(300_000);
+        cfg.fee_granter = Some("cosmos1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5lzv7xu".to_string());
+        cfg.max_tx_size = Some(180_000);
+        cfg.dynamic_gas_price = Some(DynamicGasPrice {
+            multiplier: 1.1,
+            max: 0.6,
+        });
+        assert!(cfg.validate().is_ok());
     }
 }

@@ -352,6 +352,12 @@ async fn build_cosmos_chain_with_wallet(
         trusting_period: None,
         unbonding_period: None,
         max_clock_drift: None,
+        gas_multiplier: None,
+        max_gas: None,
+        default_gas: None,
+        fee_granter: None,
+        dynamic_gas_price: None,
+        max_tx_size: None,
     };
     CosmosChain::new(config, signer)
         .await
@@ -376,6 +382,12 @@ async fn build_cosmos_chain(handle: &CosmosDockerHandle) -> Result<CosmosChain<S
         trusting_period: None,
         unbonding_period: None,
         max_clock_drift: None,
+        gas_multiplier: None,
+        max_gas: None,
+        default_gas: None,
+        fee_granter: None,
+        dynamic_gas_price: None,
+        max_tx_size: None,
     };
     CosmosChain::new(config, signer)
         .await
