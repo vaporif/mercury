@@ -9,6 +9,7 @@ use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::filter::PacketFilter;
 use crate::workers::clearing_worker::ClearingWorker;
 use crate::workers::client_refresh::ClientRefreshWorker;
 use crate::workers::event_watcher::EventWatcher;
@@ -19,11 +20,12 @@ use crate::workers::tx_worker::{SrcTxWorker, TxWorker};
 const CHANNEL_BUFFER: usize = 256;
 
 /// Configuration for optional relay workers.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct RelayWorkerConfig {
     pub lookback: Option<Duration>,
     pub clearing_interval: Option<Duration>,
     pub misbehaviour_scan_interval: Option<Duration>,
+    pub packet_filter: Option<PacketFilter>,
 }
 
 /// Unidirectional relay context between a source and destination chain.
@@ -109,6 +111,7 @@ where
             sender: event_tx.clone(),
             token: token.clone(),
             start_height,
+            packet_filter: config.packet_filter.clone(),
         };
 
         let client_refresh = ClientRefreshWorker {
@@ -151,6 +154,7 @@ where
                     sender: event_tx,
                     token: token.clone(),
                     interval,
+                    packet_filter: config.packet_filter.clone(),
                 };
                 spawn_worker(clearing_worker)
             },

@@ -45,3 +45,7 @@ src_chain = "cosmoshub-4"
 dst_chain = "osmosis-1"
 src_client_id = "07-tendermint-0"
 dst_client_id = "07-tendermint-0"
+
+# [relays.packet_filter]
+# policy = "allow"
+# source_ports = ["transfer"]

@@ -41,6 +41,7 @@ pub trait IbcTypes<Counterparty: ChainTypes + ?Sized>: ChainTypes {
 
     fn packet_sequence(packet: &Self::Packet) -> u64;
     fn packet_timeout_timestamp(packet: &Self::Packet) -> u64;
+    fn packet_source_ports(packet: &Self::Packet) -> Vec<String>;
 }
 
 /// Sends a batch of messages to the chain.

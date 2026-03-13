@@ -40,20 +40,9 @@ Expose a Prometheus `/metrics` endpoint with operational metrics. Operators need
 
 ---
 
-### 3. Packet Filtering
+### ~~3. Packet Filtering~~
 
-Allow operators to control which packets the relayer processes. Production relayers shouldn't relay everything on a chain.
-
-**Scope:**
-- Config: allowlist/denylist by client ID
-- Filter applied in `EventWatcher` before forwarding events to `PacketWorker`
-- Default: relay everything (no filter = current behavior)
-- Config structure:
-  ```toml
-  [relays.filter]
-  policy = "allow" # or "deny"
-  client_ids = ["07-tendermint-0"]
-  ```
+Implemented in `filter.rs` in `mercury-relay`. Configurable allow/deny policies with glob patterns on payload source ports. Filter applied in EventWatcher and ClearingWorker before events reach PacketWorker. Config: `[relays.packet_filter]` with `policy` and `source_ports` fields.
 
 ---
 

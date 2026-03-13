@@ -12,6 +12,8 @@ use mercury_chain_traits::relay::{IbcEvent, Relay};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
+use crate::filter::PacketFilter;
+
 const RECEIPT_CHECK_CONCURRENCY: usize = 8;
 
 /// Scans for unrelayed packet commitments and feeds recovered events into the relay pipeline.
@@ -20,6 +22,7 @@ pub struct ClearingWorker<R: Relay> {
     pub sender: mpsc::Sender<Vec<IbcEvent<R>>>,
     pub token: CancellationToken,
     pub interval: Duration,
+    pub packet_filter: Option<PacketFilter>,
 }
 
 #[async_trait]
@@ -98,6 +101,18 @@ impl<R: Relay> ClearingWorker<R> {
         for seq in &unrelayed {
             match src.query_send_packet_event(&src_client_id, *seq).await {
                 Ok(Some(send_event)) => {
+                    if let Some(ref filter) = self.packet_filter {
+                        let packet =
+                            <R::SrcChain as PacketEvents<R::DstChain>>::packet_from_send_event(
+                                &send_event,
+                            );
+                        let ports =
+                            <R::SrcChain as IbcTypes<R::DstChain>>::packet_source_ports(packet);
+                        if !filter.allows(&ports) {
+                            debug!(seq, ?ports, "cleared packet filtered out");
+                            continue;
+                        }
+                    }
                     events.push(IbcEvent::SendPacket(send_event));
                 }
                 Ok(None) => {

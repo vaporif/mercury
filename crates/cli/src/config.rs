@@ -2,6 +2,7 @@ use std::path::Path;
 
 use eyre::Context;
 use mercury_cosmos::config::CosmosChainConfig;
+use mercury_relay::filter::PacketFilterConfig;
 use serde::Deserialize;
 
 /// Top-level relayer configuration with chains and relay paths.
@@ -50,6 +51,8 @@ pub struct RelayConfig {
     pub clearing_interval_secs: Option<u64>,
     #[serde(default)]
     pub misbehaviour_scan_interval_secs: Option<u64>,
+    #[serde(default)]
+    pub packet_filter: Option<PacketFilterConfig>,
 }
 
 /// Reads and parses a TOML relayer config from the given path.

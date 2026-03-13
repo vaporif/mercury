@@ -6,6 +6,8 @@ pub mod birelay;
 pub mod client;
 /// Unidirectional relay context and pipeline orchestration.
 pub mod context;
+/// Packet filtering by source port with allow/deny policies.
+pub mod filter;
 /// IBC packet relay logic.
 pub mod packet;
 /// Background worker tasks for the relay pipeline.

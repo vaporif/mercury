@@ -11,6 +11,8 @@ use mercury_chain_traits::relay::{IbcEvent, Relay};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
+use crate::filter::PacketFilter;
+
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Polls the source chain for new blocks and extracts IBC packet events.
@@ -19,6 +21,7 @@ pub struct EventWatcher<R: Relay> {
     pub sender: mpsc::Sender<Vec<IbcEvent<R>>>,
     pub token: CancellationToken,
     pub start_height: Option<<R::SrcChain as ChainTypes>::Height>,
+    pub packet_filter: Option<PacketFilter>,
 }
 
 #[async_trait]
@@ -84,6 +87,34 @@ impl<R: Relay> Worker for EventWatcher<R> {
                     {
                         ibc_events.push(IbcEvent::WriteAck(write_ack));
                     }
+                }
+
+                if let Some(ref filter) = self.packet_filter {
+                    ibc_events.retain(|event| {
+                        let packet =
+                            match event {
+                                IbcEvent::SendPacket(e) => <R::SrcChain as PacketEvents<
+                                    R::DstChain,
+                                >>::packet_from_send_event(
+                                    e
+                                ),
+                                IbcEvent::WriteAck(e) => <R::SrcChain as PacketEvents<
+                                    R::DstChain,
+                                >>::packet_from_write_ack_event(
+                                    e
+                                )
+                                .0,
+                            };
+                        let ports =
+                            <R::SrcChain as IbcTypes<R::DstChain>>::packet_source_ports(packet);
+                        let allowed = filter.allows(&ports);
+                        if !allowed {
+                            let seq =
+                                <R::SrcChain as IbcTypes<R::DstChain>>::packet_sequence(packet);
+                            debug!(seq, ?ports, "packet filtered out");
+                        }
+                        allowed
+                    });
                 }
 
                 if !ibc_events.is_empty() {

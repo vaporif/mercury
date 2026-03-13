@@ -128,6 +128,14 @@ impl<S: CosmosSigner> IbcTypes<Self> for CosmosChain<S> {
     fn packet_timeout_timestamp(packet: &CosmosPacket) -> u64 {
         packet.timeout_timestamp
     }
+
+    fn packet_source_ports(packet: &CosmosPacket) -> Vec<String> {
+        packet
+            .payloads
+            .iter()
+            .map(|p| p.source_port.clone())
+            .collect()
+    }
 }
 
 #[cfg(test)]

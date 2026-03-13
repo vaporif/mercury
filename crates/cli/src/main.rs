@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 use mercury_cosmos::chain::CosmosChain;
 use mercury_cosmos::keys::{Secp256k1KeyPair, load_cosmos_signer};
 use mercury_relay::context::{RelayContext, RelayWorkerConfig};
+use mercury_relay::filter::PacketFilter;
 use tokio::task::JoinHandle;
 use tracing::instrument;
 use tracing_subscriber::EnvFilter;
@@ -274,6 +275,21 @@ fn spawn_relay_pair(
 
             let src_name = relay.src_chain.clone();
             let dst_name = relay.dst_chain.clone();
+            let packet_filter = relay
+                .packet_filter
+                .as_ref()
+                .map(PacketFilter::new)
+                .transpose()
+                .map_err(|e| eyre::eyre!("relay {}->{}: {e}", relay.src_chain, relay.dst_chain))?;
+
+            if let Some(ref pf) = relay.packet_filter {
+                tracing::info!(
+                    policy = ?pf.policy,
+                    source_ports = ?pf.source_ports,
+                    "packet filter configured"
+                );
+            }
+
             let worker_config = RelayWorkerConfig {
                 lookback: relay
                     .lookback_window_secs
@@ -284,6 +300,7 @@ fn spawn_relay_pair(
                 misbehaviour_scan_interval: relay
                     .misbehaviour_scan_interval_secs
                     .map(std::time::Duration::from_secs),
+                packet_filter,
             };
 
             // Shared token so misbehaviour detection can shut down both directions
@@ -296,7 +313,7 @@ fn spawn_relay_pair(
                     "running bidirectional relay"
                 );
                 let (res_a, res_b) = tokio::join!(
-                    Arc::clone(&fwd).run_with_token(shared_token.clone(), worker_config),
+                    Arc::clone(&fwd).run_with_token(shared_token.clone(), worker_config.clone()),
                     Arc::clone(&rev).run_with_token(shared_token, worker_config),
                 );
                 if let Err(ref e) = res_a {

@@ -137,6 +137,10 @@ impl IbcTypes<MockChain> for MockChain {
     fn packet_timeout_timestamp(_packet: &Self::Packet) -> u64 {
         0
     }
+
+    fn packet_source_ports(_packet: &Self::Packet) -> Vec<String> {
+        vec![]
+    }
 }
 
 #[async_trait]
