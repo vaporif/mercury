@@ -5,7 +5,7 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use mercury_cosmos::chain::CosmosChain;
 use mercury_cosmos::keys::{Secp256k1KeyPair, load_cosmos_signer};
-use mercury_relay::context::RelayContext;
+use mercury_relay::context::{RelayContext, RelayWorkerConfig};
 use tokio::task::JoinHandle;
 use tracing::instrument;
 use tracing_subscriber::EnvFilter;
@@ -274,9 +274,14 @@ fn spawn_relay_pair(
 
             let src_name = relay.src_chain.clone();
             let dst_name = relay.dst_chain.clone();
-            let lookback = relay
-                .lookback_window_secs
-                .map(std::time::Duration::from_secs);
+            let worker_config = RelayWorkerConfig {
+                lookback: relay
+                    .lookback_window_secs
+                    .map(std::time::Duration::from_secs),
+                clearing_interval: relay
+                    .clearing_interval_secs
+                    .map(std::time::Duration::from_secs),
+            };
 
             Ok(tokio::spawn(async move {
                 tracing::info!(
@@ -285,8 +290,8 @@ fn spawn_relay_pair(
                     "running bidirectional relay"
                 );
                 let (res_a, res_b) = tokio::join!(
-                    Arc::clone(&fwd).run(lookback),
-                    Arc::clone(&rev).run(lookback),
+                    Arc::clone(&fwd).run(worker_config),
+                    Arc::clone(&rev).run(worker_config),
                 );
                 if let Err(ref e) = res_a {
                     tracing::error!(direction = "a→b", error = %e, "relay direction failed");

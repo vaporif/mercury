@@ -1,3 +1,5 @@
+/// Scans for unrelayed packet commitments and recovers missed events.
+pub mod clearing_worker;
 /// Periodic IBC client refresh worker.
 pub mod client_refresh;
 /// Source chain block event poller.

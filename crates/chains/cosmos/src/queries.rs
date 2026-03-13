@@ -337,6 +337,67 @@ impl<S: CosmosSigner> PacketStateQuery<Self> for CosmosChain<S> {
         Ok((receipt, proof))
     }
 
+    #[instrument(skip_all, name = "query_commitment_sequences", fields(client_id = %client_id))]
+    async fn query_commitment_sequences(
+        &self,
+        client_id: &Self::ClientId,
+        _height: &Self::Height,
+    ) -> Result<Vec<u64>> {
+        use std::collections::HashSet;
+        use tendermint_rpc::query::{EventType, Query};
+
+        let query = Query::from(EventType::Tx).and_exists("send_packet.encoded_packet_hex");
+
+        let mut sequences = HashSet::new();
+        let mut page = 1u32;
+        let per_page = 100u8;
+
+        loop {
+            let response = self
+                .rpc_client
+                .tx_search(
+                    query.clone(),
+                    false,
+                    page,
+                    per_page,
+                    tendermint_rpc::Order::Ascending,
+                )
+                .await?;
+
+            for tx in &response.txs {
+                for event in &tx.tx_result.events {
+                    if event.kind != "send_packet" {
+                        continue;
+                    }
+                    let hex_attr = event.attributes.iter().find_map(|attr| {
+                        let key = attr.key_str().ok()?;
+                        if key == "encoded_packet_hex" {
+                            attr.value_str().ok()
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(hex_str) = hex_attr
+                        && let Ok(bytes) = hex::decode(hex_str)
+                        && let Ok(pkt) = crate::ibc_v2::channel::Packet::decode(bytes.as_slice())
+                        && pkt.source_client == client_id.as_str()
+                    {
+                        sequences.insert(pkt.sequence);
+                    }
+                }
+            }
+
+            if response.txs.len() < per_page as usize {
+                break;
+            }
+            page += 1;
+        }
+
+        let mut result: Vec<u64> = sequences.into_iter().collect();
+        result.sort_unstable();
+        Ok(result)
+    }
+
     #[instrument(skip_all, name = "query_packet_ack", fields(seq = sequence))]
     async fn query_packet_acknowledgement(
         &self,

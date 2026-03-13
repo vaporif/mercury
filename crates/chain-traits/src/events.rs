@@ -17,4 +17,10 @@ pub trait PacketEvents<Counterparty: ChainTypes>: IbcTypes<Counterparty> {
         event: &Self::WriteAckEvent,
     ) -> (&Self::Packet, &Self::Acknowledgement);
     async fn query_block_events(&self, height: &Self::Height) -> Result<Vec<Self::Event>>;
+
+    async fn query_send_packet_event(
+        &self,
+        client_id: &<Self as IbcTypes<Counterparty>>::ClientId,
+        sequence: u64,
+    ) -> Result<Option<Self::SendPacketEvent>>;
 }

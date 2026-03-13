@@ -9,12 +9,20 @@ use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::workers::clearing_worker::ClearingWorker;
 use crate::workers::client_refresh::ClientRefreshWorker;
 use crate::workers::event_watcher::EventWatcher;
 use crate::workers::packet_worker::PacketWorker;
 use crate::workers::tx_worker::{SrcTxWorker, TxWorker};
 
 const CHANNEL_BUFFER: usize = 256;
+
+/// Configuration for optional relay workers.
+#[derive(Clone, Copy, Default)]
+pub struct RelayWorkerConfig {
+    pub lookback: Option<Duration>,
+    pub clearing_interval: Option<Duration>,
+}
 
 /// Unidirectional relay context between a source and destination chain.
 pub struct RelayContext<Src, Dst>
@@ -79,9 +87,9 @@ where
     pub async fn run_with_token(
         self: Arc<Self>,
         token: CancellationToken,
-        clear_past_blocks: Option<Duration>,
+        config: RelayWorkerConfig,
     ) -> Result<()> {
-        let start_height = if let Some(lookback) = clear_past_blocks {
+        let start_height = if let Some(lookback) = config.lookback {
             let latest = self.src_chain.query_latest_height().await?;
             let block_time = self.src_chain.block_time();
             let blocks_back = (lookback.as_secs() / block_time.as_secs().max(1)).max(1);
@@ -96,7 +104,7 @@ where
 
         let event_watcher = EventWatcher {
             relay: Arc::clone(&self),
-            sender: event_tx,
+            sender: event_tx.clone(),
             token: token.clone(),
             start_height,
         };
@@ -133,12 +141,26 @@ where
         let src_tx_worker_handle = spawn_worker(src_tx_worker);
         let client_refresh_handle = spawn_worker(client_refresh);
 
+        let clearing_handle = config.clearing_interval.map_or_else(
+            || tokio::spawn(futures::future::pending()),
+            |interval| {
+                let clearing_worker = ClearingWorker {
+                    relay: Arc::clone(&self),
+                    sender: event_tx,
+                    token: token.clone(),
+                    interval,
+                };
+                spawn_worker(clearing_worker)
+            },
+        );
+
         let result = tokio::select! {
             res = event_watcher_handle => res,
             res = packet_worker_handle => res,
             res = tx_worker_handle => res,
             res = src_tx_worker_handle => res,
             res = client_refresh_handle => res,
+            res = clearing_handle => res,
         };
 
         token.cancel();
@@ -149,8 +171,7 @@ where
         }
     }
 
-    pub async fn run(self: Arc<Self>, lookback: Option<Duration>) -> Result<()> {
-        self.run_with_token(CancellationToken::new(), lookback)
-            .await
+    pub async fn run(self: Arc<Self>, config: RelayWorkerConfig) -> Result<()> {
+        self.run_with_token(CancellationToken::new(), config).await
     }
 }

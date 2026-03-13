@@ -3,6 +3,7 @@ use mercury_chain_traits::events::PacketEvents;
 use mercury_core::error::Result;
 use prost::Message as _;
 use tendermint_rpc::Client;
+use tracing::warn;
 
 use crate::chain::CosmosChain;
 use crate::ibc_v2::channel;
@@ -123,6 +124,44 @@ impl<S: CosmosSigner> PacketEvents<Self> for CosmosChain<S> {
             .collect();
 
         Ok(events)
+    }
+
+    async fn query_send_packet_event(
+        &self,
+        client_id: &ibc::core::host::types::identifiers::ClientId,
+        sequence: u64,
+    ) -> Result<Option<SendPacketEvent>> {
+        use tendermint_rpc::query::{EventType, Query};
+
+        let query =
+            Query::from(EventType::Tx).and_eq("send_packet.packet_sequence", sequence.to_string());
+
+        let response = self
+            .rpc_client
+            .tx_search(query, false, 1, 100, tendermint_rpc::Order::Descending)
+            .await?;
+
+        for tx in &response.txs {
+            for event in &tx.tx_result.events {
+                let cosmos_event = abci_event_to_cosmos_event(event);
+                if let Some(send_event) =
+                    <Self as PacketEvents<Self>>::try_extract_send_packet_event(&cosmos_event)
+                    && send_event.packet.source_client_id.as_str() == client_id.as_str()
+                {
+                    return Ok(Some(send_event));
+                }
+            }
+        }
+
+        if response.txs.is_empty() {
+            warn!(
+                sequence,
+                %client_id,
+                "tx_search returned no results — event may have been pruned from node's tx index"
+            );
+        }
+
+        Ok(None)
     }
 }
 

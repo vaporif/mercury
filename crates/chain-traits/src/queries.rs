@@ -60,4 +60,10 @@ pub trait PacketStateQuery<Counterparty: ChainTypes + ?Sized>: IbcTypes<Counterp
         sequence: u64,
         height: &Self::Height,
     ) -> Result<(Option<Self::Acknowledgement>, Self::CommitmentProof)>;
+
+    async fn query_commitment_sequences(
+        &self,
+        client_id: &Self::ClientId,
+        height: &Self::Height,
+    ) -> Result<Vec<u64>>;
 }
