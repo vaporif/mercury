@@ -17,8 +17,8 @@ pub trait CanExtractPacketEvents<Counterparty: HasChainTypes>: HasIbcTypes<Count
     ) -> (&Self::Packet, &Self::Acknowledgement);
 }
 
-#[async_trait]
 /// Queries events from a block and tracks the latest chain height.
+#[async_trait]
 pub trait CanQueryBlockEvents: HasChainTypes {
     async fn query_block_events(&self, height: &Self::Height) -> Result<Vec<Self::Event>>;
     async fn query_latest_height(&self) -> Result<Self::Height>;
