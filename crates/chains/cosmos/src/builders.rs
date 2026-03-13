@@ -31,8 +31,6 @@ use crate::ibc_v2::client::MsgRegisterCounterparty;
 use crate::keys::CosmosSigner;
 use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgement};
 
-// ── Payload types ───────────────────────────────────────────────────────
-
 const DEFAULT_TRUSTING_PERIOD: Duration = Duration::from_secs(14 * 24 * 3600);
 const DEFAULT_UNBONDING_PERIOD: Duration = Duration::from_secs(21 * 24 * 3600);
 const DEFAULT_MAX_CLOCK_DRIFT: Duration = Duration::from_secs(40);
@@ -73,8 +71,6 @@ impl From<(MerkleProof, TmHeight, u64)> for CosmosProofPayload {
 
 /// Default IBC store merkle prefix used by Cosmos SDK chains.
 const DEFAULT_MERKLE_PREFIX: &[&[u8]] = &[b"ibc", b""];
-
-// ── CanBuildClientPayloads ──────────────────────────────────────────────
 
 #[async_trait]
 impl<S: CosmosSigner> CanBuildClientPayloads<Self> for CosmosChain<S> {
@@ -222,8 +218,6 @@ fn find_proposer(
         .cloned()
 }
 
-// ── CanBuildClientMessages ──────────────────────────────────────────────
-
 #[async_trait]
 impl<S: CosmosSigner> CanBuildClientMessages<Self> for CosmosChain<S> {
     async fn build_create_client_message(
@@ -281,8 +275,6 @@ impl<S: CosmosSigner> CanBuildClientMessages<Self> for CosmosChain<S> {
         Ok(to_any(&msg))
     }
 }
-
-// ── CanBuildPacketMessages ──────────────────────────────────────────────
 
 fn cosmos_packet_to_v2(packet: &CosmosPacket) -> V2Packet {
     V2Packet {

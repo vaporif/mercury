@@ -22,8 +22,6 @@ use crate::types::{
     CosmosChainStatus, MerkleProof, PacketAcknowledgement, PacketCommitment, PacketReceipt,
 };
 
-// ── gRPC codec ──────────────────────────────────────────────────────────
-
 /// A codec that encodes/decodes protobuf messages using prost's `Message`
 /// trait through tonic's codec interface.
 #[derive(Debug, Clone)]
@@ -110,8 +108,6 @@ where
     client.unary(request, path, codec).await
 }
 
-// ── RPC helpers ─────────────────────────────────────────────────────────
-
 pub(crate) async fn query_abci(
     client: &HttpClient,
     path: &str,
@@ -135,8 +131,6 @@ pub async fn query_cosmos_status(rpc_addr: &str) -> Result<CosmosChainStatus> {
     })
 }
 
-// ── CanQueryChainStatus ─────────────────────────────────────────────────
-
 #[async_trait]
 impl<S: CosmosSigner> CanQueryChainStatus for CosmosChain<S> {
     #[instrument(skip_all, name = "query_chain_status")]
@@ -148,8 +142,6 @@ impl<S: CosmosSigner> CanQueryChainStatus for CosmosChain<S> {
         })
     }
 }
-
-// ── CanQueryClient ──────────────────────────────────────────────────────
 
 #[async_trait]
 impl<S: CosmosSigner> CanQueryClient<Self> for CosmosChain<S> {
@@ -235,8 +227,6 @@ impl<S: CosmosSigner> CanQueryClient<Self> for CosmosChain<S> {
             .unwrap_or_else(|_| TmHeight::from(1_u32))
     }
 }
-
-// ── CanQueryPacketState ─────────────────────────────────────────────────
 
 const IBC_STORE_PATH: &str = "store/ibc/key";
 
