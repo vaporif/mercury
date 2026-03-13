@@ -16,6 +16,7 @@ use mercury_core::worker::Worker;
 use crate::workers::{DstTxRequest, SrcTxRequest};
 
 type UpdateClientResult<Height, Message> = Result<(Height, Vec<Message>)>;
+type BuildMessagesResult<Message, R> = (Vec<Message>, Vec<PendingSend<SendEvent<R>>>);
 
 const PROOF_FETCH_CONCURRENCY: usize = 8;
 const PROOF_FETCH_MAX_RETRIES: usize = 3;
@@ -127,10 +128,7 @@ where
         &self,
         send_packets: Vec<PendingSend<SendEvent<R>>>,
         src_height: &<R::SrcChain as ChainTypes>::Height,
-    ) -> (
-        Vec<<R::DstChain as ChainTypes>::Message>,
-        Vec<PendingSend<SendEvent<R>>>,
-    ) {
+    ) -> BuildMessagesResult<<R::DstChain as ChainTypes>::Message, R> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
@@ -141,10 +139,9 @@ where
                 let relay = relay.clone();
                 let src_height = src_height.clone();
                 async move {
-                    let pkt =
-                        <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
-                            &ps.event,
-                        );
+                    let pkt = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
+                        &ps.event,
+                    );
                     let result = retry_proof_fetch(|| async {
                         relay.build_receive_packet_messages(pkt, &src_height).await
                     })
@@ -196,19 +193,13 @@ where
                 let relay = relay.clone();
                 let dst_height = dst_height.clone();
                 async move {
-                    let pkt =
-                        <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
-                            &ps.event,
-                        );
-                    let seq =
-                        <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_sequence(pkt);
+                    let pkt = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
+                        &ps.event,
+                    );
+                    let seq = <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_sequence(pkt);
                     let result = relay
                         .dst_chain()
-                        .query_packet_receipt(
-                            relay.dst_client_id(),
-                            seq,
-                            &dst_height,
-                        )
+                        .query_packet_receipt(relay.dst_client_id(), seq, &dst_height)
                         .await;
                     (ps, seq, result)
                 }
@@ -294,10 +285,7 @@ where
         &self,
         timed_out: Vec<PendingSend<SendEvent<R>>>,
         dst_height: &<R::DstChain as ChainTypes>::Height,
-    ) -> (
-        Vec<<R::SrcChain as ChainTypes>::Message>,
-        Vec<PendingSend<SendEvent<R>>>,
-    ) {
+    ) -> BuildMessagesResult<<R::SrcChain as ChainTypes>::Message, R> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
@@ -308,10 +296,9 @@ where
                 let relay = relay.clone();
                 let dst_height = dst_height.clone();
                 async move {
-                    let pkt =
-                        <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
-                            &ps.event,
-                        );
+                    let pkt = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
+                        &ps.event,
+                    );
                     let result = retry_proof_fetch(|| async {
                         relay.build_timeout_packet_messages(pkt, &dst_height).await
                     })
@@ -460,9 +447,8 @@ where
                         continue;
                     }
                 };
-                let still_unconfirmed = self
-                    .confirm_in_flight(in_flight_expired, &dst_height)
-                    .await;
+                let still_unconfirmed =
+                    self.confirm_in_flight(in_flight_expired, &dst_height).await;
                 new_sends.extend(still_unconfirmed);
             }
 
@@ -470,14 +456,11 @@ where
             let mut timed_out = Vec::new();
 
             for ps in new_sends {
-                let pkt = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
-                    &ps.event,
-                );
-                let ts =
-                    <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_timeout_timestamp(pkt);
+                let pkt =
+                    <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(&ps.event);
+                let ts = <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_timeout_timestamp(pkt);
                 if ts > 0 && dst_timestamp_secs >= ts {
-                    let seq =
-                        <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_sequence(pkt);
+                    let seq = <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_sequence(pkt);
                     debug!(seq, "packet timed out, will relay timeout");
                     timed_out.push(ps);
                 } else {

@@ -456,8 +456,7 @@ mod tests {
         };
 
         let other_key = [2u8; 32];
-        let other_pk =
-            tendermint::public_key::PublicKey::from_raw_ed25519(&other_key).unwrap();
+        let other_pk = tendermint::public_key::PublicKey::from_raw_ed25519(&other_key).unwrap();
         let other_addr = tendermint::account::Id::from(other_pk);
 
         let result = find_proposer(&[validator], &other_addr);
