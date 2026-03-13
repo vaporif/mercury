@@ -111,3 +111,53 @@ impl CosmosSigner for Secp256k1KeyPair {
         Ok(encoded)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keypair_address_generation() {
+        let secret_bytes = [1u8; 32];
+        let secret_key = secp256k1::SecretKey::from_byte_array(secret_bytes).unwrap();
+        let keypair = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
+        let address = keypair.account_address().unwrap();
+        assert!(address.starts_with("cosmos1"));
+        let address2 = keypair.account_address().unwrap();
+        assert_eq!(address, address2);
+    }
+
+    #[test]
+    fn keypair_public_key_bytes_compressed() {
+        let secret_bytes = [1u8; 32];
+        let secret_key = secp256k1::SecretKey::from_byte_array(secret_bytes).unwrap();
+        let keypair = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
+        let pub_bytes = keypair.public_key_bytes();
+        assert_eq!(pub_bytes.len(), 33);
+    }
+
+    #[test]
+    fn keypair_different_prefix() {
+        let secret_bytes = [1u8; 32];
+        let secret_key = secp256k1::SecretKey::from_byte_array(secret_bytes).unwrap();
+        let cosmos_kp = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
+        let osmo_kp = Secp256k1KeyPair::from_secret_key(secret_key, "osmo");
+        let cosmos_addr = cosmos_kp.account_address().unwrap();
+        let osmo_addr = osmo_kp.account_address().unwrap();
+        assert!(cosmos_addr.starts_with("cosmos1"));
+        assert!(osmo_addr.starts_with("osmo1"));
+        assert_ne!(cosmos_addr, osmo_addr);
+    }
+
+    #[tokio::test]
+    async fn keypair_sign_deterministic() {
+        let secret_bytes = [1u8; 32];
+        let secret_key = secp256k1::SecretKey::from_byte_array(secret_bytes).unwrap();
+        let keypair = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
+        let digest = [0xABu8; 32];
+        let sig1 = keypair.sign(digest).await.unwrap();
+        let sig2 = keypair.sign(digest).await.unwrap();
+        assert_eq!(sig1, sig2);
+        assert_eq!(sig1.len(), 64);
+    }
+}

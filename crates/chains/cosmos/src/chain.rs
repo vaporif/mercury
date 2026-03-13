@@ -117,3 +117,75 @@ impl<S: CosmosSigner> IbcTypes<Self> for CosmosChain<S> {
         packet.timeout_timestamp
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::Secp256k1KeyPair;
+    use mercury_chain_traits::types::{ChainTypes, IbcTypes};
+
+    type TestChain = CosmosChain<Secp256k1KeyPair>;
+
+    #[test]
+    fn increment_height_normal() {
+        let h = TmHeight::try_from(10u64).unwrap();
+        let next = TestChain::increment_height(&h).unwrap();
+        assert_eq!(next.value(), 11);
+    }
+
+    #[test]
+    fn increment_height_one() {
+        let h = TmHeight::try_from(1u64).unwrap();
+        let next = TestChain::increment_height(&h).unwrap();
+        assert_eq!(next.value(), 2);
+    }
+
+    #[test]
+    fn chain_status_height_extracts() {
+        let status = CosmosChainStatus {
+            height: TmHeight::try_from(42u64).unwrap(),
+            timestamp: TmTime::unix_epoch(),
+        };
+        let h = TestChain::chain_status_height(&status);
+        assert_eq!(h.value(), 42);
+    }
+
+    #[test]
+    fn chain_status_timestamp_secs_extracts() {
+        let ts = (TmTime::unix_epoch() + Duration::from_secs(1000)).unwrap();
+        let status = CosmosChainStatus {
+            height: TmHeight::try_from(1u64).unwrap(),
+            timestamp: ts,
+        };
+        let secs = TestChain::chain_status_timestamp_secs(&status);
+        assert_eq!(secs, 1000);
+    }
+
+    #[test]
+    fn packet_sequence_extracts() {
+        use ibc::core::host::types::identifiers::ClientId;
+        let packet = CosmosPacket {
+            source_client_id: ClientId::new("07-tendermint", 0).unwrap(),
+            dest_client_id: ClientId::new("07-tendermint", 1).unwrap(),
+            sequence: 99,
+            timeout_timestamp: 0,
+            payloads: vec![],
+        };
+        let seq = TestChain::packet_sequence(&packet);
+        assert_eq!(seq, 99);
+    }
+
+    #[test]
+    fn packet_timeout_timestamp_extracts() {
+        use ibc::core::host::types::identifiers::ClientId;
+        let packet = CosmosPacket {
+            source_client_id: ClientId::new("07-tendermint", 0).unwrap(),
+            dest_client_id: ClientId::new("07-tendermint", 1).unwrap(),
+            sequence: 1,
+            timeout_timestamp: 1_700_000_000,
+            payloads: vec![],
+        };
+        let ts = TestChain::packet_timeout_timestamp(&packet);
+        assert_eq!(ts, 1_700_000_000);
+    }
+}

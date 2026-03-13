@@ -59,3 +59,61 @@ const fn default_block_time() -> Duration {
 const fn default_max_msg_num() -> usize {
     30
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_config() -> CosmosChainConfig {
+        CosmosChainConfig {
+            chain_id: "cosmoshub-4".to_string(),
+            rpc_addr: "http://localhost:26657".to_string(),
+            grpc_addr: "http://localhost:9090".to_string(),
+            account_prefix: "cosmos".to_string(),
+            key_name: "default".to_string(),
+            key_file: "key.toml".into(),
+            gas_price: GasPrice {
+                amount: 0.025,
+                denom: "uatom".to_string(),
+            },
+            block_time: default_block_time(),
+            max_msg_num: default_max_msg_num(),
+            trusting_period: None,
+            unbonding_period: None,
+            max_clock_drift: None,
+        }
+    }
+
+    #[test]
+    fn valid_config_passes() {
+        assert!(valid_config().validate().is_ok());
+    }
+
+    #[test]
+    fn https_rpc_passes() {
+        let mut cfg = valid_config();
+        cfg.rpc_addr = "https://rpc.cosmos.network".to_string();
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn invalid_rpc_scheme_fails() {
+        let mut cfg = valid_config();
+        cfg.rpc_addr = "ws://localhost:26657".to_string();
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn invalid_grpc_scheme_fails() {
+        let mut cfg = valid_config();
+        cfg.grpc_addr = "ftp://localhost:9090".to_string();
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn negative_gas_price_fails() {
+        let mut cfg = valid_config();
+        cfg.gas_price.amount = -1.0;
+        assert!(cfg.validate().is_err());
+    }
+}

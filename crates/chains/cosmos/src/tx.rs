@@ -368,3 +368,26 @@ impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_sequence_mismatch_detects_error() {
+        let err = eyre::eyre!("account sequence mismatch, expected 5, got 4");
+        assert!(is_sequence_mismatch(&err));
+    }
+
+    #[test]
+    fn is_sequence_mismatch_ignores_other_errors() {
+        let err = eyre::eyre!("connection refused");
+        assert!(!is_sequence_mismatch(&err));
+    }
+
+    #[test]
+    fn is_sequence_mismatch_empty_message() {
+        let err = eyre::eyre!("");
+        assert!(!is_sequence_mismatch(&err));
+    }
+}

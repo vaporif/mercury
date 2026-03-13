@@ -125,3 +125,171 @@ impl<S: CosmosSigner> PacketEvents<Self> for CosmosChain<S> {
         Ok(events)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mercury_chain_traits::events::PacketEvents;
+    use prost::Message;
+
+    use crate::ibc_v2::channel::{Acknowledgement, Packet, Payload};
+    use crate::keys::Secp256k1KeyPair;
+
+    type TestChain = CosmosChain<Secp256k1KeyPair>;
+
+    #[test]
+    fn get_attr_finds_existing_key() {
+        let attrs = vec![
+            ("foo".to_string(), "bar".to_string()),
+            ("baz".to_string(), "qux".to_string()),
+        ];
+        assert_eq!(get_attr(&attrs, "foo"), Some("bar"));
+        assert_eq!(get_attr(&attrs, "baz"), Some("qux"));
+    }
+
+    #[test]
+    fn get_attr_returns_none_for_missing_key() {
+        let attrs = vec![("foo".to_string(), "bar".to_string())];
+        assert_eq!(get_attr(&attrs, "missing"), None);
+    }
+
+    #[test]
+    fn get_attr_empty_attrs() {
+        let attrs: Vec<(String, String)> = vec![];
+        assert_eq!(get_attr(&attrs, "any"), None);
+    }
+
+    #[test]
+    fn v2_packet_to_cosmos_valid_packet() {
+        let pkt = Packet {
+            sequence: 42,
+            source_client: "07-tendermint-0".to_string(),
+            destination_client: "07-tendermint-1".to_string(),
+            timeout_timestamp: 1_700_000_000,
+            payloads: vec![Payload {
+                source_port: "transfer".to_string(),
+                destination_port: "transfer".to_string(),
+                version: "ics20-1".to_string(),
+                encoding: "application/json".to_string(),
+                value: b"hello".to_vec(),
+            }],
+        };
+
+        let result = v2_packet_to_cosmos(pkt).unwrap();
+        assert_eq!(result.sequence, 42);
+        assert_eq!(result.source_client_id.as_str(), "07-tendermint-0");
+        assert_eq!(result.dest_client_id.as_str(), "07-tendermint-1");
+        assert_eq!(result.timeout_timestamp, 1_700_000_000);
+        assert_eq!(result.payloads.len(), 1);
+        assert_eq!(result.payloads[0].source_port, "transfer");
+        assert_eq!(result.payloads[0].data, b"hello");
+    }
+
+    #[test]
+    fn v2_packet_to_cosmos_invalid_client_id() {
+        let pkt = Packet {
+            sequence: 1,
+            source_client: "not a valid client id!!!".to_string(),
+            destination_client: "07-tendermint-1".to_string(),
+            timeout_timestamp: 0,
+            payloads: vec![],
+        };
+
+        assert!(v2_packet_to_cosmos(pkt).is_none());
+    }
+
+    #[test]
+    fn try_extract_send_packet_event_wrong_kind() {
+        let event = CosmosEvent {
+            kind: "transfer".to_string(),
+            attributes: vec![],
+        };
+        assert!(TestChain::try_extract_send_packet_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_send_packet_event_missing_hex() {
+        let event = CosmosEvent {
+            kind: "send_packet".to_string(),
+            attributes: vec![],
+        };
+        assert!(TestChain::try_extract_send_packet_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_send_packet_event_valid() {
+        let packet = Packet {
+            sequence: 7,
+            source_client: "07-tendermint-0".to_string(),
+            destination_client: "07-tendermint-1".to_string(),
+            timeout_timestamp: 999,
+            payloads: vec![Payload {
+                source_port: "transfer".to_string(),
+                destination_port: "transfer".to_string(),
+                version: "ics20-1".to_string(),
+                encoding: "json".to_string(),
+                value: b"data".to_vec(),
+            }],
+        };
+        let hex_encoded = hex::encode(packet.encode_to_vec());
+
+        let event = CosmosEvent {
+            kind: "send_packet".to_string(),
+            attributes: vec![("encoded_packet_hex".to_string(), hex_encoded)],
+        };
+
+        let result = TestChain::try_extract_send_packet_event(&event);
+        assert!(result.is_some());
+        let send_event = result.unwrap();
+        assert_eq!(send_event.packet.sequence, 7);
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_wrong_kind() {
+        let event = CosmosEvent {
+            kind: "send_packet".to_string(),
+            attributes: vec![],
+        };
+        assert!(TestChain::try_extract_write_ack_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_valid() {
+        let packet = Packet {
+            sequence: 3,
+            source_client: "07-tendermint-0".to_string(),
+            destination_client: "07-tendermint-1".to_string(),
+            timeout_timestamp: 500,
+            payloads: vec![Payload {
+                source_port: "transfer".to_string(),
+                destination_port: "transfer".to_string(),
+                version: "ics20-1".to_string(),
+                encoding: "json".to_string(),
+                value: b"payload".to_vec(),
+            }],
+        };
+        let ack = Acknowledgement {
+            app_acknowledgements: vec![b"ack_data".to_vec()],
+        };
+
+        let event = CosmosEvent {
+            kind: "write_acknowledgement".to_string(),
+            attributes: vec![
+                (
+                    "encoded_packet_hex".to_string(),
+                    hex::encode(packet.encode_to_vec()),
+                ),
+                (
+                    "encoded_acknowledgement_hex".to_string(),
+                    hex::encode(ack.encode_to_vec()),
+                ),
+            ],
+        };
+
+        let result = TestChain::try_extract_write_ack_event(&event);
+        assert!(result.is_some());
+        let write_ack = result.unwrap();
+        assert_eq!(write_ack.packet.sequence, 3);
+        assert_eq!(write_ack.ack.0, ack.encode_to_vec());
+    }
+}

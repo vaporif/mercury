@@ -367,3 +367,100 @@ impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChain<S> {
         Ok(to_any(&msg))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ibc::core::host::types::identifiers::ClientId;
+
+    use crate::types::PacketPayload;
+
+    #[test]
+    fn cosmos_packet_to_v2_converts_fields() {
+        let packet = CosmosPacket {
+            source_client_id: ClientId::new("07-tendermint", 0).unwrap(),
+            dest_client_id: ClientId::new("07-tendermint", 1).unwrap(),
+            sequence: 5,
+            timeout_timestamp: 12345,
+            payloads: vec![PacketPayload {
+                source_port: "transfer".to_string(),
+                dest_port: "transfer".to_string(),
+                version: "ics20-1".to_string(),
+                encoding: "json".to_string(),
+                data: b"test".to_vec(),
+            }],
+        };
+
+        let v2 = cosmos_packet_to_v2(&packet);
+        assert_eq!(v2.sequence, 5);
+        assert_eq!(v2.source_client, "07-tendermint-0");
+        assert_eq!(v2.destination_client, "07-tendermint-1");
+        assert_eq!(v2.timeout_timestamp, 12345);
+        assert_eq!(v2.payloads.len(), 1);
+        assert_eq!(v2.payloads[0].source_port, "transfer");
+        assert_eq!(v2.payloads[0].destination_port, "transfer");
+        assert_eq!(v2.payloads[0].value, b"test");
+    }
+
+    #[test]
+    fn cosmos_packet_to_v2_empty_payloads() {
+        let packet = CosmosPacket {
+            source_client_id: ClientId::new("07-tendermint", 0).unwrap(),
+            dest_client_id: ClientId::new("07-tendermint", 1).unwrap(),
+            sequence: 1,
+            timeout_timestamp: 0,
+            payloads: vec![],
+        };
+        let v2 = cosmos_packet_to_v2(&packet);
+        assert!(v2.payloads.is_empty());
+    }
+
+    #[test]
+    fn to_proto_height_converts() {
+        let h = TmHeight::try_from(100u64).unwrap();
+        let proto = to_proto_height(3, h);
+        assert_eq!(proto.revision_number, 3);
+        assert_eq!(proto.revision_height, 100);
+    }
+
+    #[test]
+    fn find_proposer_found() {
+        use tendermint::public_key::PublicKey;
+        use tendermint::validator::Info as ValidatorInfo;
+
+        let key_bytes = [1u8; 32];
+        let pk = PublicKey::from_raw_ed25519(&key_bytes).unwrap();
+        let validator = ValidatorInfo {
+            address: tendermint::account::Id::from(pk),
+            pub_key: pk,
+            power: 10u32.into(),
+            name: None,
+            proposer_priority: 0.into(),
+        };
+
+        let result = find_proposer(&[validator.clone()], &validator.address);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().address, validator.address);
+    }
+
+    #[test]
+    fn find_proposer_not_found() {
+        let key_bytes = [1u8; 32];
+        let pk = tendermint::public_key::PublicKey::from_raw_ed25519(&key_bytes).unwrap();
+        let validator = tendermint::validator::Info {
+            address: tendermint::account::Id::from(pk),
+            pub_key: pk,
+            power: 10u32.into(),
+            name: None,
+            proposer_priority: 0.into(),
+        };
+
+        let other_key = [2u8; 32];
+        let other_pk =
+            tendermint::public_key::PublicKey::from_raw_ed25519(&other_key).unwrap();
+        let other_addr = tendermint::account::Id::from(other_pk);
+
+        let result = find_proposer(&[validator], &other_addr);
+        assert!(result.is_none());
+    }
+}

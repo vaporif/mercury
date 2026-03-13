@@ -363,3 +363,56 @@ impl<S: CosmosSigner> PacketStateQuery<Self> for CosmosChain<S> {
         Ok((ack, proof))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proof_query_height_subtracts_one() {
+        let h = TmHeight::try_from(10u64).unwrap();
+        let result = proof_query_height(h).unwrap();
+        assert_eq!(result.value(), 9);
+    }
+
+    #[test]
+    fn proof_query_height_at_one() {
+        let h = TmHeight::try_from(1u64).unwrap();
+        let result = proof_query_height(h).unwrap();
+        assert_eq!(result.value(), 0);
+    }
+
+    #[test]
+    fn proof_query_height_at_two() {
+        let h = TmHeight::try_from(2u64).unwrap();
+        let result = proof_query_height(h).unwrap();
+        assert_eq!(result.value(), 1);
+    }
+
+    #[test]
+    fn ibc_v2_key_construction() {
+        let key = ibc_v2_key("07-tendermint-0", 1, 42);
+        let client_bytes = b"07-tendermint-0";
+        assert!(key.starts_with(client_bytes));
+        assert_eq!(key[client_bytes.len()], 1);
+        let seq_bytes = &key[client_bytes.len() + 1..];
+        assert_eq!(seq_bytes.len(), 8);
+        assert_eq!(u64::from_be_bytes(seq_bytes.try_into().unwrap()), 42);
+    }
+
+    #[test]
+    fn ibc_v2_key_different_discriminators() {
+        let key_commit = ibc_v2_key("client-0", 1, 1);
+        let key_receipt = ibc_v2_key("client-0", 2, 1);
+        let key_ack = ibc_v2_key("client-0", 3, 1);
+        assert_ne!(key_commit, key_receipt);
+        assert_ne!(key_receipt, key_ack);
+    }
+
+    #[test]
+    fn ibc_v2_key_sequence_encoding() {
+        let key1 = ibc_v2_key("c", 1, 0);
+        let key2 = ibc_v2_key("c", 1, u64::MAX);
+        assert_eq!(key1.len(), key2.len());
+    }
+}

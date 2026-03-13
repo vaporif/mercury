@@ -97,18 +97,26 @@ impl TestContext {
     }
 
     /// Send an IBC v2 transfer from chain A user1 to chain B user1.
-    ///
-    /// Builds and submits a `MsgSendPacket` with JSON-encoded
-    /// `FungibleTokenPacketData` as the payload.
     #[allow(clippy::missing_panics_doc)]
     pub async fn send_transfer_a_to_b(&self, amount: u64, denom: &str) -> Result<()> {
+        self.send_transfer_a_to_b_with_timeout(amount, denom, 600)
+            .await
+    }
+
+    /// Send an IBC v2 transfer from chain A user1 to chain B user1
+    /// with a custom timeout in seconds.
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn send_transfer_a_to_b_with_timeout(
+        &self,
+        amount: u64,
+        denom: &str,
+        timeout_secs: u64,
+    ) -> Result<()> {
         let user_a = &self.handle_a.user_wallets()[0];
         let user_b = &self.handle_b.user_wallets()[0];
 
-        // Build a CosmosChain with user1's key for signing
         let user_chain = build_cosmos_chain_with_wallet(&self.handle_a, user_a).await?;
 
-        // JSON-encoded FungibleTokenPacketData (ICS-20 v1)
         let packet_data = serde_json::json!({
             "denom": denom,
             "amount": amount.to_string(),
@@ -121,7 +129,7 @@ impl TestContext {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            + 600; // 10 minutes from now
+            + timeout_secs;
 
         let msg = MsgSendPacket {
             source_client: self.client_id_a.to_string(),
@@ -148,6 +156,7 @@ impl TestContext {
 
         info!(
             tx_hash = %responses.first().map_or("?", |r| r.hash.as_str()),
+            timeout_secs,
             "IBC v2 transfer submitted on chain A"
         );
         Ok(())

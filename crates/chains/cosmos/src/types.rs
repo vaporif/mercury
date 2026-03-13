@@ -90,3 +90,25 @@ pub struct WriteAckEvent {
     pub packet: CosmosPacket,
     pub ack: PacketAcknowledgement,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_any_encodes_correctly() {
+        use crate::ibc_v2::client::MsgRegisterCounterparty;
+        use prost::{Message, Name};
+
+        let msg = MsgRegisterCounterparty {
+            client_id: "07-tendermint-0".to_string(),
+            counterparty_merkle_prefix: vec![b"ibc".to_vec()],
+            counterparty_client_id: "07-tendermint-1".to_string(),
+            signer: "cosmos1abc".to_string(),
+        };
+
+        let result = to_any(&msg);
+        assert_eq!(result.type_url, MsgRegisterCounterparty::type_url());
+        assert_eq!(result.value, msg.encode_to_vec());
+    }
+}

@@ -87,3 +87,114 @@ async fn bidirectional_transfer() {
 
     relay.stop().await.expect("stop relay");
 }
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn packet_timeout() {
+    super::init_tracing();
+
+    let ctx = setup_context().await.expect("IBC setup");
+
+    let user_a_addr = &ctx.handle_a.user_wallets()[0].address;
+    let balance_before = TestContext::query_balance(&ctx.handle_a, user_a_addr, "stake")
+        .await
+        .expect("query balance on A before timeout transfer");
+
+    // Start relay first so the event watcher sees the send_packet event.
+    let relay = ctx.start_relay_library().expect("start relay");
+
+    // Send with 1-second timeout. The event watcher stays 1 block behind tip,
+    // so by the time the packet_worker sees the event (~2 blocks / ~2s later),
+    // the timeout has already expired on the destination chain. The packet is
+    // classified as timed-out on first observation and never delivered.
+    ctx.send_transfer_a_to_b_with_timeout(1000, "stake", 1)
+        .await
+        .expect("transfer A→B with short timeout");
+
+    // Relay should detect the timeout and process MsgTimeout, refunding sender
+    ctx.assert_eventual_balance(
+        &ctx.handle_a,
+        user_a_addr,
+        "stake",
+        balance_before,
+        Duration::from_secs(60),
+    )
+    .await
+    .expect("balance refunded on A after timeout");
+
+    relay.stop().await.expect("stop relay");
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn client_refresh_keeps_relay_alive() {
+    super::init_tracing();
+
+    let ctx = setup_context().await.expect("IBC setup");
+    let relay = ctx.start_relay_library().expect("start relay");
+
+    let user_b_addr = &ctx.handle_b.user_wallets()[0].address;
+    let ibc_denom = TestContext::ibc_denom("transfer", &ctx.client_id_b.to_string(), "stake");
+
+    ctx.send_transfer_a_to_b(1000, "stake")
+        .await
+        .expect("transfer A→B (first)");
+
+    ctx.assert_eventual_balance(
+        &ctx.handle_b,
+        user_b_addr,
+        &ibc_denom,
+        1000,
+        Duration::from_secs(60),
+    )
+    .await
+    .expect("balance on B after first transfer");
+
+    tokio::time::sleep(Duration::from_secs(10)).await;
+
+    ctx.send_transfer_a_to_b(500, "stake")
+        .await
+        .expect("transfer A→B (second)");
+
+    ctx.assert_eventual_balance(
+        &ctx.handle_b,
+        user_b_addr,
+        &ibc_denom,
+        1500,
+        Duration::from_secs(60),
+    )
+    .await
+    .expect("balance on B after second transfer");
+
+    relay.stop().await.expect("stop relay");
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn concurrent_transfers() {
+    super::init_tracing();
+
+    let ctx = setup_context().await.expect("IBC setup");
+    let relay = ctx.start_relay_library().expect("start relay");
+
+    let user_b_addr = &ctx.handle_b.user_wallets()[0].address;
+    let ibc_denom = TestContext::ibc_denom("transfer", &ctx.client_id_b.to_string(), "stake");
+
+    for _ in 0..5 {
+        ctx.send_transfer_a_to_b(100, "stake")
+            .await
+            .expect("transfer A→B");
+    }
+
+    ctx.assert_eventual_balance(
+        &ctx.handle_b,
+        user_b_addr,
+        &ibc_denom,
+        500,
+        Duration::from_secs(120),
+    )
+    .await
+    .expect("balance on B after concurrent transfers");
+
+    relay.stop().await.expect("stop relay");
+}
