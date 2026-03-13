@@ -1,8 +1,7 @@
 use async_trait::async_trait;
 use tracing::{info, instrument, warn};
 
-use mercury_chain_traits::tx::{CanPollTxResponse, CanQueryNonce, CanSubmitTx};
-use mercury_chain_traits::types::CanSendMessages;
+use mercury_chain_traits::types::MessageSender;
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
@@ -14,7 +13,7 @@ fn is_sequence_mismatch(e: &eyre::Report) -> bool {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> CanSendMessages for CosmosChain<S> {
+impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
     #[instrument(skip_all, name = "send_messages", fields(count = messages.len()))]
     async fn send_messages(
         &self,

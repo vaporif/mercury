@@ -4,40 +4,40 @@ use async_trait::async_trait;
 use tracing::{debug, instrument};
 
 use mercury_chain_traits::prelude::*;
-use mercury_chain_traits::relay::{CanBuildRelayPacketMessages, Relay};
+use mercury_chain_traits::relay::{RelayPacketBuilder, Relay};
 use mercury_core::error::Result;
 
 use crate::context::RelayContext;
 
 #[async_trait]
-impl<Src, Dst> CanBuildRelayPacketMessages for RelayContext<Src, Dst>
+impl<Src, Dst> RelayPacketBuilder for RelayContext<Src, Dst>
 where
     Src: Chain<Dst>,
     Dst: Chain<Src>,
-    <Dst as CanBuildPacketMessages<Src>>::ReceivePacketPayload: From<(
-        <Src as HasIbcTypes<Dst>>::CommitmentProof,
-        <Src as HasChainTypes>::Height,
+    <Dst as PacketMessageBuilder<Src>>::ReceivePacketPayload: From<(
+        <Src as IbcTypes<Dst>>::CommitmentProof,
+        <Src as ChainTypes>::Height,
         u64,
     )>,
-    <Dst as CanBuildPacketMessages<Src>>::AckPacketPayload: From<(
-        <Src as HasIbcTypes<Dst>>::CommitmentProof,
-        <Src as HasChainTypes>::Height,
+    <Dst as PacketMessageBuilder<Src>>::AckPacketPayload: From<(
+        <Src as IbcTypes<Dst>>::CommitmentProof,
+        <Src as ChainTypes>::Height,
         u64,
     )>,
-    <Src as CanBuildPacketMessages<Dst>>::TimeoutPacketPayload: From<(
-        <Dst as HasIbcTypes<Src>>::CommitmentProof,
-        <Dst as HasChainTypes>::Height,
+    <Src as PacketMessageBuilder<Dst>>::TimeoutPacketPayload: From<(
+        <Dst as IbcTypes<Src>>::CommitmentProof,
+        <Dst as ChainTypes>::Height,
         u64,
     )>,
-    <Src as HasIbcTypes<Dst>>::Packet: Borrow<<Dst as HasIbcTypes<Src>>::Packet>,
-    <Dst as HasIbcTypes<Src>>::Acknowledgement: Borrow<<Src as HasIbcTypes<Dst>>::Acknowledgement>,
+    <Src as IbcTypes<Dst>>::Packet: Borrow<<Dst as IbcTypes<Src>>::Packet>,
+    <Dst as IbcTypes<Src>>::Acknowledgement: Borrow<<Src as IbcTypes<Dst>>::Acknowledgement>,
 {
     #[instrument(skip_all, name = "build_receive_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_receive_packet_messages(
         &self,
-        packet: &<Src as HasIbcTypes<Dst>>::Packet,
-        proof_height: &<Src as HasChainTypes>::Height,
-    ) -> Result<Vec<<Dst as HasChainTypes>::Message>> {
+        packet: &<Src as IbcTypes<Dst>>::Packet,
+        proof_height: &<Src as ChainTypes>::Height,
+    ) -> Result<Vec<<Dst as ChainTypes>::Message>> {
         let sequence = Src::packet_sequence(packet);
 
         let (commitment, proof) = self
@@ -64,10 +64,10 @@ where
     #[instrument(skip_all, name = "build_ack_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_ack_packet_messages(
         &self,
-        packet: &<Src as HasIbcTypes<Dst>>::Packet,
-        ack: &<Dst as HasIbcTypes<Src>>::Acknowledgement,
-        proof_height: &<Src as HasChainTypes>::Height,
-    ) -> Result<Vec<<Dst as HasChainTypes>::Message>> {
+        packet: &<Src as IbcTypes<Dst>>::Packet,
+        ack: &<Dst as IbcTypes<Src>>::Acknowledgement,
+        proof_height: &<Src as ChainTypes>::Height,
+    ) -> Result<Vec<<Dst as ChainTypes>::Message>> {
         let sequence = Src::packet_sequence(packet);
 
         let (ack_value, proof) = self
@@ -94,9 +94,9 @@ where
     #[instrument(skip_all, name = "build_timeout_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_timeout_packet_messages(
         &self,
-        packet: &<Src as HasIbcTypes<Dst>>::Packet,
-        proof_height: &<Dst as HasChainTypes>::Height,
-    ) -> Result<Vec<<Src as HasChainTypes>::Message>> {
+        packet: &<Src as IbcTypes<Dst>>::Packet,
+        proof_height: &<Dst as ChainTypes>::Height,
+    ) -> Result<Vec<<Src as ChainTypes>::Message>> {
         let sequence = Src::packet_sequence(packet);
 
         let (receipt, proof) = self

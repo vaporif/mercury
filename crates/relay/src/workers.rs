@@ -8,14 +8,14 @@ pub mod packet_worker;
 pub mod tx_worker;
 
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::HasChainTypes;
+use mercury_chain_traits::types::ChainTypes;
 
 /// A batch of messages to submit to the destination chain.
 pub struct DstTxRequest<R: Relay> {
-    pub messages: Vec<<R::DstChain as HasChainTypes>::Message>,
+    pub messages: Vec<<R::DstChain as ChainTypes>::Message>,
 }
 
-impl<R: Relay> From<DstTxRequest<R>> for Vec<<R::DstChain as HasChainTypes>::Message> {
+impl<R: Relay> From<DstTxRequest<R>> for Vec<<R::DstChain as ChainTypes>::Message> {
     fn from(req: DstTxRequest<R>) -> Self {
         req.messages
     }
@@ -23,10 +23,10 @@ impl<R: Relay> From<DstTxRequest<R>> for Vec<<R::DstChain as HasChainTypes>::Mes
 
 /// A batch of messages to submit to the source chain.
 pub struct SrcTxRequest<R: Relay> {
-    pub messages: Vec<<R::SrcChain as HasChainTypes>::Message>,
+    pub messages: Vec<<R::SrcChain as ChainTypes>::Message>,
 }
 
-impl<R: Relay> From<SrcTxRequest<R>> for Vec<<R::SrcChain as HasChainTypes>::Message> {
+impl<R: Relay> From<SrcTxRequest<R>> for Vec<<R::SrcChain as ChainTypes>::Message> {
     fn from(req: SrcTxRequest<R>) -> Self {
         req.messages
     }

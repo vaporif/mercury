@@ -11,8 +11,6 @@ pub mod events;
 pub mod queries;
 /// Relay context traits for cross-chain relaying.
 pub mod relay;
-/// Transaction submission and fee estimation.
-pub mod tx;
 /// Core type definitions for chains, messages, and packets.
 pub mod types;
 

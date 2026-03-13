@@ -68,11 +68,11 @@ impl<R: Relay> Worker for EventWatcher<R> {
                 let mut ibc_events = Vec::new();
                 for event in &block_events {
                     if let Some(send) =
-                        <R::SrcChain as CanExtractPacketEvents<R::DstChain>>::try_extract_send_packet_event(event)
+                        <R::SrcChain as PacketEvents<R::DstChain>>::try_extract_send_packet_event(event)
                     {
                         ibc_events.push(IbcEvent::SendPacket(send));
                     } else if let Some(write_ack) =
-                        <R::SrcChain as CanExtractPacketEvents<R::DstChain>>::try_extract_write_ack_event(event)
+                        <R::SrcChain as PacketEvents<R::DstChain>>::try_extract_write_ack_event(event)
                     {
                         ibc_events.push(IbcEvent::WriteAck(write_ack));
                     }

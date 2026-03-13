@@ -13,7 +13,7 @@ use crate::types::{
     CosmosChainStatus, CosmosEvent, CosmosMessage, CosmosPacket, CosmosTxResponse, MerkleProof,
     PacketAcknowledgement, PacketCommitment, PacketReceipt,
 };
-use mercury_chain_traits::types::{HasChainTypes, HasIbcTypes};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 
 /// A Cosmos SDK chain connected via RPC and gRPC.
 #[derive(Clone, Debug)]
@@ -66,7 +66,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
     }
 }
 
-impl<S: CosmosSigner> HasChainTypes for CosmosChain<S> {
+impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
     type Height = TmHeight;
     type Timestamp = TmTime;
     type ChainId = ChainId;
@@ -90,9 +90,16 @@ impl<S: CosmosSigner> HasChainTypes for CosmosChain<S> {
     fn revision_number(&self) -> u64 {
         self.chain_id.revision_number()
     }
+
+    fn increment_height(height: &TmHeight) -> Option<TmHeight> {
+        height
+            .value()
+            .checked_add(1)
+            .and_then(|v| TmHeight::try_from(v).ok())
+    }
 }
 
-impl<S: CosmosSigner> HasIbcTypes<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> IbcTypes<Self> for CosmosChain<S> {
     type ClientId = ibc::core::host::types::identifiers::ClientId;
     type ClientState = TendermintClientState;
     type ConsensusState = TendermintConsensusState;

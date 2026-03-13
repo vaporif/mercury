@@ -18,7 +18,7 @@ use tendermint_rpc::{Client, Paging};
 use tracing::instrument;
 
 use mercury_chain_traits::builders::{
-    CanBuildClientMessages, CanBuildClientPayloads, CanBuildPacketMessages,
+    ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder,
 };
 use mercury_core::error::Result;
 
@@ -73,7 +73,7 @@ impl From<(MerkleProof, TmHeight, u64)> for CosmosProofPayload {
 const DEFAULT_MERKLE_PREFIX: &[&[u8]] = &[b"ibc", b""];
 
 #[async_trait]
-impl<S: CosmosSigner> CanBuildClientPayloads<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> ClientPayloadBuilder<Self> for CosmosChain<S> {
     type CreateClientPayload = CosmosCreateClientPayload;
     type UpdateClientPayload = CosmosUpdateClientPayload;
 
@@ -219,7 +219,7 @@ fn find_proposer(
 }
 
 #[async_trait]
-impl<S: CosmosSigner> CanBuildClientMessages<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
     async fn build_create_client_message(
         &self,
         payload: CosmosCreateClientPayload,
@@ -304,7 +304,7 @@ fn to_proto_height(revision_number: u64, h: TmHeight) -> ProtoHeight {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> CanBuildPacketMessages<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChain<S> {
     type ReceivePacketPayload = CosmosProofPayload;
     type AckPacketPayload = CosmosProofPayload;
     type TimeoutPacketPayload = CosmosProofPayload;

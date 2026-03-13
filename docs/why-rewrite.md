@@ -78,7 +78,7 @@ Rust's traits and generics already provide compile-time polymorphism. Mercury us
 // Mercury: one trait, one impl, zero macros
 
 #[async_trait]
-pub trait CanSendMessages: HasChainTypes {
+pub trait MessageSender: ChainTypes {
     async fn send_messages(
         &self,
         messages: Vec<Self::Message>,
@@ -86,7 +86,7 @@ pub trait CanSendMessages: HasChainTypes {
 }
 
 #[async_trait]
-impl CanSendMessages for CosmosChain {
+impl MessageSender for CosmosChain {
     async fn send_messages(
         &self,
         messages: Vec<Self::Message>,
@@ -104,5 +104,4 @@ rust-analyzer works. Error messages point to your code. Go-to-definition goes to
 
 CGP takes decomposition to the extreme — every associated type gets its own trait (`HasHeightType`, `HasTimestampType`, `HasMessageType`, `HasChainIdType`, ...). This maximizes theoretical composability but in practice you never implement `HasHeightType` without also implementing `HasTimestampType`. They always appear together. The result is where clauses listing 10+ trait bounds that always co-occur, and hundreds of single-type traits that add indirection without adding flexibility.
 
-Mercury consolidates co-occurring types into two traits: `HasChainTypes` (all chain-local types: height, timestamp, messages, chain status, revision number) and `HasIbcTypes<C>` (all counterparty-dependent types: client state, packets, proofs, acknowledgements). The split follows a real semantic boundary — chain status doesn't depend on a counterparty, but client state does. Within each group, the types are always needed together, so separating them adds complexity without enabling any real composition.
-
+Mercury consolidates co-occurring types into two traits: `ChainTypes` (all chain-local types: height, timestamp, messages, chain status, revision number) and `IbcTypes<C>` (all counterparty-dependent types: client state, packets, proofs, acknowledgements). The split follows a real semantic boundary — chain status doesn't depend on a counterparty, but client state does. Within each group, the types are always needed together, so separating them adds complexity without enabling any real composition.

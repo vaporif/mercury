@@ -23,8 +23,8 @@ where
 {
     pub src_chain: Src,
     pub dst_chain: Dst,
-    pub src_client_id: <Src as HasIbcTypes<Dst>>::ClientId,
-    pub dst_client_id: <Dst as HasIbcTypes<Src>>::ClientId,
+    pub src_client_id: <Src as IbcTypes<Dst>>::ClientId,
+    pub dst_client_id: <Dst as IbcTypes<Src>>::ClientId,
 }
 
 impl<Src, Dst> Relay for RelayContext<Src, Dst>
@@ -43,11 +43,11 @@ where
         &self.dst_chain
     }
 
-    fn src_client_id(&self) -> &<Src as HasIbcTypes<Dst>>::ClientId {
+    fn src_client_id(&self) -> &<Src as IbcTypes<Dst>>::ClientId {
         &self.src_client_id
     }
 
-    fn dst_client_id(&self) -> &<Dst as HasIbcTypes<Src>>::ClientId {
+    fn dst_client_id(&self) -> &<Dst as IbcTypes<Src>>::ClientId {
         &self.dst_client_id
     }
 }
@@ -56,24 +56,24 @@ impl<Src, Dst> RelayContext<Src, Dst>
 where
     Src: Chain<Dst>,
     Dst: Chain<Src>,
-    <Dst as CanBuildPacketMessages<Src>>::ReceivePacketPayload: From<(
-        <Src as HasIbcTypes<Dst>>::CommitmentProof,
-        <Src as HasChainTypes>::Height,
+    <Dst as PacketMessageBuilder<Src>>::ReceivePacketPayload: From<(
+        <Src as IbcTypes<Dst>>::CommitmentProof,
+        <Src as ChainTypes>::Height,
         u64,
     )>,
-    <Dst as CanBuildPacketMessages<Src>>::AckPacketPayload: From<(
-        <Src as HasIbcTypes<Dst>>::CommitmentProof,
-        <Src as HasChainTypes>::Height,
+    <Dst as PacketMessageBuilder<Src>>::AckPacketPayload: From<(
+        <Src as IbcTypes<Dst>>::CommitmentProof,
+        <Src as ChainTypes>::Height,
         u64,
     )>,
-    <Src as CanBuildPacketMessages<Dst>>::TimeoutPacketPayload: From<(
-        <Dst as HasIbcTypes<Src>>::CommitmentProof,
-        <Dst as HasChainTypes>::Height,
+    <Src as PacketMessageBuilder<Dst>>::TimeoutPacketPayload: From<(
+        <Dst as IbcTypes<Src>>::CommitmentProof,
+        <Dst as ChainTypes>::Height,
         u64,
     )>,
-    <Src as HasIbcTypes<Dst>>::Packet: Borrow<<Dst as HasIbcTypes<Src>>::Packet>,
-    <Src as HasIbcTypes<Dst>>::Acknowledgement: Borrow<<Dst as HasIbcTypes<Src>>::Acknowledgement>,
-    <Dst as HasIbcTypes<Src>>::Acknowledgement: Borrow<<Src as HasIbcTypes<Dst>>::Acknowledgement>,
+    <Src as IbcTypes<Dst>>::Packet: Borrow<<Dst as IbcTypes<Src>>::Packet>,
+    <Src as IbcTypes<Dst>>::Acknowledgement: Borrow<<Dst as IbcTypes<Src>>::Acknowledgement>,
+    <Dst as IbcTypes<Src>>::Acknowledgement: Borrow<<Src as IbcTypes<Dst>>::Acknowledgement>,
 {
     pub async fn run_with_token(self: Arc<Self>, token: CancellationToken) -> Result<()> {
         let (event_tx, event_rx) = mpsc::channel(CHANNEL_BUFFER);

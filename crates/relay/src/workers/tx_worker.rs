@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, instrument, warn};
 
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::CanSendMessages;
+use mercury_chain_traits::types::MessageSender;
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use mercury_chain_traits::events::{CanExtractPacketEvents, CanQueryBlockEvents};
+use mercury_chain_traits::events::PacketEvents;
 use mercury_core::error::Result;
 use prost::Message as _;
 use tendermint_rpc::Client;
@@ -40,7 +40,25 @@ fn v2_packet_to_cosmos(pkt: channel::Packet) -> Option<CosmosPacket> {
     })
 }
 
-impl<S: CosmosSigner> CanExtractPacketEvents<Self> for CosmosChain<S> {
+fn abci_event_to_cosmos_event(event: &tendermint::abci::Event) -> CosmosEvent {
+    let attributes = event
+        .attributes
+        .iter()
+        .filter_map(|attr| {
+            let key = attr.key_str().ok()?.to_string();
+            let value = attr.value_str().ok()?.to_string();
+            Some((key, value))
+        })
+        .collect();
+
+    CosmosEvent {
+        kind: event.kind.clone(),
+        attributes,
+    }
+}
+
+#[async_trait]
+impl<S: CosmosSigner> PacketEvents<Self> for CosmosChain<S> {
     type SendPacketEvent = SendPacketEvent;
     type WriteAckEvent = WriteAckEvent;
 
@@ -80,27 +98,7 @@ impl<S: CosmosSigner> CanExtractPacketEvents<Self> for CosmosChain<S> {
     ) -> (&CosmosPacket, &PacketAcknowledgement) {
         (&event.packet, &event.ack)
     }
-}
 
-fn abci_event_to_cosmos_event(event: &tendermint::abci::Event) -> CosmosEvent {
-    let attributes = event
-        .attributes
-        .iter()
-        .filter_map(|attr| {
-            let key = attr.key_str().ok()?.to_string();
-            let value = attr.value_str().ok()?.to_string();
-            Some((key, value))
-        })
-        .collect();
-
-    CosmosEvent {
-        kind: event.kind.clone(),
-        attributes,
-    }
-}
-
-#[async_trait]
-impl<S: CosmosSigner> CanQueryBlockEvents for CosmosChain<S> {
     async fn query_block_events(
         &self,
         height: &tendermint::block::Height,
@@ -125,17 +123,5 @@ impl<S: CosmosSigner> CanQueryBlockEvents for CosmosChain<S> {
             .collect();
 
         Ok(events)
-    }
-
-    async fn query_latest_height(&self) -> Result<tendermint::block::Height> {
-        let status = self.rpc_client.status().await?;
-        Ok(status.sync_info.latest_block_height)
-    }
-
-    fn increment_height(height: &tendermint::block::Height) -> Option<tendermint::block::Height> {
-        height
-            .value()
-            .checked_add(1)
-            .and_then(|v| tendermint::block::Height::try_from(v).ok())
     }
 }

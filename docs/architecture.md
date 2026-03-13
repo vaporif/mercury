@@ -5,7 +5,7 @@ Mercury is an IBC relayer built with plain Rust traits and generics. No macro fr
 ## Design Principles
 
 - **Direct trait impls.** Every chain operation is a trait method with a direct `impl` block on the concrete type. No provider indirection.
-- **Few, focused traits.** ~20 traits grouped by concern instead of 250+ component traits. Type traits are consolidated — `HasChainTypes` carries all chain-level types (height, timestamp, messages, chain status, revision number) and `HasIbcTypes<C>` carries all counterparty-specific types (client state, packets, proofs, acknowledgements). This keeps where clauses short and avoids the "trait per associated type" proliferation that CGP requires.
+- **Few, focused traits.** ~16 traits grouped by concern instead of 250+ component traits. Type traits are consolidated — `ChainTypes` carries all chain-level types (height, timestamp, messages, chain status, revision number) and `IbcTypes<C>` carries all counterparty-specific types (client state, packets, proofs, acknowledgements). This keeps where clauses short and avoids the "trait per associated type" proliferation that CGP requires.
 - **Concrete error type.** One error type based on `eyre::Report` with retryability tracking. No generic error parameters on traits.
 - **Struct fields, not trait getters.** Configuration and RPC clients are struct fields accessed via methods. Not abstracted behind traits.
 
@@ -14,7 +14,7 @@ Mercury is an IBC relayer built with plain Rust traits and generics. No macro fr
 ### Type Traits
 
 ```rust
-pub trait HasChainTypes: Send + Sync + 'static {
+pub trait ChainTypes: Send + Sync + 'static {
     type Height: Clone + Ord + Debug + Display + Send + Sync + 'static;
     type Timestamp: Clone + Ord + Debug + Send + Sync + 'static;
     type ChainId: Clone + Debug + Display + Send + Sync + 'static;
@@ -27,6 +27,7 @@ pub trait HasChainTypes: Send + Sync + 'static {
     fn chain_status_timestamp(status: &Self::ChainStatus) -> &Self::Timestamp;
     fn chain_status_timestamp_secs(status: &Self::ChainStatus) -> u64;
     fn revision_number(&self) -> u64;
+    fn increment_height(height: &Self::Height) -> Option<Self::Height>;
 }
 ```
 
@@ -35,7 +36,7 @@ pub trait HasChainTypes: Send + Sync + 'static {
 IBC relaying involves two chains that know about each other's types. Chain A stores a client state *of* chain B. This cross-chain type relationship is modeled with a generic parameter:
 
 ```rust
-pub trait HasIbcTypes<Counterparty: HasChainTypes + ?Sized>: HasChainTypes {
+pub trait IbcTypes<Counterparty: ChainTypes + ?Sized>: ChainTypes {
     type ClientId: Clone + Debug + Display + Send + Sync + 'static;
     type ClientState: Clone + Debug + Send + Sync + 'static;
     type ConsensusState: Clone + Debug + Send + Sync + 'static;
@@ -50,7 +51,7 @@ pub trait HasIbcTypes<Counterparty: HasChainTypes + ?Sized>: HasChainTypes {
 }
 ```
 
-`CosmosChain` implements `HasIbcTypes<CosmosChain>` for Cosmos-to-Cosmos relaying, and could implement `HasIbcTypes<CelestiaChain>` with different types for Cosmos-to-Celestia. The compiler prevents mixing up source and destination types.
+`CosmosChain` implements `IbcTypes<CosmosChain>` for Cosmos-to-Cosmos relaying, and could implement `IbcTypes<CelestiaChain>` with different types for Cosmos-to-Celestia. The compiler prevents mixing up source and destination types.
 
 ### Chain Supertrait
 
@@ -58,16 +59,15 @@ pub trait HasIbcTypes<Counterparty: HasChainTypes + ?Sized>: HasChainTypes {
 
 ```rust
 pub trait Chain<Counterparty>:
-    HasIbcTypes<Counterparty>
-    + CanSendMessages
-    + CanExtractPacketEvents<Counterparty>
-    + CanQueryChainStatus
-    + CanQueryClient<Counterparty>
-    + CanQueryPacketState<Counterparty>
-    + CanBuildClientPayloads<Counterparty>
-    + CanBuildClientMessages<Counterparty>
-    + CanBuildPacketMessages<Counterparty>
-    + CanQueryBlockEvents
+    IbcTypes<Counterparty>
+    + MessageSender
+    + PacketEvents<Counterparty>
+    + ChainStatusQuery
+    + ClientQuery<Counterparty>
+    + PacketStateQuery<Counterparty>
+    + ClientPayloadBuilder<Counterparty>
+    + ClientMessageBuilder<Counterparty>
+    + PacketMessageBuilder<Counterparty>
 {}
 ```
 
@@ -77,18 +77,19 @@ This keeps where clauses focused on only the *additional* bounds each context ne
 
 CGP decomposes every associated type into its own trait (`HasHeightType`, `HasTimestampType`, `HasMessageType`, `HasChainIdType`, ...) to maximize composability. In practice, you never implement `HasHeightType` without also implementing `HasTimestampType` — they always appear together. The result is where clauses listing 10+ trait bounds that always co-occur.
 
-Mercury consolidates co-occurring types into two traits: `HasChainTypes` (chain-local types) and `HasIbcTypes<C>` (counterparty-dependent types). The split follows a real semantic boundary — chain status doesn't depend on a counterparty, but client state does. Everything within each group is always needed together.
+Mercury consolidates co-occurring types into two traits: `ChainTypes` (chain-local types) and `IbcTypes<C>` (counterparty-dependent types). The split follows a real semantic boundary — chain status doesn't depend on a counterparty, but client state does. Everything within each group is always needed together.
 
-### Trait Groups (~20 total)
+### Trait Groups (~16 total)
 
-- **Type traits** (2) — `HasChainTypes`, `HasIbcTypes<C>`
-- **Query traits** (4) — `CanQueryChainStatus`, `CanQueryClient<C>`, `CanQueryPacketState<C>`, `CanQueryBlockEvents`
-- **Builder traits** (3) — `CanBuildClientPayloads<C>`, `CanBuildClientMessages<C>`, `CanBuildPacketMessages<C>`
-- **Event traits** (1) — `CanExtractPacketEvents<C>`
-- **Messaging** (1) — `CanSendMessages`
-- **Transaction traits** (4) — `HasTxTypes`, `CanSubmitTx`, `CanEstimateFee`, `CanQueryNonce`, `CanPollTxResponse`
-- **Relay traits** (4) — `Relay`, `BiRelay`, `CanUpdateClient`, `CanBuildRelayPacketMessages`
+- **Type traits** (2) — `ChainTypes`, `IbcTypes<C>`
+- **Query traits** (3) — `ChainStatusQuery`, `ClientQuery<C>`, `PacketStateQuery<C>`
+- **Builder traits** (3) — `ClientPayloadBuilder<C>`, `ClientMessageBuilder<C>`, `PacketMessageBuilder<C>`
+- **Events** (1) — `PacketEvents<C>`
+- **Messaging** (1) — `MessageSender`
+- **Relay traits** (4) — `Relay`, `BiRelay`, `ClientUpdater`, `RelayPacketBuilder`
 - **Infrastructure** (2) — encoding, worker
+
+Transaction details (fee estimation, nonce management, tx submission, polling) are concrete methods on `CosmosChain`, not abstract traits — they're implementation details of `MessageSender`, not part of the generic chain abstraction.
 
 ## Crate Layout
 
@@ -155,3 +156,4 @@ Mercury keeps these as direct code rather than trait abstractions:
 - **Field access** — struct fields accessed via methods
 - **Configuration** — config values are struct fields
 - **Test infrastructure** — test setup is separate from the core trait hierarchy
+- **Transaction internals** — fee estimation, nonce management, tx signing are concrete methods on chain types, not traits

@@ -1,11 +1,7 @@
-use async_trait::async_trait;
 use prost::Message;
 use sha2::{Digest, Sha256};
 use tracing::{debug, instrument};
 
-use mercury_chain_traits::tx::{
-    CanEstimateFee, CanPollTxResponse, CanQueryNonce, CanSubmitTx, HasTxTypes,
-};
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
@@ -25,13 +21,6 @@ pub struct CosmosFee {
 pub struct CosmosNonce {
     pub account_number: u64,
     pub sequence: u64,
-}
-
-impl<S: CosmosSigner> HasTxTypes for CosmosChain<S> {
-    type Signer = S;
-    type Nonce = CosmosNonce;
-    type Fee = CosmosFee;
-    type TxHash = String;
 }
 
 async fn build_tx_bytes(
@@ -118,10 +107,9 @@ async fn build_tx_bytes(
     Ok(tx_raw.encode_to_vec())
 }
 
-#[async_trait]
-impl<S: CosmosSigner> CanQueryNonce for CosmosChain<S> {
+impl<S: CosmosSigner> CosmosChain<S> {
     #[instrument(skip_all, name = "query_nonce")]
-    async fn query_nonce(&self, signer: &Self::Signer) -> Result<Self::Nonce> {
+    pub async fn query_nonce(&self, signer: &S) -> Result<CosmosNonce> {
         use ibc_proto::cosmos::auth::v1beta1::{
             BaseAccount, QueryAccountRequest, QueryAccountResponse,
         };
@@ -152,9 +140,7 @@ impl<S: CosmosSigner> CanQueryNonce for CosmosChain<S> {
             sequence: base_account.sequence,
         })
     }
-}
 
-impl<S: CosmosSigner> CosmosChain<S> {
     #[instrument(skip_all, name = "estimate_fee", fields(msg_count = messages.len()))]
     pub async fn estimate_fee_with_nonce(
         &self,
@@ -222,30 +208,15 @@ impl<S: CosmosSigner> CosmosChain<S> {
             gas_limit,
         })
     }
-}
 
-#[async_trait]
-impl<S: CosmosSigner> CanEstimateFee for CosmosChain<S> {
-    async fn estimate_fee(
-        &self,
-        signer: &Self::Signer,
-        messages: &[Self::Message],
-    ) -> Result<Self::Fee> {
-        let nonce = self.query_nonce(signer).await?;
-        self.estimate_fee_with_nonce(signer, &nonce, messages).await
-    }
-}
-
-#[async_trait]
-impl<S: CosmosSigner> CanSubmitTx for CosmosChain<S> {
     #[instrument(skip_all, name = "submit_tx", fields(seq = nonce.sequence, gas = fee.gas_limit))]
-    async fn submit_tx(
+    pub async fn submit_tx(
         &self,
-        signer: &Self::Signer,
-        nonce: &Self::Nonce,
-        fee: &Self::Fee,
-        messages: Vec<Self::Message>,
-    ) -> Result<Self::TxHash> {
+        signer: &S,
+        nonce: &CosmosNonce,
+        fee: &CosmosFee,
+        messages: Vec<crate::types::CosmosMessage>,
+    ) -> Result<String> {
         use tendermint_rpc::Client;
 
         let tx_bytes =
@@ -273,14 +244,12 @@ impl<S: CosmosSigner> CanSubmitTx for CosmosChain<S> {
 
         Ok(tx_hash)
     }
-}
-
-#[async_trait]
-impl<S: CosmosSigner> CanPollTxResponse for CosmosChain<S> {
-    type TxResponse = crate::types::CosmosTxResponse;
 
     #[instrument(skip_all, name = "poll_tx_response", fields(tx_hash = %tx_hash))]
-    async fn poll_tx_response(&self, tx_hash: &Self::TxHash) -> Result<Self::TxResponse> {
+    pub async fn poll_tx_response(
+        &self,
+        tx_hash: &str,
+    ) -> Result<crate::types::CosmosTxResponse> {
         use tendermint::Hash;
         use tendermint_rpc::Client;
 
@@ -335,7 +304,7 @@ impl<S: CosmosSigner> CanPollTxResponse for CosmosChain<S> {
                     );
 
                     return Ok(crate::types::CosmosTxResponse {
-                        hash: tx_hash.clone(),
+                        hash: tx_hash.to_string(),
                         height: response.height,
                         events,
                     });

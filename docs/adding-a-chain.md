@@ -14,25 +14,25 @@ Add to workspace `Cargo.toml` members, then add `mercury-chain-traits` and `merc
 
 Mirror the Cosmos crate structure:
 
-- `chain.rs` — main struct + constructor, `HasChainTypes` and `HasIbcTypes<Self>` impls
+- `chain.rs` — main struct + constructor, `ChainTypes` and `IbcTypes<Self>` impls
 - `config.rs` — TOML-deserializable config
 - `keys.rs` — signing
 - `types.rs` — events, packets, proofs, chain status
-- `queries.rs` — `CanQueryChainStatus`, `CanQueryClient<Self>`, `CanQueryPacketState<Self>`
-- `events.rs` — `CanExtractPacketEvents`, `CanQueryBlockEvents` (parse SendPacket/WriteAck from raw events)
-- `builders.rs` — `CanBuildClientPayloads<Self>`, `CanBuildClientMessages<Self>`, `CanBuildPacketMessages<Self>`
-- `messaging.rs` / `tx.rs` — `CanSendMessages`, `HasTxTypes`, transaction submission
+- `queries.rs` — `ChainStatusQuery`, `ClientQuery<Self>`, `PacketStateQuery<Self>`
+- `events.rs` — `PacketEvents<Self>` (parse SendPacket/WriteAck from raw events, query block events)
+- `builders.rs` — `ClientPayloadBuilder<Self>`, `ClientMessageBuilder<Self>`, `PacketMessageBuilder<Self>`
+- `messaging.rs` / `tx.rs` — `MessageSender`, transaction submission internals
 
 ## 3. Implement traits
 
 All traits live in `mercury-chain-traits`. Implement them in order:
 
-1. **Type traits** — `HasChainTypes` (height, timestamp, chain ID, events, messages, chain status, revision number), `HasIbcTypes<Self>` (client ID, client/consensus state, proofs, packets, acknowledgements)
-2. **Query traits** — `CanQueryChainStatus`, `CanQueryClient<Self>` (client state, consensus state, trusting period, client latest height), `CanQueryPacketState<Self>` (packet commitment/receipt/ack with Merkle proofs), `CanQueryBlockEvents`
-3. **Event extraction** — `CanExtractPacketEvents<Self>` (SendPacket, WriteAck)
-4. **Builder traits** — `CanBuildClientPayloads<Self>` (create/update client payloads), `CanBuildClientMessages<Self>` (create/update client, register counterparty), `CanBuildPacketMessages<Self>` (recv/ack/timeout packets)
-5. **Transaction traits** — `HasTxTypes`, `CanSubmitTx`, `CanEstimateFee`, `CanQueryNonce`, `CanPollTxResponse`
-6. **Messaging** — `CanSendMessages` with batching and nonce retry
+1. **Type traits** — `ChainTypes` (height, timestamp, chain ID, events, messages, chain status, revision number, increment height), `IbcTypes<Self>` (client ID, client/consensus state, proofs, packets, acknowledgements)
+2. **Query traits** — `ChainStatusQuery`, `ClientQuery<Self>` (client state, consensus state, trusting period, client latest height), `PacketStateQuery<Self>` (packet commitment/receipt/ack with Merkle proofs)
+3. **Events** — `PacketEvents<Self>` (extract SendPacket/WriteAck from raw events, query block events)
+4. **Builder traits** — `ClientPayloadBuilder<Self>` (create/update client payloads), `ClientMessageBuilder<Self>` (create/update client, register counterparty), `PacketMessageBuilder<Self>` (recv/ack/timeout packets)
+5. **Messaging** — `MessageSender` with batching and nonce retry
+6. **Transaction internals** — fee estimation, nonce queries, tx submission, polling (concrete methods, not traits)
 
 Once all traits are implemented, `Chain<Self>` is automatically satisfied via a blanket impl.
 
@@ -45,4 +45,4 @@ In `crates/cli/`:
 
 ## 5. Cross-chain support
 
-To relay between your chain and Cosmos (or another chain), implement `HasIbcTypes` and the builder/query traits with the counterparty as the generic parameter — on both sides.
+To relay between your chain and Cosmos (or another chain), implement `IbcTypes` and the builder/query traits with the counterparty as the generic parameter — on both sides.

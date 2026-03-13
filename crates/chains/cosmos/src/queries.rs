@@ -12,8 +12,8 @@ use tendermint_rpc::{Client, HttpClient};
 use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use tracing::{instrument, warn};
 
-use mercury_chain_traits::queries::{CanQueryChainStatus, CanQueryClient, CanQueryPacketState};
-use mercury_chain_traits::types::HasChainTypes;
+use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
+use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
@@ -132,7 +132,7 @@ pub async fn query_cosmos_status(rpc_addr: &str) -> Result<CosmosChainStatus> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> CanQueryChainStatus for CosmosChain<S> {
+impl<S: CosmosSigner> ChainStatusQuery for CosmosChain<S> {
     #[instrument(skip_all, name = "query_chain_status")]
     async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
         let status = self.rpc_client.status().await?;
@@ -144,7 +144,7 @@ impl<S: CosmosSigner> CanQueryChainStatus for CosmosChain<S> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> CanQueryClient<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
     #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
@@ -181,7 +181,7 @@ impl<S: CosmosSigner> CanQueryClient<Self> for CosmosChain<S> {
     async fn query_consensus_state(
         &self,
         client_id: &Self::ClientId,
-        consensus_height: &<Self as HasChainTypes>::Height,
+        consensus_height: &<Self as ChainTypes>::Height,
         query_height: &Self::Height,
     ) -> Result<Self::ConsensusState> {
         let revision_height = consensus_height.value();
@@ -285,7 +285,7 @@ fn extract_proof(
 }
 
 #[async_trait]
-impl<S: CosmosSigner> CanQueryPacketState<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> PacketStateQuery<Self> for CosmosChain<S> {
     #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
     async fn query_packet_commitment(
         &self,

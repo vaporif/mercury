@@ -2,10 +2,11 @@ use async_trait::async_trait;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
-use crate::types::{HasChainTypes, HasIbcTypes};
+use crate::types::{ChainTypes, IbcTypes};
 
-/// Extracts send-packet and write-ack events from raw chain events.
-pub trait CanExtractPacketEvents<Counterparty: HasChainTypes>: HasIbcTypes<Counterparty> {
+/// Extracts IBC packet events from raw chain events and queries block events.
+#[async_trait]
+pub trait PacketEvents<Counterparty: ChainTypes>: IbcTypes<Counterparty> {
     type SendPacketEvent: ThreadSafe;
     type WriteAckEvent: ThreadSafe;
 
@@ -15,12 +16,5 @@ pub trait CanExtractPacketEvents<Counterparty: HasChainTypes>: HasIbcTypes<Count
     fn packet_from_write_ack_event(
         event: &Self::WriteAckEvent,
     ) -> (&Self::Packet, &Self::Acknowledgement);
-}
-
-/// Queries events from a block and tracks the latest chain height.
-#[async_trait]
-pub trait CanQueryBlockEvents: HasChainTypes {
     async fn query_block_events(&self, height: &Self::Height) -> Result<Vec<Self::Event>>;
-    async fn query_latest_height(&self) -> Result<Self::Height>;
-    fn increment_height(height: &Self::Height) -> Option<Self::Height>;
 }

@@ -1,13 +1,13 @@
 use async_trait::async_trait;
 
 use mercury_chain_traits::prelude::*;
-use mercury_chain_traits::relay::{CanUpdateClient, Relay};
+use mercury_chain_traits::relay::{ClientUpdater, Relay};
 use mercury_core::error::Result;
 
 use crate::context::RelayContext;
 
 #[async_trait]
-impl<Src, Dst> CanUpdateClient for RelayContext<Src, Dst>
+impl<Src, Dst> ClientUpdater for RelayContext<Src, Dst>
 where
     Src: Chain<Dst>,
     Dst: Chain<Src>,

@@ -3,17 +3,22 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mercury_core::error::Result;
 
-use crate::types::{HasChainTypes, HasIbcTypes};
+use crate::types::{ChainTypes, IbcTypes};
 
 /// Queries the current status (height and timestamp) of the chain.
 #[async_trait]
-pub trait CanQueryChainStatus: HasChainTypes {
+pub trait ChainStatusQuery: ChainTypes {
     async fn query_chain_status(&self) -> Result<Self::ChainStatus>;
+
+    async fn query_latest_height(&self) -> Result<Self::Height> {
+        let status = self.query_chain_status().await?;
+        Ok(Self::chain_status_height(&status).clone())
+    }
 }
 
 /// Queries and inspects IBC client and consensus state.
 #[async_trait]
-pub trait CanQueryClient<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Counterparty> {
+pub trait ClientQuery<Counterparty: ChainTypes + ?Sized>: IbcTypes<Counterparty> {
     async fn query_client_state(
         &self,
         client_id: &Self::ClientId,
@@ -34,8 +39,8 @@ pub trait CanQueryClient<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Coun
 
 /// Queries packet commitments, receipts, and acknowledgements at a given height.
 #[async_trait]
-pub trait CanQueryPacketState<Counterparty: HasChainTypes + ?Sized>:
-    HasIbcTypes<Counterparty>
+pub trait PacketStateQuery<Counterparty: ChainTypes + ?Sized>:
+    IbcTypes<Counterparty>
 {
     async fn query_packet_commitment(
         &self,
