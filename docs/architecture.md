@@ -110,28 +110,34 @@ graph TD
 
 ## Data Flow: Relaying a Packet
 
-Five workers connected by `tokio::mpsc` channels form the relay pipeline. Each relay direction (A→B, B→A) runs its own set of workers. Shutdown propagates via `CancellationToken` — first worker to exit cancels the rest.
+Seven workers connected by `tokio::mpsc` channels form the relay pipeline. Each relay direction (A→B, B→A) runs its own set of workers. Shutdown propagates via `CancellationToken` — first worker to exit cancels the rest.
 
 ```mermaid
 graph LR
     EW[EventWatcher]
+    CW[ClearingWorker]
     PW[PacketWorker]
     TW[TxWorker<br/><i>dst chain</i>]
     STW[SrcTxWorker<br/><i>src chain</i>]
     CRW[ClientRefreshWorker]
+    MW[MisbehaviourWorker]
 
     EW -- "Vec&lt;IbcEvent&gt;" --> PW
+    CW -- "Vec&lt;IbcEvent&gt;" --> PW
     PW -- DstTxRequest --> TW
     PW -- SrcTxRequest --> STW
     CRW -- DstTxRequest --> TW
+    MW -. "detects misbehaviour<br/>→ cancels relay" .-> MW
 ```
 
 1. **EventWatcher** polls source chain block-by-block for `SendPacket` and `WriteAck` events, batches per block, sends `Vec<IbcEvent>` downstream. Tolerates transient RPC failures without dying.
-2. **PacketWorker** receives event batches, classifies packets as live or timed-out using the destination chain's timestamp, queries proofs concurrently with retries, then:
+2. **ClearingWorker** *(optional)* periodically scans source chain for all packet commitments, cross-references against destination receipts, and recovers missed `SendPacket` events. Feeds into the same event channel as EventWatcher. Enabled via `clearing_interval` config.
+3. **PacketWorker** receives event batches, classifies packets as live or timed-out using the destination chain's timestamp, queries proofs concurrently with retries, then:
    - Recv/ack messages → `DstTxRequest` → **TxWorker** (destination chain)
    - Timeout messages → `SrcTxRequest` → **SrcTxWorker** (source chain)
-3. **ClientRefreshWorker** periodically refreshes the destination client before it expires (sleeps for 1/3 of the trusting period), sends `MsgUpdateClient` via `DstTxRequest`
-4. **TxWorker** / **SrcTxWorker** accumulate messages, submit batched transactions to their respective chain. Both share the same `run_tx_loop` implementation with semaphore-bounded concurrency (`MAX_IN_FLIGHT=3`) and consecutive failure tracking
+4. **ClientRefreshWorker** periodically refreshes the destination client before it expires (sleeps for 1/3 of the trusting period), sends `MsgUpdateClient` via `DstTxRequest`
+5. **MisbehaviourWorker** *(optional)* incrementally scans consensus state heights on the destination chain, verifies update headers against the source chain. If conflicting headers are detected, submits `MsgSubmitMisbehaviour` and terminates the relay. Enabled via `misbehaviour_scan_interval` config.
+6. **TxWorker** / **SrcTxWorker** accumulate messages, submit batched transactions to their respective chain. Both share the same `run_tx_loop` implementation with semaphore-bounded concurrency (`MAX_IN_FLIGHT=3`) and consecutive failure tracking
 
 ## Error Handling
 

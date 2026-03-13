@@ -16,11 +16,13 @@ Early active development. Core IBC v2 relay pipeline and Docker base transfer E2
 ## How it works
 
 ```
-EventWatcher → PacketWorker → TxWorker (dst chain)
-                    ↓
-               SrcTxWorker (src chain)
+EventWatcher    ─┐
+                 ├→ PacketWorker → TxWorker (dst chain)
+ClearingWorker  ─┘       ↓
+                    SrcTxWorker (src chain)
 
 ClientRefreshWorker → TxWorker (dst chain)
+MisbehaviourWorker (independent, cancels relay on detection)
 ```
 
 Each relay direction (A→B, B→A) runs its own set of workers connected by `tokio::mpsc` channels. See [Architecture](./docs/architecture.md) for the full pipeline, crate layout, and trait hierarchy.
