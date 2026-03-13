@@ -21,7 +21,7 @@ Mirror the Cosmos crate structure:
 - `queries.rs` — `ChainStatusQuery`, `ClientQuery<Self>`, `PacketStateQuery<Self>`
 - `events.rs` — `PacketEvents<Self>` (parse SendPacket/WriteAck from raw events, query block events)
 - `builders.rs` — `ClientPayloadBuilder<Self>`, `ClientMessageBuilder<Self>`, `PacketMessageBuilder<Self>`
-- `messaging.rs` / `tx.rs` — `MessageSender`, transaction submission internals
+- `tx.rs` — `MessageSender`, transaction building, signing, fee estimation, submission
 
 ## 3. Implement traits
 

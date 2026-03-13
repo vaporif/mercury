@@ -87,7 +87,7 @@ Mercury consolidates co-occurring types into two traits: `ChainTypes` (chain-loc
 - **Events** (1) — `PacketEvents<C>`
 - **Messaging** (1) — `MessageSender`
 - **Relay traits** (4) — `Relay`, `BiRelay`, `ClientUpdater`, `RelayPacketBuilder`
-- **Infrastructure** (2) — encoding, worker
+- **Infrastructure** (1) — worker
 
 Transaction details (fee estimation, nonce management, tx submission, polling) are concrete methods on `CosmosChain`, not abstract traits — they're implementation details of `MessageSender`, not part of the generic chain abstraction.
 
