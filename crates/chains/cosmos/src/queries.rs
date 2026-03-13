@@ -223,8 +223,7 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
 
     fn client_latest_height(client_state: &Self::ClientState) -> Self::Height {
         let h = client_state.latest_height.revision_height();
-        TmHeight::try_from(h.max(1))
-            .unwrap_or_else(|_| TmHeight::from(1_u32))
+        TmHeight::try_from(h.max(1)).unwrap_or_else(|_| TmHeight::from(1_u32))
     }
 }
 

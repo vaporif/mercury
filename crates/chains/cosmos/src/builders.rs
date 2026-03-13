@@ -23,12 +23,12 @@ use mercury_chain_traits::builders::{
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
-use crate::types::to_any;
 use crate::ibc_v2::channel::{
     self, MsgAcknowledgement, MsgRecvPacket, MsgTimeout, Packet as V2Packet,
 };
 use crate::ibc_v2::client::MsgRegisterCounterparty;
 use crate::keys::CosmosSigner;
+use crate::types::to_any;
 use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgement};
 
 const DEFAULT_TRUSTING_PERIOD: Duration = Duration::from_secs(14 * 24 * 3600);
@@ -58,9 +58,7 @@ pub struct CosmosProofPayload {
 }
 
 impl From<(MerkleProof, TmHeight, u64)> for CosmosProofPayload {
-    fn from(
-        (proof, proof_height, proof_revision_number): (MerkleProof, TmHeight, u64),
-    ) -> Self {
+    fn from((proof, proof_height, proof_revision_number): (MerkleProof, TmHeight, u64)) -> Self {
         Self {
             proof,
             proof_height,

@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, warn};
 
 use mercury_chain_traits::prelude::*;
-use mercury_chain_traits::relay::{RelayPacketBuilder, IbcEvent, Relay};
+use mercury_chain_traits::relay::{IbcEvent, Relay, RelayPacketBuilder};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -39,10 +39,8 @@ where
     #[instrument(skip_all, name = "build_dst_update_client")]
     async fn build_dst_update_client_messages(
         &self,
-    ) -> UpdateClientResult<
-        <R::SrcChain as ChainTypes>::Height,
-        <R::DstChain as ChainTypes>::Message,
-    > {
+    ) -> UpdateClientResult<<R::SrcChain as ChainTypes>::Height, <R::DstChain as ChainTypes>::Message>
+    {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
@@ -80,10 +78,8 @@ where
     #[instrument(skip_all, name = "build_src_update_client")]
     async fn build_src_update_client_messages(
         &self,
-    ) -> UpdateClientResult<
-        <R::DstChain as ChainTypes>::Height,
-        <R::SrcChain as ChainTypes>::Message,
-    > {
+    ) -> UpdateClientResult<<R::DstChain as ChainTypes>::Height, <R::SrcChain as ChainTypes>::Message>
+    {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
@@ -135,7 +131,8 @@ where
                 let relay = relay.clone();
                 let src_height = src_height.clone();
                 async move {
-                    let pkt = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(&e);
+                    let pkt =
+                        <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(&e);
                     retry_proof_fetch(|| async {
                         relay.build_receive_packet_messages(pkt, &src_height).await
                     })
@@ -160,9 +157,12 @@ where
                 let relay = relay.clone();
                 let src_height = src_height.clone();
                 async move {
-                    let (pkt, ack) = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_write_ack_event(&e);
+                    let (pkt, ack) =
+                        <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_write_ack_event(&e);
                     retry_proof_fetch(|| async {
-                        relay.build_ack_packet_messages(pkt, ack.borrow(), &src_height).await
+                        relay
+                            .build_ack_packet_messages(pkt, ack.borrow(), &src_height)
+                            .await
                     })
                     .await
                 }
@@ -199,7 +199,8 @@ where
                 let relay = relay.clone();
                 let dst_height = dst_height.clone();
                 async move {
-                    let pkt = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(&e);
+                    let pkt =
+                        <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(&e);
                     retry_proof_fetch(|| async {
                         relay.build_timeout_packet_messages(pkt, &dst_height).await
                     })
@@ -223,9 +224,8 @@ where
     }
 }
 
-type SendEvents<R> = Vec<
-    <<R as Relay>::SrcChain as PacketEvents<<R as Relay>::DstChain>>::SendPacketEvent,
->;
+type SendEvents<R> =
+    Vec<<<R as Relay>::SrcChain as PacketEvents<<R as Relay>::DstChain>>::SendPacketEvent>;
 type WriteAckEvents<R> =
     Vec<<<R as Relay>::SrcChain as PacketEvents<<R as Relay>::DstChain>>::WriteAckEvent>;
 
@@ -245,10 +245,7 @@ fn classify_events<R: Relay>(
     for event in events {
         match event {
             IbcEvent::SendPacket(e) => {
-                let pkt =
-                    <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
-                        &e,
-                    );
+                let pkt = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(&e);
                 let ts = <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_timeout_timestamp(pkt);
                 if ts > 0 && dst_timestamp_secs >= ts {
                     let seq = <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_sequence(pkt);

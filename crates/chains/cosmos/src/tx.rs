@@ -248,10 +248,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
     }
 
     #[instrument(skip_all, name = "poll_tx_response", fields(tx_hash = %tx_hash))]
-    pub async fn poll_tx_response(
-        &self,
-        tx_hash: &str,
-    ) -> Result<crate::types::CosmosTxResponse> {
+    pub async fn poll_tx_response(&self, tx_hash: &str) -> Result<crate::types::CosmosTxResponse> {
         use tendermint::Hash;
         use tendermint_rpc::Client;
 
@@ -322,9 +319,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
             }
         }
 
-        eyre::bail!(
-            "transaction {tx_hash} not found after {max_retries} attempts: {last_err}"
-        )
+        eyre::bail!("transaction {tx_hash} not found after {max_retries} attempts: {last_err}")
     }
 }
 

@@ -6,9 +6,7 @@ use crate::types::{ChainTypes, IbcTypes};
 
 /// Builds payloads for creating and updating IBC light clients.
 #[async_trait]
-pub trait ClientPayloadBuilder<Counterparty: ChainTypes + ?Sized>:
-    IbcTypes<Counterparty>
-{
+pub trait ClientPayloadBuilder<Counterparty: ChainTypes + ?Sized>: IbcTypes<Counterparty> {
     type CreateClientPayload: ThreadSafe;
     type UpdateClientPayload: ThreadSafe;
 

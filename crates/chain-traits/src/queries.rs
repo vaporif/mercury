@@ -39,9 +39,7 @@ pub trait ClientQuery<Counterparty: ChainTypes + ?Sized>: IbcTypes<Counterparty>
 
 /// Queries packet commitments, receipts, and acknowledgements at a given height.
 #[async_trait]
-pub trait PacketStateQuery<Counterparty: ChainTypes + ?Sized>:
-    IbcTypes<Counterparty>
-{
+pub trait PacketStateQuery<Counterparty: ChainTypes + ?Sized>: IbcTypes<Counterparty> {
     async fn query_packet_commitment(
         &self,
         client_id: &Self::ClientId,
