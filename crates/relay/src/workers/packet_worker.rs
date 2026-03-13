@@ -251,8 +251,7 @@ fn classify_events<R: Relay>(
                     <SrcChain<R> as CanExtractPacketEvents<DstChain<R>>>::packet_from_send_event(
                         &e,
                     );
-                let ts =
-                    <SrcChain<R> as HasIbcTypes<DstChain<R>>>::packet_timeout_timestamp(pkt);
+                let ts = <SrcChain<R> as HasIbcTypes<DstChain<R>>>::packet_timeout_timestamp(pkt);
                 if ts > 0 && dst_timestamp_secs >= ts {
                     let seq = <SrcChain<R> as HasIbcTypes<DstChain<R>>>::packet_sequence(pkt);
                     debug!(seq, "packet timed out, will relay timeout");

@@ -6,7 +6,9 @@ use crate::types::{HasChainTypes, HasIbcTypes};
 
 /// Builds payloads for creating and updating IBC light clients.
 #[async_trait]
-pub trait CanBuildClientPayloads<Counterparty: HasChainTypes + ?Sized>: HasIbcTypes<Counterparty> {
+pub trait CanBuildClientPayloads<Counterparty: HasChainTypes + ?Sized>:
+    HasIbcTypes<Counterparty>
+{
     type CreateClientPayload: ThreadSafe;
     type UpdateClientPayload: ThreadSafe;
 
@@ -45,8 +47,7 @@ where
 
 /// Builds receive, ack, and timeout packet messages.
 #[async_trait]
-pub trait CanBuildPacketMessages<Counterparty>:
-    HasIbcTypes<Counterparty>
+pub trait CanBuildPacketMessages<Counterparty>: HasIbcTypes<Counterparty>
 where
     Counterparty: HasChainTypes + HasIbcTypes<Self>,
 {

@@ -31,8 +31,7 @@ where
         u64,
     )>,
     <Src as HasIbcTypes<Dst>>::Packet: Borrow<<Dst as HasIbcTypes<Src>>::Packet>,
-    <Dst as HasIbcTypes<Src>>::Acknowledgement:
-        Borrow<<Src as HasIbcTypes<Dst>>::Acknowledgement>,
+    <Dst as HasIbcTypes<Src>>::Acknowledgement: Borrow<<Src as HasIbcTypes<Dst>>::Acknowledgement>,
 {
     #[instrument(skip_all, name = "build_receive_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_receive_packet_messages(

@@ -81,7 +81,7 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
     println!("Chain:     {chain_id}");
     println!("RPC:       {rpc_addr}");
 
-    match mercury_cosmos::status::query_cosmos_status(rpc_addr).await {
+    match mercury_cosmos::queries::query_cosmos_status(rpc_addr).await {
         Ok(status) => {
             println!("Height:    {}", status.height);
             println!("Timestamp: {}", status.timestamp);

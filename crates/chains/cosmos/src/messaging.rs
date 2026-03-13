@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use tracing::{info, instrument, warn};
 
-use mercury_chain_traits::types::CanSendMessages;
 use mercury_chain_traits::tx::{CanPollTxResponse, CanQueryNonce, CanSubmitTx};
+use mercury_chain_traits::types::CanSendMessages;
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;

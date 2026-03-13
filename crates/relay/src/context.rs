@@ -72,10 +72,8 @@ where
         u64,
     )>,
     <Src as HasIbcTypes<Dst>>::Packet: Borrow<<Dst as HasIbcTypes<Src>>::Packet>,
-    <Src as HasIbcTypes<Dst>>::Acknowledgement:
-        Borrow<<Dst as HasIbcTypes<Src>>::Acknowledgement>,
-    <Dst as HasIbcTypes<Src>>::Acknowledgement:
-        Borrow<<Src as HasIbcTypes<Dst>>::Acknowledgement>,
+    <Src as HasIbcTypes<Dst>>::Acknowledgement: Borrow<<Dst as HasIbcTypes<Src>>::Acknowledgement>,
+    <Dst as HasIbcTypes<Src>>::Acknowledgement: Borrow<<Src as HasIbcTypes<Dst>>::Acknowledgement>,
 {
     pub async fn run_with_token(self: Arc<Self>, token: CancellationToken) -> Result<()> {
         let (event_tx, event_rx) = mpsc::channel(CHANNEL_BUFFER);
