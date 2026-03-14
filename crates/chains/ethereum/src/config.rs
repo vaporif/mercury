@@ -12,7 +12,7 @@ pub struct EthereumChainConfig {
     pub key_file: PathBuf,
     #[serde(default = "default_block_time_secs")]
     pub block_time_secs: u64,
-    /// Block number at which the ICS26Router contract was deployed.
+    /// Block number at which the `ICS26Router` contract was deployed.
     /// Used as a lower bound when scanning historical logs.
     // NOTE: an alternative state-based approach would read `prevSequenceSends`
     // storage slot via `eth_getStorageAt` to get the max sequence, then check
