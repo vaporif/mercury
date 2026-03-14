@@ -20,6 +20,7 @@ use tracing::instrument;
 use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder,
 };
+use mercury_chain_traits::types::IbcTypes;
 use mercury_core::error::Result;
 
 use ibc_proto::ibc::core::channel::v2::{
@@ -124,6 +125,7 @@ impl<S: CosmosSigner> ClientPayloadBuilder<Self> for CosmosChain<S> {
         &self,
         trusted_height: &Self::Height,
         target_height: &Self::Height,
+        _counterparty_client_state: &<Self as IbcTypes<Self>>::ClientState,
     ) -> Result<Self::UpdateClientPayload> {
         let trusted_height_value = trusted_height.value();
         let target_height_value = target_height.value();

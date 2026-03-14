@@ -73,7 +73,7 @@ where
         let update_payload = self
             .relay
             .src_chain()
-            .build_update_client_payload(&trusted_height, &src_height)
+            .build_update_client_payload(&trusted_height, &src_height, &client_state)
             .await?;
         let update_msgs = self
             .relay
@@ -112,7 +112,7 @@ where
         let update_payload = self
             .relay
             .dst_chain()
-            .build_update_client_payload(&trusted_height, &dst_height)
+            .build_update_client_payload(&trusted_height, &dst_height, &client_state)
             .await?;
         let update_msgs = self
             .relay

@@ -284,6 +284,7 @@ impl ClientPayloadBuilder<MockChain> for MockChain {
         &self,
         _trusted_height: &u64,
         _target_height: &u64,
+        _counterparty_client_state: &MockClientState,
     ) -> Result<()> {
         Ok(())
     }

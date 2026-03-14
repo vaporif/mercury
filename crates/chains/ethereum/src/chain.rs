@@ -8,10 +8,12 @@ use alloy::sol_types::SolCall;
 use async_trait::async_trait;
 use eyre::Context;
 use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
+use mercury_chain_traits::queries::ChainStatusQuery;
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 
+use crate::aggregator::AggregatorClient;
 use crate::builders::{CreateClientPayload, UpdateClientPayload};
-use crate::config::EthereumChainConfig;
+use crate::config::{ClientPayloadMode, EthereumChainConfig};
 use crate::contracts::{ICS26Router, IICS02ClientMsgs};
 use crate::types::{
     EvmAcknowledgement, EvmChainId, EvmChainStatus, EvmClientId, EvmCommitmentProof, EvmEvent,
@@ -19,12 +21,30 @@ use crate::types::{
     EvmTxResponse,
 };
 
+use ethereum_apis::beacon_api::client::BeaconApiClient;
+
+#[derive(Clone)]
+pub enum PayloadClient {
+    Beacon(Arc<BeaconApiClient>),
+    Attested(AggregatorClient),
+}
+
+impl std::fmt::Debug for PayloadClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Beacon(_) => f.debug_tuple("Beacon").finish(),
+            Self::Attested(c) => f.debug_tuple("Attested").field(c).finish(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct EthereumChain {
     pub config: EthereumChainConfig,
     pub chain_id: EvmChainId,
     pub router_address: Address,
     pub provider: Arc<DynProvider>,
+    pub payload_client: PayloadClient,
 }
 
 impl std::fmt::Debug for EthereumChain {
@@ -32,6 +52,7 @@ impl std::fmt::Debug for EthereumChain {
         f.debug_struct("EthereumChain")
             .field("chain_id", &self.chain_id)
             .field("router_address", &self.router_address)
+            .field("payload_client", &self.payload_client)
             .finish_non_exhaustive()
     }
 }
@@ -63,11 +84,25 @@ impl EthereumChain {
 
         let router_address = config.router_address()?;
 
+        let payload_client = match &config.client_payload_mode {
+            ClientPayloadMode::Beacon { beacon_api_url } => {
+                PayloadClient::Beacon(Arc::new(BeaconApiClient::new(beacon_api_url.clone())))
+            }
+            ClientPayloadMode::Attested {
+                attestor_endpoints,
+                quorum_threshold,
+            } => PayloadClient::Attested(AggregatorClient::new(
+                attestor_endpoints.clone(),
+                *quorum_threshold,
+            )),
+        };
+
         Ok(Self {
             chain_id: EvmChainId(config.chain_id),
             config,
             router_address,
             provider: Arc::new(provider),
+            payload_client,
         })
     }
 }
@@ -145,15 +180,247 @@ impl ClientPayloadBuilder<Self> for EthereumChain {
     async fn build_create_client_payload(
         &self,
     ) -> mercury_core::error::Result<CreateClientPayload> {
-        todo!("build_create_client_payload for EVM chain")
+        match &self.payload_client {
+            PayloadClient::Beacon(beacon_api) => {
+                self.build_create_client_payload_beacon(beacon_api).await
+            }
+            PayloadClient::Attested(_) => self.build_create_client_payload_attested().await,
+        }
     }
 
     async fn build_update_client_payload(
         &self,
-        _trusted_height: &EvmHeight,
-        _target_height: &EvmHeight,
+        trusted_height: &EvmHeight,
+        target_height: &EvmHeight,
+        counterparty_client_state: &<Self as IbcTypes<Self>>::ClientState,
     ) -> mercury_core::error::Result<UpdateClientPayload> {
-        todo!("build_update_client_payload for EVM chain")
+        if target_height <= trusted_height {
+            eyre::bail!(
+                "target height ({}) must be greater than trusted height ({})",
+                target_height.0,
+                trusted_height.0
+            );
+        }
+
+        match &self.payload_client {
+            PayloadClient::Beacon(beacon_api) => {
+                self.build_update_client_payload_beacon(beacon_api, counterparty_client_state)
+                    .await
+            }
+            PayloadClient::Attested(aggregator) => {
+                self.build_update_client_payload_attested(aggregator).await
+            }
+        }
+    }
+}
+
+impl EthereumChain {
+    async fn build_create_client_payload_beacon(
+        &self,
+        beacon_api: &BeaconApiClient,
+    ) -> mercury_core::error::Result<CreateClientPayload> {
+        use ethereum_light_client::client_state::ClientState as EthClientState;
+        use ethereum_light_client::consensus_state::ConsensusState as EthConsensusState;
+
+        let genesis = beacon_api.genesis().await.wrap_err("beacon API genesis")?;
+        let spec = beacon_api.spec().await.wrap_err("beacon API spec")?;
+
+        let finality = beacon_api
+            .finality_update()
+            .await
+            .wrap_err("beacon API finality_update")?;
+        let finalized_slot = finality.data.finalized_header.beacon.slot;
+        let finalized_block_number = finality.data.finalized_header.execution.block_number;
+
+        let block_root = beacon_api
+            .beacon_block_root(&finalized_slot.to_string())
+            .await
+            .wrap_err("beacon API block_root")?;
+        let bootstrap = beacon_api
+            .light_client_bootstrap(&block_root)
+            .await
+            .wrap_err("beacon API bootstrap")?;
+
+        let client_state = EthClientState {
+            chain_id: self.config.chain_id,
+            genesis_validators_root: genesis.data.genesis_validators_root,
+            min_sync_committee_participants: 1,
+            sync_committee_size: spec.data.sync_committee_size,
+            genesis_time: genesis.data.genesis_time,
+            genesis_slot: spec.data.genesis_slot,
+            fork_parameters: spec.data.to_fork_parameters(),
+            seconds_per_slot: spec.data.seconds_per_slot,
+            slots_per_epoch: spec.data.slots_per_epoch,
+            epochs_per_sync_committee_period: spec.data.epochs_per_sync_committee_period,
+            latest_slot: finalized_slot,
+            latest_execution_block_number: finalized_block_number,
+            is_frozen: false,
+            ibc_contract_address: self.router_address,
+            ibc_commitment_slot: crate::ics24::IBC_STORE_COMMITMENTS_SLOT,
+        };
+
+        let consensus_state = EthConsensusState {
+            slot: finalized_slot,
+            state_root: finality.data.finalized_header.execution.state_root,
+            timestamp: finality.data.finalized_header.execution.timestamp,
+            current_sync_committee: bootstrap
+                .data
+                .current_sync_committee
+                .to_summarized_sync_committee(),
+            next_sync_committee: None,
+        };
+
+        let client_state_bytes =
+            serde_json::to_vec(&client_state).wrap_err("serializing client state")?;
+        let consensus_state_bytes =
+            serde_json::to_vec(&consensus_state).wrap_err("serializing consensus state")?;
+
+        Ok(CreateClientPayload {
+            client_state: client_state_bytes,
+            consensus_state: consensus_state_bytes,
+            counterparty_client_id: None,
+            counterparty_merkle_prefix: None,
+        })
+    }
+
+    async fn build_create_client_payload_attested(
+        &self,
+    ) -> mercury_core::error::Result<CreateClientPayload> {
+        let status = self.query_chain_status().await?;
+        let height = status.height.0;
+        let timestamp = status.timestamp.0;
+
+        let ClientPayloadMode::Attested {
+            attestor_endpoints,
+            quorum_threshold,
+        } = &self.config.client_payload_mode
+        else {
+            unreachable!("attested path called in non-attested mode")
+        };
+
+        let client_state = serde_json::json!({
+            "height": height,
+            "timestamp": timestamp,
+            "attestor_addresses": attestor_endpoints,
+            "min_required_sigs": quorum_threshold,
+        });
+
+        let client_state_bytes =
+            serde_json::to_vec(&client_state).wrap_err("serializing attested client state")?;
+
+        Ok(CreateClientPayload {
+            client_state: client_state_bytes,
+            consensus_state: vec![],
+            counterparty_client_id: None,
+            counterparty_merkle_prefix: None,
+        })
+    }
+
+    async fn build_update_client_payload_beacon(
+        &self,
+        beacon_api: &BeaconApiClient,
+        counterparty_client_state: &[u8],
+    ) -> mercury_core::error::Result<UpdateClientPayload> {
+        use ethereum_light_client::client_state::ClientState as EthClientState;
+        use ethereum_light_client::header::{ActiveSyncCommittee, Header as EthHeader};
+
+        let eth_client_state: EthClientState = serde_json::from_slice(counterparty_client_state)
+            .wrap_err("decoding counterparty ethereum client state")?;
+        let trusted_slot = eth_client_state.latest_slot;
+
+        let finality = beacon_api
+            .finality_update()
+            .await
+            .wrap_err("beacon API finality_update")?;
+        let target_slot = finality.data.finalized_header.beacon.slot;
+
+        if target_slot <= trusted_slot {
+            return Ok(UpdateClientPayload { headers: vec![] });
+        }
+
+        let trusted_period = eth_client_state.compute_sync_committee_period_at_slot(trusted_slot);
+        let target_period = eth_client_state.compute_sync_committee_period_at_slot(target_slot);
+
+        let count = target_period.saturating_sub(trusted_period) + 1;
+        let updates = beacon_api
+            .light_client_updates(trusted_period, count)
+            .await
+            .wrap_err("beacon API light_client_updates")?;
+
+        let mut headers = Vec::new();
+        let mut current_trusted_slot = trusted_slot;
+
+        for update_response in updates {
+            let mut update = update_response.data;
+            let update_finalized_slot = update.finalized_header.beacon.slot;
+
+            if update_finalized_slot <= current_trusted_slot {
+                continue;
+            }
+
+            let update_period =
+                eth_client_state.compute_sync_committee_period_at_slot(update_finalized_slot);
+            let current_period =
+                eth_client_state.compute_sync_committee_period_at_slot(current_trusted_slot);
+
+            let block_root = beacon_api
+                .beacon_block_root(&current_trusted_slot.to_string())
+                .await
+                .wrap_err("beacon API block_root")?;
+            let bootstrap = beacon_api
+                .light_client_bootstrap(&block_root)
+                .await
+                .wrap_err("beacon API bootstrap")?;
+
+            let active_sync_committee = if update_period == current_period {
+                ActiveSyncCommittee::Current(bootstrap.data.current_sync_committee)
+            } else if let Some(next) = update.next_sync_committee.take() {
+                ActiveSyncCommittee::Next(next)
+            } else {
+                ActiveSyncCommittee::Current(bootstrap.data.current_sync_committee)
+            };
+
+            let header = EthHeader {
+                active_sync_committee,
+                consensus_update: update,
+                trusted_slot: current_trusted_slot,
+            };
+
+            let header_bytes = serde_json::to_vec(&header).wrap_err("serializing beacon header")?;
+            headers.push(header_bytes);
+
+            current_trusted_slot = update_finalized_slot;
+        }
+
+        Ok(UpdateClientPayload { headers })
+    }
+
+    async fn build_update_client_payload_attested(
+        &self,
+        aggregator: &AggregatorClient,
+    ) -> mercury_core::error::Result<UpdateClientPayload> {
+        let height = aggregator
+            .get_latest_height()
+            .await
+            .wrap_err("aggregator: getting latest height")?;
+
+        let attestation = aggregator
+            .get_state_attestation(height)
+            .await
+            .wrap_err("aggregator: getting state attestation")?;
+
+        let proof = serde_json::json!({
+            "attested_data": attestation.attested_data,
+            "signatures": attestation.signatures,
+            "height": attestation.height,
+            "timestamp": attestation.timestamp,
+        });
+
+        let proof_bytes = serde_json::to_vec(&proof).wrap_err("serializing attestation proof")?;
+
+        Ok(UpdateClientPayload {
+            headers: vec![proof_bytes],
+        })
     }
 }
 

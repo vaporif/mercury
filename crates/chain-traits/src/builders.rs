@@ -16,7 +16,10 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes + ?Sized>: IbcTypes<Coun
         &self,
         trusted_height: &Self::Height,
         target_height: &Self::Height,
-    ) -> Result<Self::UpdateClientPayload>;
+        counterparty_client_state: &<Counterparty as IbcTypes<Self>>::ClientState,
+    ) -> Result<Self::UpdateClientPayload>
+    where
+        Counterparty: IbcTypes<Self>;
 }
 
 /// Builds messages for creating/updating IBC clients and registering counterparties.

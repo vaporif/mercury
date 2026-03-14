@@ -108,7 +108,7 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
 #[allow(dead_code)] // Ethereum variant not yet wired into relay pairs
 enum ConnectedChain {
     Cosmos(Box<CosmosChain<Secp256k1KeyPair>>),
-    Ethereum(EthereumChain),
+    Ethereum(Box<EthereumChain>),
 }
 
 #[instrument(skip_all, name = "run_start")]
@@ -247,7 +247,7 @@ async fn connect_chain(
                 .await
                 .map_err(|e| eyre::eyre!("connecting to chain {}: {e}", eth_cfg.chain_id))?;
 
-            Ok(ConnectedChain::Ethereum(chain))
+            Ok(ConnectedChain::Ethereum(Box::new(chain)))
         }
     }
 }

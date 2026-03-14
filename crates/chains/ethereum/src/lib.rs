@@ -1,5 +1,6 @@
 //! Ethereum (EVM) chain implementation for the Mercury relayer.
 
+pub mod aggregator;
 pub mod builders;
 pub mod chain;
 pub mod config;

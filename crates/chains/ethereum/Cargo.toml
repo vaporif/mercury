@@ -15,12 +15,20 @@ mercury-chain-traits = { workspace = true }
 
 alloy = { workspace = true }
 
+futures = { workspace = true }
 async-trait = { workspace = true }
 eyre = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 url = { workspace = true }
 zeroize = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+base64 = { workspace = true }
+ethereum-types = { workspace = true }
+ethereum-apis = { workspace = true }
+ethereum-light-client = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

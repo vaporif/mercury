@@ -32,7 +32,7 @@ where
 
         let payload = self
             .dst_chain()
-            .build_update_client_payload(&trusted_height, &target_height)
+            .build_update_client_payload(&trusted_height, &target_height, &client_state)
             .await?;
 
         let messages = self
@@ -64,7 +64,7 @@ where
 
         let payload = self
             .src_chain()
-            .build_update_client_payload(&trusted_height, &target_height)
+            .build_update_client_payload(&trusted_height, &target_height, &client_state)
             .await?;
 
         let messages = self

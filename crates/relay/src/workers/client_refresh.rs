@@ -86,7 +86,7 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
                 let payload = self
                     .relay
                     .src_chain()
-                    .build_update_client_payload(&current_trusted, &target_height)
+                    .build_update_client_payload(&current_trusted, &target_height, &client_state)
                     .await?;
                 self.relay
                     .dst_chain()
