@@ -13,7 +13,7 @@ pub struct CreateClientPayload {
     pub client_state: Vec<u8>,
     pub consensus_state: Vec<u8>,
     pub counterparty_client_id: Option<String>,
-    pub counterparty_merkle_prefix: Option<Vec<Vec<u8>>>,
+    pub counterparty_merkle_prefix: Option<mercury_core::MerklePrefix>,
 }
 
 #[derive(Clone, Debug)]

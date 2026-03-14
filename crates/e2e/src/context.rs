@@ -70,7 +70,7 @@ impl TestContext {
             .build_register_counterparty_message(
                 &client_id_a,
                 &client_id_b,
-                vec![b"ibc".to_vec(), b"".to_vec()],
+                mercury_core::MerklePrefix::ibc_default(),
             )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
@@ -83,7 +83,7 @@ impl TestContext {
             .build_register_counterparty_message(
                 &client_id_b,
                 &client_id_a,
-                vec![b"ibc".to_vec(), b"".to_vec()],
+                mercury_core::MerklePrefix::ibc_default(),
             )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;

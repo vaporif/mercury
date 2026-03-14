@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
+use mercury_core::{MerklePrefix, ThreadSafe};
 
 use crate::types::{ChainTypes, IbcTypes};
 
@@ -40,7 +40,7 @@ where
         &self,
         client_id: &Self::ClientId,
         counterparty_client_id: &<Counterparty as IbcTypes<Self>>::ClientId,
-        counterparty_merkle_prefix: Vec<Vec<u8>>,
+        counterparty_merkle_prefix: MerklePrefix,
     ) -> Result<Self::Message>;
 }
 

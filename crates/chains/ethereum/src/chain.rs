@@ -157,8 +157,9 @@ impl ClientPayloadBuilder<Self> for EthereumChain {
     }
 }
 
-fn to_sol_merkle_prefix(prefix: &[Vec<u8>]) -> Vec<alloy::primitives::Bytes> {
+fn to_sol_merkle_prefix(prefix: &mercury_core::MerklePrefix) -> Vec<alloy::primitives::Bytes> {
     prefix
+        .0
         .iter()
         .map(|b| alloy::primitives::Bytes::copy_from_slice(b))
         .collect()
@@ -172,7 +173,7 @@ impl ClientMessageBuilder<Self> for EthereumChain {
     ) -> mercury_core::error::Result<EvmMessage> {
         let merkle_prefix = payload
             .counterparty_merkle_prefix
-            .as_deref()
+            .as_ref()
             .map(to_sol_merkle_prefix)
             .unwrap_or_default();
 
@@ -221,7 +222,7 @@ impl ClientMessageBuilder<Self> for EthereumChain {
         &self,
         client_id: &EvmClientId,
         counterparty_client_id: &EvmClientId,
-        counterparty_merkle_prefix: Vec<Vec<u8>>,
+        counterparty_merkle_prefix: mercury_core::MerklePrefix,
     ) -> mercury_core::error::Result<EvmMessage> {
         let call = ICS26Router::migrateClientCall {
             clientId: client_id.0.clone(),

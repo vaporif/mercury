@@ -258,13 +258,13 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
         &self,
         client_id: &Self::ClientId,
         counterparty_client_id: &Self::ClientId,
-        counterparty_merkle_prefix: Vec<Vec<u8>>,
+        counterparty_merkle_prefix: mercury_core::MerklePrefix,
     ) -> Result<CosmosMessage> {
         let signer = self.signer.account_address()?;
 
         let msg = MsgRegisterCounterparty {
             client_id: client_id.to_string(),
-            counterparty_merkle_prefix,
+            counterparty_merkle_prefix: counterparty_merkle_prefix.0,
             counterparty_client_id: counterparty_client_id.to_string(),
             signer,
         };
