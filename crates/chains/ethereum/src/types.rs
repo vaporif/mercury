@@ -93,9 +93,15 @@ pub struct EvmPayload {
     pub value: Vec<u8>,
 }
 
+/// EIP-1186 storage proof for a single slot, obtained via `eth_getProof`.
 #[derive(Clone, Debug)]
 pub struct EvmCommitmentProof {
-    pub proof_bytes: Vec<u8>,
+    pub proof_height: u64,
+    pub storage_root: B256,
+    pub account_proof: Vec<Vec<u8>>,
+    pub storage_key: B256,
+    pub storage_value: U256,
+    pub storage_proof: Vec<Vec<u8>>,
 }
 
 #[derive(Clone, Debug)]

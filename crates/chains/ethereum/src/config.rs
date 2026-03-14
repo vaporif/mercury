@@ -12,6 +12,13 @@ pub struct EthereumChainConfig {
     pub key_file: PathBuf,
     #[serde(default = "default_block_time_secs")]
     pub block_time_secs: u64,
+    /// Block number at which the ICS26Router contract was deployed.
+    /// Used as a lower bound when scanning historical logs.
+    // NOTE: an alternative state-based approach would read `prevSequenceSends`
+    // storage slot via `eth_getStorageAt` to get the max sequence, then check
+    // each via `getCommitment()`. That avoids config but costs N RPC calls.
+    #[serde(default)]
+    pub deployment_block: u64,
 }
 
 const fn default_block_time_secs() -> u64 {
@@ -75,6 +82,7 @@ mod tests {
             ics26_router: "0x0000000000000000000000000000000000000001".to_string(),
             key_file: "key.hex".into(),
             block_time_secs: default_block_time_secs(),
+            deployment_block: 0,
         };
         assert!(config.validate().is_err());
     }
@@ -87,6 +95,7 @@ mod tests {
             ics26_router: "0x0000000000000000000000000000000000000001".to_string(),
             key_file: "key.hex".into(),
             block_time_secs: default_block_time_secs(),
+            deployment_block: 0,
         };
         assert!(config.validate().is_err());
     }
@@ -99,6 +108,7 @@ mod tests {
             ics26_router: "not-an-address".to_string(),
             key_file: "key.hex".into(),
             block_time_secs: default_block_time_secs(),
+            deployment_block: 0,
         };
         assert!(config.validate().is_err());
     }

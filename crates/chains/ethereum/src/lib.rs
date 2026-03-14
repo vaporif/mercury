@@ -5,6 +5,7 @@ pub mod chain;
 pub mod config;
 pub mod contracts;
 pub mod events;
+pub mod ics24;
 pub mod keys;
 pub mod queries;
 pub mod tx;

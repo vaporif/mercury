@@ -1,12 +1,20 @@
 use std::time::Duration;
 
+use alloy::primitives::{Address, B256, U256};
 use alloy::providers::Provider;
+use alloy::rpc::types::Filter;
+use alloy::sol_types::SolEvent;
 use async_trait::async_trait;
 use eyre::Context;
+use tracing::instrument;
+
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_core::error::Result;
 
 use crate::chain::EthereumChain;
+use crate::contracts::sp1_ics07;
+use crate::contracts::{ICS26Router, SP1ICS07Tendermint};
+use crate::ics24;
 use crate::types::{
     EvmAcknowledgement, EvmChainStatus, EvmClientId, EvmCommitmentProof, EvmHeight,
     EvmPacketCommitment, EvmPacketReceipt, EvmTimestamp,
@@ -35,68 +43,205 @@ impl ChainStatusQuery for EthereumChain {
     }
 }
 
+async fn resolve_light_client(chain: &EthereumChain, client_id: &EvmClientId) -> Result<Address> {
+    let router = ICS26Router::new(chain.router_address, &*chain.provider);
+    router
+        .getClient(client_id.0.clone())
+        .call()
+        .await
+        .wrap_err_with(|| format!("getClient({client_id}) failed"))
+}
+
+type ClientStateReturn = sp1_ics07::SP1ICS07Tendermint::clientStateReturn;
+
+// `getClientState()` returns `abi.encode(clientState())` — same ABI layout,
+// so we decode using `clientStateCall::abi_decode_returns`.
+fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
+    use alloy::sol_types::SolCall;
+    sp1_ics07::SP1ICS07Tendermint::clientStateCall::abi_decode_returns(bytes).ok()
+}
+
 #[async_trait]
 impl ClientQuery<Self> for EthereumChain {
+    #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
-        _client_id: &EvmClientId,
+        client_id: &EvmClientId,
         _height: &EvmHeight,
     ) -> Result<Vec<u8>> {
-        todo!("query_client_state: read from light client contract")
+        let lc_address = resolve_light_client(self, client_id).await?;
+        let lc = SP1ICS07Tendermint::new(lc_address, &*self.provider);
+        let result = lc
+            .getClientState()
+            .call()
+            .await
+            .wrap_err("SP1ICS07Tendermint.getClientState() failed")?;
+        Ok(result.to_vec())
     }
 
+    #[instrument(skip_all, name = "query_consensus_state", fields(client_id = %client_id, consensus_height = %consensus_height))]
     async fn query_consensus_state(
         &self,
-        _client_id: &EvmClientId,
-        _consensus_height: &EvmHeight,
+        client_id: &EvmClientId,
+        consensus_height: &EvmHeight,
         _query_height: &EvmHeight,
     ) -> Result<Vec<u8>> {
-        todo!("query_consensus_state: read from light client contract")
+        let lc_address = resolve_light_client(self, client_id).await?;
+        let lc = SP1ICS07Tendermint::new(lc_address, &*self.provider);
+        let result = lc
+            .getConsensusStateHash(consensus_height.0)
+            .call()
+            .await
+            .wrap_err_with(|| {
+                format!("getConsensusStateHash({consensus_height}) failed for client {client_id}")
+            })?;
+        Ok(result.to_vec())
     }
 
-    fn trusting_period(_client_state: &Vec<u8>) -> Option<Duration> {
-        todo!("trusting_period: decode from client state bytes")
+    fn trusting_period(client_state: &Vec<u8>) -> Option<Duration> {
+        let cs = decode_client_state(client_state)?;
+        Some(Duration::from_secs(u64::from(cs.trustingPeriod)))
     }
 
-    fn client_latest_height(_client_state: &Vec<u8>) -> EvmHeight {
-        todo!("client_latest_height: decode from client state bytes")
+    fn client_latest_height(client_state: &Vec<u8>) -> EvmHeight {
+        decode_client_state(client_state).map_or_else(
+            || {
+                tracing::warn!("failed to decode client state, defaulting to height 0");
+                EvmHeight(0)
+            },
+            |cs| EvmHeight(cs.latestHeight.revisionHeight),
+        )
     }
+}
+
+async fn get_storage_proof(
+    chain: &EthereumChain,
+    storage_slot: U256,
+    height: &EvmHeight,
+) -> Result<EvmCommitmentProof> {
+    let block_id = alloy::eips::BlockId::number(height.0);
+    let proof = chain
+        .provider
+        .get_proof(chain.router_address, vec![storage_slot.into()])
+        .block_id(block_id)
+        .await
+        .wrap_err("eth_getProof failed")?;
+
+    let sp = proof
+        .storage_proof
+        .first()
+        .ok_or_else(|| eyre::eyre!("eth_getProof returned no storage proof"))?;
+
+    Ok(EvmCommitmentProof {
+        proof_height: height.0,
+        storage_root: proof.storage_hash,
+        account_proof: proof.account_proof.iter().map(|b| b.to_vec()).collect(),
+        storage_key: sp.key.as_b256(),
+        storage_value: sp.value,
+        storage_proof: sp.proof.iter().map(|b| b.to_vec()).collect(),
+    })
+}
+
+async fn get_commitment_at_height(
+    chain: &EthereumChain,
+    hashed_path: B256,
+    height: &EvmHeight,
+) -> Result<B256> {
+    let router = ICS26Router::new(chain.router_address, &*chain.provider);
+    let result = router
+        .getCommitment(hashed_path)
+        .block(alloy::eips::BlockId::number(height.0))
+        .call()
+        .await
+        .wrap_err("getCommitment failed")?;
+    Ok(result)
+}
+
+/// Fetch commitment value + storage proof for a given ICS24 path key.
+async fn query_commitment_with_proof(
+    chain: &EthereumChain,
+    hashed_path: B256,
+    height: &EvmHeight,
+) -> Result<(B256, EvmCommitmentProof)> {
+    let storage_slot = ics24::commitment_storage_slot(hashed_path);
+    let commitment_value = get_commitment_at_height(chain, hashed_path, height).await?;
+    let proof = get_storage_proof(chain, storage_slot, height).await?;
+    Ok((commitment_value, proof))
 }
 
 #[async_trait]
 impl PacketStateQuery<Self> for EthereumChain {
+    #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
     async fn query_packet_commitment(
         &self,
-        _client_id: &EvmClientId,
-        _sequence: u64,
-        _height: &EvmHeight,
+        client_id: &EvmClientId,
+        sequence: u64,
+        height: &EvmHeight,
     ) -> Result<(Option<EvmPacketCommitment>, EvmCommitmentProof)> {
-        todo!("query_packet_commitment: eth_getProof on ICS26Router storage")
+        let hashed_path = ics24::packet_commitment_key(&client_id.0, sequence);
+        let (value, proof) = query_commitment_with_proof(self, hashed_path, height).await?;
+        let commitment = (!value.is_zero()).then(|| EvmPacketCommitment(value.to_vec()));
+        Ok((commitment, proof))
     }
 
+    #[instrument(skip_all, name = "query_packet_receipt", fields(seq = sequence))]
     async fn query_packet_receipt(
         &self,
-        _client_id: &EvmClientId,
-        _sequence: u64,
-        _height: &EvmHeight,
+        client_id: &EvmClientId,
+        sequence: u64,
+        height: &EvmHeight,
     ) -> Result<(Option<EvmPacketReceipt>, EvmCommitmentProof)> {
-        todo!("query_packet_receipt: eth_getProof on ICS26Router storage")
+        let hashed_path = ics24::packet_receipt_key(&client_id.0, sequence);
+        let (value, proof) = query_commitment_with_proof(self, hashed_path, height).await?;
+        let receipt = (!value.is_zero()).then_some(EvmPacketReceipt);
+        Ok((receipt, proof))
     }
 
+    #[instrument(skip_all, name = "query_packet_ack", fields(seq = sequence))]
     async fn query_packet_acknowledgement(
         &self,
-        _client_id: &EvmClientId,
-        _sequence: u64,
-        _height: &EvmHeight,
+        client_id: &EvmClientId,
+        sequence: u64,
+        height: &EvmHeight,
     ) -> Result<(Option<EvmAcknowledgement>, EvmCommitmentProof)> {
-        todo!("query_packet_acknowledgement: eth_getProof on ICS26Router storage")
+        let hashed_path = ics24::ack_commitment_key(&client_id.0, sequence);
+        let (value, proof) = query_commitment_with_proof(self, hashed_path, height).await?;
+        let ack = (!value.is_zero()).then(|| EvmAcknowledgement(value.to_vec()));
+        Ok((ack, proof))
     }
 
+    #[instrument(skip_all, name = "query_commitment_sequences", fields(client_id = %client_id))]
     async fn query_commitment_sequences(
         &self,
-        _client_id: &EvmClientId,
-        _height: &EvmHeight,
+        client_id: &EvmClientId,
+        height: &EvmHeight,
     ) -> Result<Vec<u64>> {
-        todo!("query_commitment_sequences: scan SendPacket logs")
+        let filter = Filter::new()
+            .address(self.router_address)
+            .event_signature(ICS26Router::SendPacket::SIGNATURE_HASH)
+            .from_block(self.config.deployment_block)
+            .to_block(height.0);
+
+        let logs = self
+            .provider
+            .get_logs(&filter)
+            .await
+            .wrap_err("querying SendPacket logs")?;
+
+        let mut sequences: Vec<u64> = logs
+            .iter()
+            .filter_map(|log| {
+                let decoded = ICS26Router::SendPacket::decode_log(log.as_ref()).ok()?;
+                if decoded.data.packet.sourceClient == client_id.0 {
+                    Some(decoded.data.packet.sequence)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        sequences.sort_unstable();
+        sequences.dedup();
+        Ok(sequences)
     }
 }
