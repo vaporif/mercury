@@ -1,0 +1,27 @@
+[package]
+name = "mercury-ethereum"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+mercury-core = { workspace = true }
+mercury-chain-traits = { workspace = true }
+
+alloy = { workspace = true }
+
+async-trait = { workspace = true }
+eyre = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+url = "2"
+zeroize = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+toml = { workspace = true }

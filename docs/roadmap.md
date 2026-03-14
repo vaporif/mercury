@@ -116,6 +116,36 @@ Currently hardcoded: 25 max consecutive failures, 1s-30s exponential backoff. Op
 
 ---
 
+## Ethereum (EVM) Chain Support
+
+Incremental integration of Ethereum/EVM chains via IBC v2 (Eureka). Uses the `solidity-ibc-eureka` submodule as reference for contracts, deployment, and relayer patterns.
+
+### Phase 1: Dev Environment & Ethereum Node in E2E
+
+Update `flake.nix` with EVM tooling (Foundry, Solidity, Anvil). Add Anvil-based Ethereum node bootstrap to E2E test infrastructure alongside existing Cosmos Docker setup. Deploy Eureka IBC contracts (ICS26Router, ICS20Transfer, light clients) via Forge scripts. Validate contracts are accessible via RPC.
+
+### Phase 2: `mercury-ethereum` Crate — Types & Queries
+
+New crate at `crates/chains/ethereum/`. Implement `ChainTypes` and `IbcTypes` with EVM-native types (block number for height, `alloy` primitives, contract ABIs for IBC state). Implement query traits (`ChainStatusQuery`, `ClientQuery`, `PacketStateQuery`) by reading on-chain IBC contract state via `alloy` provider.
+
+### Phase 3: Events & Builders
+
+Implement `PacketEvents` — subscribe to/poll IBC contract logs (SendPacket, WriteAck) via `alloy` event filters. Implement builder traits (`ClientPayloadBuilder`, `ClientMessageBuilder`, `PacketMessageBuilder`) to construct EVM transactions that call ICS26Router methods.
+
+### Phase 4: Transaction Submission
+
+Implement `MessageSender` — EVM transaction building, signing (ECDSA via `alloy-signer`), gas estimation, nonce management, and batch submission. Support both legacy and EIP-1559 fee strategies.
+
+### Phase 5: Cross-Chain Trait Impls
+
+Implement `CosmosChain: IbcTypes<EthereumChain>` and `EthereumChain: IbcTypes<CosmosChain>` with correct proof types (Tendermint proofs on EVM side, EVM storage proofs on Cosmos side). Wire into CLI config and `spawn_relay_pair`.
+
+### Phase 6: E2E Cosmos↔Ethereum Relay Tests
+
+Full round-trip relay tests: IBC token transfer from Cosmos to Ethereum and back. Validate packet lifecycle (send → recv → ack) across chain types. Run in CI alongside existing Cosmos↔Cosmos tests.
+
+---
+
 ## Lower Priority
 
 ### 11. REST / gRPC API

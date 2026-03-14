@@ -5,6 +5,7 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use mercury_cosmos::chain::CosmosChain;
 use mercury_cosmos::keys::{Secp256k1KeyPair, load_cosmos_signer};
+use mercury_ethereum::chain::EthereumChain;
 use mercury_relay::context::{RelayContext, RelayWorkerConfig};
 use mercury_relay::filter::PacketFilter;
 use tokio::task::JoinHandle;
@@ -82,14 +83,21 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
     println!("Chain:     {chain_id}");
     println!("RPC:       {rpc_addr}");
 
-    match mercury_cosmos::queries::query_cosmos_status(rpc_addr).await {
-        Ok(status) => {
-            println!("Height:    {}", status.height);
-            println!("Timestamp: {}", status.timestamp);
-            println!("Status:    reachable");
+    match chain_config {
+        ChainConfig::Cosmos(_) => {
+            match mercury_cosmos::queries::query_cosmos_status(rpc_addr).await {
+                Ok(status) => {
+                    println!("Height:    {}", status.height);
+                    println!("Timestamp: {}", status.timestamp);
+                    println!("Status:    reachable");
+                }
+                Err(e) => {
+                    println!("Status:    unreachable ({e})");
+                }
+            }
         }
-        Err(e) => {
-            println!("Status:    unreachable ({e})");
+        ChainConfig::Ethereum(_) => {
+            println!("Status:    ethereum status query not yet implemented");
         }
     }
 
@@ -99,6 +107,7 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
 #[derive(Clone)]
 enum ConnectedChain {
     Cosmos(CosmosChain<Secp256k1KeyPair>),
+    Ethereum(EthereumChain),
 }
 
 #[instrument(skip_all, name = "run_start")]
@@ -118,7 +127,7 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
     let mut chains: HashMap<String, ConnectedChain> = HashMap::new();
     for chain_config in &cfg.chains {
         let chain = connect_chain(chain_config, config_dir).await?;
-        let id = chain_config.chain_id().to_string();
+        let id = chain_config.chain_id();
         tracing::info!(chain_id = %id, "connected to chain");
         chains.insert(id, chain);
     }
@@ -206,14 +215,38 @@ async fn connect_chain(
             let on_chain_id = chain.chain_id.to_string();
             if on_chain_id != cosmos_cfg.chain_id {
                 eyre::bail!(
-                    "chain_id mismatch for '{}': config says '{}', node reports '{}'",
+                    "chain_id mismatch: config says '{}', node reports '{on_chain_id}'",
                     cosmos_cfg.chain_id,
-                    cosmos_cfg.chain_id,
-                    on_chain_id,
                 );
             }
 
             Ok(ConnectedChain::Cosmos(chain))
+        }
+        ChainConfig::Ethereum(eth_cfg) => {
+            let key_path = config_dir.join(&eth_cfg.key_file);
+
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = std::fs::metadata(&key_path) {
+                    let mode = meta.permissions().mode();
+                    if mode & 0o044 != 0 {
+                        tracing::warn!(
+                            path = %key_path.display(),
+                            "key file is readable by group/others — consider chmod 600"
+                        );
+                    }
+                }
+            }
+
+            let signer = mercury_ethereum::keys::load_ethereum_signer(&key_path)
+                .map_err(|e| eyre::eyre!("loading signer for chain {}: {e}", eth_cfg.chain_id))?;
+
+            let chain = EthereumChain::new(eth_cfg.clone(), signer)
+                .await
+                .map_err(|e| eyre::eyre!("connecting to chain {}: {e}", eth_cfg.chain_id))?;
+
+            Ok(ConnectedChain::Ethereum(chain))
         }
     }
 }
@@ -249,6 +282,10 @@ fn spawn_relay_pair(
     relay: &RelayConfig,
 ) -> eyre::Result<JoinHandle<mercury_core::error::Result<()>>> {
     match (src, dst) {
+        #[allow(clippy::match_wildcard_for_single_variants)]
+        (ConnectedChain::Ethereum(_), _) | (_, ConnectedChain::Ethereum(_)) => {
+            eyre::bail!("Ethereum relay not yet supported (requires cross-chain IbcTypes)")
+        }
         (ConnectedChain::Cosmos(src_chain), ConnectedChain::Cosmos(dst_chain)) => {
             let src_client_id: ibc::core::host::types::identifiers::ClientId = relay
                 .src_client_id

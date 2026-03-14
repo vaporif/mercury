@@ -49,3 +49,12 @@ dst_client_id = "07-tendermint-0"
 # [relays.packet_filter]
 # policy = "allow"
 # source_ports = ["transfer"]
+
+# Ethereum chain example (uncomment to use)
+# [[chains]]
+# type = "ethereum"
+# chain_id = 31337
+# rpc_addr = "http://localhost:8545"
+# ics26_router = "0x..."
+# key_file = "keys/eth_key.hex"
+# block_time_secs = 1

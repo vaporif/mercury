@@ -20,6 +20,7 @@ path = "src/main.rs"
 [dependencies]
 mercury-core = { workspace = true }
 mercury-cosmos = { workspace = true }
+mercury-ethereum = { workspace = true }
 mercury-relay = { workspace = true }
 
 clap = { workspace = true }

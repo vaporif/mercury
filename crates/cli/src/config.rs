@@ -2,6 +2,7 @@ use std::path::Path;
 
 use eyre::Context;
 use mercury_cosmos::config::CosmosChainConfig;
+use mercury_ethereum::config::EthereumChainConfig;
 use mercury_relay::filter::PacketFilterConfig;
 use serde::Deserialize;
 
@@ -20,13 +21,16 @@ pub struct RelayerConfig {
 pub enum ChainConfig {
     #[serde(rename = "cosmos")]
     Cosmos(CosmosChainConfig),
+    #[serde(rename = "ethereum")]
+    Ethereum(EthereumChainConfig),
 }
 
 impl ChainConfig {
-    /// Returns the chain identifier.
-    pub fn chain_id(&self) -> &str {
+    /// Returns the chain identifier as a string.
+    pub fn chain_id(&self) -> String {
         match self {
-            Self::Cosmos(c) => &c.chain_id,
+            Self::Cosmos(c) => c.chain_id.clone(),
+            Self::Ethereum(c) => c.chain_id_str(),
         }
     }
 
@@ -34,6 +38,7 @@ impl ChainConfig {
     pub fn rpc_addr(&self) -> &str {
         match self {
             Self::Cosmos(c) => &c.rpc_addr,
+            Self::Ethereum(c) => &c.rpc_addr,
         }
     }
 }
@@ -61,9 +66,16 @@ pub fn load_config(path: &Path) -> eyre::Result<RelayerConfig> {
         .wrap_err_with(|| format!("reading config {}", path.display()))?;
     let config: RelayerConfig =
         toml::from_str(&content).wrap_err_with(|| format!("parsing config {}", path.display()))?;
+
+    let mut seen_ids = std::collections::HashSet::new();
     for chain in &config.chains {
         match chain {
             ChainConfig::Cosmos(c) => c.validate()?,
+            ChainConfig::Ethereum(c) => c.validate()?,
+        }
+        let id = chain.chain_id();
+        if !seen_ids.insert(id.clone()) {
+            eyre::bail!("duplicate chain_id '{id}' in config");
         }
     }
     Ok(config)
