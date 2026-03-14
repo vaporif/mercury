@@ -74,5 +74,6 @@ hex = "0.4"
 globset = "0.4"
 toml = "0.8"
 zeroize = "1"
+url = "2"
 alloy = { version = "1", features = ["full", "signer-local"] }
 testcontainers = "0.27"

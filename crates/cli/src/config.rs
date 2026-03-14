@@ -20,7 +20,7 @@ pub struct RelayerConfig {
 #[serde(tag = "type")]
 pub enum ChainConfig {
     #[serde(rename = "cosmos")]
-    Cosmos(CosmosChainConfig),
+    Cosmos(Box<CosmosChainConfig>),
     #[serde(rename = "ethereum")]
     Ethereum(EthereumChainConfig),
 }

@@ -105,8 +105,9 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)] // Ethereum variant not yet wired into relay pairs
 enum ConnectedChain {
-    Cosmos(CosmosChain<Secp256k1KeyPair>),
+    Cosmos(Box<CosmosChain<Secp256k1KeyPair>>),
     Ethereum(EthereumChain),
 }
 
@@ -208,7 +209,7 @@ async fn connect_chain(
             let signer = load_cosmos_signer(&key_path, &cosmos_cfg.account_prefix)
                 .map_err(|e| eyre::eyre!("loading signer for '{}': {e}", cosmos_cfg.chain_id))?;
 
-            let chain = CosmosChain::new(cosmos_cfg.clone(), signer)
+            let chain = CosmosChain::new(cosmos_cfg.as_ref().clone(), signer)
                 .await
                 .map_err(|e| eyre::eyre!("connecting to '{}': {e}", cosmos_cfg.chain_id))?;
 
@@ -220,7 +221,7 @@ async fn connect_chain(
                 );
             }
 
-            Ok(ConnectedChain::Cosmos(chain))
+            Ok(ConnectedChain::Cosmos(Box::new(chain)))
         }
         ChainConfig::Ethereum(eth_cfg) => {
             let key_path = config_dir.join(&eth_cfg.key_file);
@@ -287,6 +288,8 @@ fn spawn_relay_pair(
             eyre::bail!("Ethereum relay not yet supported (requires cross-chain IbcTypes)")
         }
         (ConnectedChain::Cosmos(src_chain), ConnectedChain::Cosmos(dst_chain)) => {
+            let src_chain = *src_chain;
+            let dst_chain = *dst_chain;
             let src_client_id: ibc::core::host::types::identifiers::ClientId = relay
                 .src_client_id
                 .parse()

@@ -42,7 +42,6 @@ impl PacketEvents<Self> for EthereumChain {
         if event.topics.first() != Some(&ICS26Router::SendPacket::SIGNATURE_HASH) {
             return None;
         }
-        // SAFETY: topics and data come from an already-validated on-chain log
         let log = alloy::primitives::Log::new_unchecked(
             event.address,
             event.topics.clone(),
@@ -59,7 +58,6 @@ impl PacketEvents<Self> for EthereumChain {
         if event.topics.first() != Some(&ICS26Router::WriteAcknowledgement::SIGNATURE_HASH) {
             return None;
         }
-        // SAFETY: topics and data come from an already-validated on-chain log
         let log = alloy::primitives::Log::new_unchecked(
             event.address,
             event.topics.clone(),
