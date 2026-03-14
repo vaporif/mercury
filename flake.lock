@@ -56,7 +56,8 @@
       "inputs": {
         "crane": "crane",
         "fenix": "fenix",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "solidity-ibc-eureka": "solidity-ibc-eureka"
       }
     },
     "rust-analyzer-src": {
@@ -73,6 +74,23 @@
         "owner": "rust-lang",
         "ref": "nightly",
         "repo": "rust-analyzer",
+        "type": "github"
+      }
+    },
+    "solidity-ibc-eureka": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1773418149,
+        "narHash": "sha256-w8yxhusAKHysb2estxKyQdeCgPpxPCG3U9wVN532tFc=",
+        "owner": "cosmos",
+        "repo": "solidity-ibc-eureka",
+        "rev": "86505ac8c69be4e955f8b7d3baafbd0fddaeefee",
+        "type": "github"
+      },
+      "original": {
+        "owner": "cosmos",
+        "repo": "solidity-ibc-eureka",
+        "rev": "86505ac8c69be4e955f8b7d3baafbd0fddaeefee",
         "type": "github"
       }
     }

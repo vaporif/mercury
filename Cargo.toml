@@ -77,7 +77,12 @@ zeroize = "1"
 url = "2"
 alloy = { version = "1", features = ["full", "signer-local"] }
 testcontainers = "0.27"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls",
+  "http2",
+  "charset",
+] }
 base64 = "0.22"
 ethereum-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
 ethereum-apis = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }

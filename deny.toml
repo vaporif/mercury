@@ -27,6 +27,28 @@ allow = [
 ]
 confidence-threshold = 0.8
 
+# upstream solidity-ibc-eureka crates don't set license in Cargo.toml
+# but the repo is Apache-2.0 licensed
+[[licenses.clarify]]
+crate = "ethereum-apis"
+expression = "Apache-2.0"
+license-files = []
+
+[[licenses.clarify]]
+crate = "ethereum-light-client"
+expression = "Apache-2.0"
+license-files = []
+
+[[licenses.clarify]]
+crate = "ethereum-trie-db"
+expression = "Apache-2.0"
+license-files = []
+
+[[licenses.clarify]]
+crate = "ethereum-types"
+expression = "Apache-2.0"
+license-files = []
+
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
@@ -35,4 +57,7 @@ wildcards = "allow"
 unknown-registry = "warn"
 unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+allow-git = [
+  "https://github.com/cosmos/solidity-ibc-eureka",
+  "https://github.com/cosmos/ibc-proto-rs",
+]

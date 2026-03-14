@@ -8,6 +8,10 @@
     crane = {
       url = "github:ipetkov/crane";
     };
+    solidity-ibc-eureka = {
+      url = "github:cosmos/solidity-ibc-eureka/86505ac8c69be4e955f8b7d3baafbd0fddaeefee";
+      flake = false;
+    };
   };
 
   outputs = {
@@ -15,6 +19,7 @@
     nixpkgs,
     fenix,
     crane,
+    solidity-ibc-eureka,
     ...
   }: let
     systems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
@@ -39,14 +44,38 @@
       craneLib,
       ...
     }: let
-      jsonFilter = path: _type: builtins.match ".*\\.json$" path != null;
-      src = pkgs.lib.cleanSourceWith {
+      # Overlay ABI JSON files from the solidity-ibc-eureka flake input
+      # since Nix flakes don't include git submodules.
+      src = pkgs.stdenvNoCC.mkDerivation {
+        name = "mercury-src";
         src = craneLib.cleanCargoSource ./.;
-        filter = path: type:
-          (jsonFilter path type) || (craneLib.filterCargoSources path type);
+        buildInputs = [];
+        installPhase = ''
+          runHook preInstall
+          cp -r . $out
+          mkdir -p $out/external/solidity-ibc-eureka/abi
+          cp ${solidity-ibc-eureka}/abi/*.json $out/external/solidity-ibc-eureka/abi/
+          runHook postInstall
+        '';
+      };
+      # Vendor deps with a workaround for upstream solidity-ibc-eureka having
+      # a relative readme path that doesn't exist when crane extracts the git dep.
+      cargoVendorDir = craneLib.vendorCargoDeps {
+        inherit src;
+        overrideVendorGitCheckout = ps: drv:
+          if pkgs.lib.any (p: pkgs.lib.hasPrefix "git+https://github.com/cosmos/solidity-ibc-eureka" p.source) ps
+          then
+            drv.overrideAttrs (old: {
+              nativeBuildInputs = (old.nativeBuildInputs or []) ++ [pkgs.gnused];
+              postPatch = ''
+                find . -name Cargo.toml -exec \
+                  sed -i '/^readme\s*=.*\.\.\/.*README/d' {} +
+              '';
+            })
+          else drv;
       };
       commonArgs = {
-        inherit src;
+        inherit src cargoVendorDir;
         pname = "mercury-relayer";
         strictDeps = true;
         nativeBuildInputs = [
