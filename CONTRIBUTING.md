@@ -46,16 +46,7 @@ git config submodule.recurse true
 
 ## Building and Testing
 
-```bash
-cargo build
-cargo test --workspace
-cargo clippy --workspace -- -D warnings
-cargo fmt --all -- --check
-```
-
-### Just recipes
-
-A `justfile` wraps the common commands:
+A `justfile` wraps all common commands:
 
 ```bash
 just check        # Run all checks (typos, TOML lint, fmt, clippy, test)
@@ -63,31 +54,10 @@ just test         # Run unit tests
 just clippy       # Run clippy
 just fmt          # Format check
 just fmt-fix      # Auto-format everything (Rust, TOML, Nix)
-just e2e          # Run E2E tests (requires Docker)
+just e2e          # Run E2E tests (requires container runtime)
 just check-typos  # Spell check
 just check-toml   # TOML lint
 ```
-
-### E2E tests
-
-E2E tests use Docker to run local chain instances:
-
-```bash
-just e2e
-# or directly:
-cargo nextest run -p mercury-e2e --run-ignored all
-```
-
-## CI
-
-CI runs on every push to `main` and on pull requests. It includes:
-
-- **Check** — clippy, tests, format check
-- **Cross** — cross-compilation for linux (x86_64/aarch64 musl) and macOS (x86_64/aarch64)
-- **Lint** — typos, TOML lint, gitleaks
-- **Nix** — nix fmt, flake check, nix build
-- **Deny** — `cargo-deny` for dependency auditing (licenses, vulnerabilities)
-- **E2E** — end-to-end relay tests with Docker
 
 ## Code Style
 
