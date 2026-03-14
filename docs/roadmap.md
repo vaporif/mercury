@@ -140,7 +140,37 @@ Implement `MessageSender` — EVM transaction building, signing (ECDSA via `allo
 
 Implement `CosmosChain: IbcTypes<EthereumChain>` and `EthereumChain: IbcTypes<CosmosChain>` with correct proof types (Tendermint proofs on EVM side, EVM storage proofs on Cosmos side). Wire into CLI config and `spawn_relay_pair`.
 
-### Phase 6: E2E Cosmos↔Ethereum Relay Tests
+### Phase 6: SP1 & Attestor Prover Integration
+
+Integrate zero-knowledge proof generation and attestation-based verification for the Ethereum light client lifecycle. This enables `ClientPayloadBuilder` (EVM as source chain) and contract deployment in `ClientMessageBuilder`.
+
+**SP1 Prover:**
+- Add `sp1-sdk` v5.0 dependency (matching Eureka)
+- Port `SP1ICS07TendermintProver` from Eureka (`external/solidity-ibc-eureka/packages/sp1-ics07-tendermint-prover/`)
+- Support prover modes: mock (testing), CPU, CUDA (GPU), network (remote SP1 cluster)
+- Manage SP1 ELF programs loaded from disk at runtime (update_client, membership, update_client_and_membership, misbehaviour)
+- Config: `sp1_prover` mode, network private key/URL, ELF program paths
+
+**Attestor Mode:**
+- Port aggregator client from Eureka (`packages/relayer/lib/src/aggregator/`)
+- HTTP client to query attestor endpoints for signed state proofs
+- Config: attestor endpoints, quorum threshold, query timeout
+
+**`ClientPayloadBuilder` (EVM as source):**
+- `build_create_client_payload`: build EVM state representation (client state, consensus state) for Cosmos to verify
+- `build_update_client_payload`: fetch Tendermint headers, generate SP1 ZK proof or fetch attestation proof, encode as `MsgUpdateClient { sp1Proof }` or `AttestationProof`
+
+**Contract Deployment in `build_create_client_message`:**
+- Build SP1ICS07Tendermint constructor calldata (client state, consensus state, vkeys, SP1 verifier address, role manager)
+- Or build AttestationLightClient constructor calldata (attestor addresses, min required signatures, initial height/timestamp)
+- Two-step flow: deploy contract → extract address from tx receipt → register via `addClient`
+- Replace current `light_client_address` config workaround with dynamic deployment
+
+**Reference:** Eureka relayer implementation in `external/solidity-ibc-eureka/packages/relayer/modules/cosmos-to-eth/src/tx_builder.rs` and `packages/relayer/lib/src/utils/eth_attested.rs`.
+
+---
+
+### Phase 7: E2E Cosmos↔Ethereum Relay Tests
 
 Full round-trip relay tests: IBC token transfer from Cosmos to Ethereum and back. Validate packet lifecycle (send → recv → ack) across chain types. Run in CI alongside existing Cosmos↔Cosmos tests.
 

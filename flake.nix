@@ -39,7 +39,12 @@
       craneLib,
       ...
     }: let
-      src = craneLib.cleanCargoSource ./.;
+      jsonFilter = path: _type: builtins.match ".*\\.json$" path != null;
+      src = pkgs.lib.cleanSourceWith {
+        src = craneLib.cleanCargoSource ./.;
+        filter = path: type:
+          (jsonFilter path type) || (craneLib.filterCargoSources path type);
+      };
       commonArgs = {
         inherit src;
         pname = "mercury-relayer";
