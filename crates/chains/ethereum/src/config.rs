@@ -19,6 +19,8 @@ pub struct EthereumChainConfig {
     // each via `getCommitment()`. That avoids config but costs N RPC calls.
     #[serde(default)]
     pub deployment_block: u64,
+    #[serde(default)]
+    pub light_client_address: Option<String>,
 }
 
 const fn default_block_time_secs() -> u64 {
@@ -40,6 +42,10 @@ impl EthereumChainConfig {
             );
         }
         self.router_address()?;
+        if let Some(ref addr) = self.light_client_address {
+            addr.parse::<Address>()
+                .map_err(|e| eyre::eyre!("invalid light_client_address: {e}"))?;
+        }
         Ok(())
     }
 
@@ -47,6 +53,14 @@ impl EthereumChainConfig {
         self.ics26_router
             .parse()
             .map_err(|e| eyre::eyre!("invalid ics26_router address: {e}"))
+    }
+
+    pub fn light_client_address(&self) -> eyre::Result<Address> {
+        self.light_client_address
+            .as_ref()
+            .ok_or_else(|| eyre::eyre!("light_client_address not configured"))?
+            .parse()
+            .map_err(|e| eyre::eyre!("invalid light_client_address: {e}"))
     }
 
     #[must_use]
@@ -83,6 +97,7 @@ mod tests {
             key_file: "key.hex".into(),
             block_time_secs: default_block_time_secs(),
             deployment_block: 0,
+            light_client_address: None,
         };
         assert!(config.validate().is_err());
     }
@@ -96,6 +111,7 @@ mod tests {
             key_file: "key.hex".into(),
             block_time_secs: default_block_time_secs(),
             deployment_block: 0,
+            light_client_address: None,
         };
         assert!(config.validate().is_err());
     }
@@ -109,7 +125,53 @@ mod tests {
             key_file: "key.hex".into(),
             block_time_secs: default_block_time_secs(),
             deployment_block: 0,
+            light_client_address: None,
         };
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_accepts_valid_light_client_address() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+            chain_id = 31337
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            light_client_address = "0x0000000000000000000000000000000000000002"
+            "#,
+        )
+        .unwrap();
+        assert!(config.validate().is_ok());
+        assert!(config.light_client_address().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_bad_light_client_address() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+            chain_id = 31337
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            light_client_address = "not-an-address"
+            "#,
+        )
+        .unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn light_client_address_errors_when_none() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+            chain_id = 31337
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            "#,
+        )
+        .unwrap();
+        assert!(config.light_client_address().is_err());
     }
 }

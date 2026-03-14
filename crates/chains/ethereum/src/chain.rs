@@ -2,8 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use alloy::network::EthereumWallet;
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
+use alloy::sol_types::SolCall;
 use async_trait::async_trait;
 use eyre::Context;
 use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
@@ -11,6 +12,7 @@ use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 
 use crate::builders::{CreateClientPayload, UpdateClientPayload};
 use crate::config::EthereumChainConfig;
+use crate::contracts::{ICS26Router, IICS02ClientMsgs};
 use crate::types::{
     EvmAcknowledgement, EvmChainId, EvmChainStatus, EvmClientId, EvmCommitmentProof, EvmEvent,
     EvmHeight, EvmMessage, EvmPacket, EvmPacketCommitment, EvmPacketReceipt, EvmTimestamp,
@@ -155,29 +157,87 @@ impl ClientPayloadBuilder<Self> for EthereumChain {
     }
 }
 
+const DEFAULT_EVM_MERKLE_PREFIX: &[&[u8]] = &[b"ibc", b""];
+
+fn default_merkle_prefix() -> Vec<alloy::primitives::Bytes> {
+    DEFAULT_EVM_MERKLE_PREFIX
+        .iter()
+        .map(|b| alloy::primitives::Bytes::copy_from_slice(b))
+        .collect()
+}
+
 #[async_trait]
 impl ClientMessageBuilder<Self> for EthereumChain {
     async fn build_create_client_message(
         &self,
-        _payload: CreateClientPayload,
+        payload: CreateClientPayload,
     ) -> mercury_core::error::Result<EvmMessage> {
-        todo!("build_create_client_message for EVM chain")
+        let merkle_prefix = if payload.counterparty_client_id.is_some() {
+            default_merkle_prefix()
+        } else {
+            vec![]
+        };
+
+        let call = ICS26Router::addClient_1Call {
+            counterpartyInfo: IICS02ClientMsgs::CounterpartyInfo {
+                clientId: payload.counterparty_client_id.unwrap_or_default(),
+                merklePrefix: merkle_prefix,
+            },
+            client: self.config.light_client_address()?,
+        };
+
+        Ok(EvmMessage {
+            to: self.router_address,
+            calldata: call.abi_encode(),
+            value: U256::ZERO,
+        })
     }
 
     async fn build_update_client_message(
         &self,
-        _client_id: &EvmClientId,
-        _payload: UpdateClientPayload,
+        client_id: &EvmClientId,
+        payload: UpdateClientPayload,
     ) -> mercury_core::error::Result<Vec<EvmMessage>> {
-        todo!("build_update_client_message for EVM chain")
+        let messages = payload
+            .headers
+            .into_iter()
+            .map(|header_bytes| {
+                let call = ICS26Router::updateClientCall {
+                    clientId: client_id.0.clone(),
+                    updateMsg: header_bytes.into(),
+                };
+                EvmMessage {
+                    to: self.router_address,
+                    calldata: call.abi_encode(),
+                    value: U256::ZERO,
+                }
+            })
+            .collect();
+
+        Ok(messages)
     }
 
+    // Uses `migrateClient` (requires admin role) since EVM has no dedicated
+    // `registerCounterparty`. Prefer setting counterparty during `addClient` instead.
     async fn build_register_counterparty_message(
         &self,
-        _client_id: &EvmClientId,
-        _counterparty_client_id: &EvmClientId,
+        client_id: &EvmClientId,
+        counterparty_client_id: &EvmClientId,
     ) -> mercury_core::error::Result<EvmMessage> {
-        todo!("build_register_counterparty_message for EVM chain")
+        let call = ICS26Router::migrateClientCall {
+            clientId: client_id.0.clone(),
+            counterpartyInfo: IICS02ClientMsgs::CounterpartyInfo {
+                clientId: counterparty_client_id.0.clone(),
+                merklePrefix: default_merkle_prefix(),
+            },
+            client: self.config.light_client_address()?,
+        };
+
+        Ok(EvmMessage {
+            to: self.router_address,
+            calldata: call.abi_encode(),
+            value: U256::ZERO,
+        })
     }
 }
 
@@ -246,6 +306,14 @@ mod tests {
         assert_eq!(
             EthereumChain::packet_timeout_timestamp(&packet),
             1_700_000_000
+        );
+    }
+
+    #[test]
+    fn default_merkle_prefix() {
+        assert_eq!(
+            super::DEFAULT_EVM_MERKLE_PREFIX,
+            &[b"ibc".as_slice(), b"".as_slice()]
         );
     }
 }

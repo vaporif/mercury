@@ -17,3 +17,9 @@ pub mod sp1_ics07 {
 // Re-export commonly used types for convenience.
 pub use ics26_router::{ICS26Router, IICS02ClientMsgs, IICS26RouterMsgs};
 pub use sp1_ics07::SP1ICS07Tendermint;
+
+#[test]
+fn test_update_and_migrate_calls_exist() {
+    let _ = core::mem::size_of::<ICS26Router::updateClientCall>();
+    let _ = core::mem::size_of::<ICS26Router::migrateClientCall>();
+}

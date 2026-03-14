@@ -12,6 +12,7 @@ use crate::types::{EvmAcknowledgement, EvmHeight, EvmMessage, EvmPacket};
 pub struct CreateClientPayload {
     pub client_state: Vec<u8>,
     pub consensus_state: Vec<u8>,
+    pub counterparty_client_id: Option<String>,
 }
 
 #[derive(Clone, Debug)]

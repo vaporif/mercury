@@ -1,3 +1,4 @@
+use alloy::primitives::{B256, U256, keccak256};
 use alloy::providers::Provider;
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
@@ -104,9 +105,42 @@ impl PacketEvents<Self> for EthereumChain {
 
     async fn query_send_packet_event(
         &self,
-        _client_id: &EvmClientId,
-        _sequence: u64,
+        client_id: &EvmClientId,
+        sequence: u64,
     ) -> Result<Option<EvmSendPacketEvent>> {
-        todo!("query_send_packet_event: filter SendPacket logs by client+sequence")
+        let filter = Filter::new()
+            .address(self.router_address)
+            .event_signature(ICS26Router::SendPacket::SIGNATURE_HASH)
+            .topic1(keccak256(client_id.0.as_bytes()))
+            .topic2(B256::from(U256::from(sequence)))
+            .from_block(self.config.deployment_block);
+
+        let logs = self
+            .provider
+            .get_logs(&filter)
+            .await
+            .wrap_err("querying SendPacket event")?;
+
+        let event = logs.iter().find_map(|log| {
+            let decoded = ICS26Router::SendPacket::decode_log(log.as_ref()).ok()?;
+            Some(EvmSendPacketEvent {
+                packet: sol_packet_to_evm(&decoded.data.packet),
+                block_number: log.block_number?,
+            })
+        });
+
+        if logs.is_empty() {
+            return Ok(None);
+        }
+
+        if event.is_none() {
+            tracing::warn!(
+                client_id = %client_id,
+                sequence,
+                "matched SendPacket log but failed to decode"
+            );
+        }
+
+        Ok(event)
     }
 }
