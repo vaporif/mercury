@@ -3,3 +3,5 @@ extend-exclude = ["external/"]
 
 [default.extend-words]
 ba = "ba"
+groth = "groth"
+Groth = "Groth"
