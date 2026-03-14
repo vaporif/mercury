@@ -54,47 +54,9 @@ mercury-relayer status --config relayer.toml --chain cosmoshub-4
 
 See [`examples/relayer.toml`](./examples/relayer.toml) for a full config example.
 
-## Development
+## Contributing
 
-### With Nix (recommended)
-
-The project includes a Nix flake with a complete dev shell. If you have Nix with flakes enabled:
-
-```bash
-# Enter the dev shell (or use direnv with the included .envrc)
-nix develop
-
-# Build the binary via Nix
-nix build
-```
-
-The dev shell provides the stable Rust toolchain (cargo, clippy, rustfmt, rust-analyzer), plus `cargo-nextest`, `taplo`, `typos`, and `actionlint`.
-
-### Without Nix
-
-Requires a stable Rust toolchain. Install via [rustup](https://rustup.rs).
-
-### Cloning
-
-This repo uses git submodules. Clone with:
-
-```bash
-git clone --recurse-submodules https://github.com/vaporif/mercury.git
-```
-
-To auto-pull submodules on future `git pull`/`git checkout`:
-
-```bash
-git config submodule.recurse true
-```
-
-### Building and testing
-
-```bash
-cargo build
-cargo test
-cargo clippy --workspace
-```
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, building, testing, CI, and code style.
 
 ## License
 
