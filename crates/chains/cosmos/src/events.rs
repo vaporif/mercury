@@ -75,11 +75,9 @@ fn abci_event_to_cosmos_event(event: &tendermint::abci::Event) -> CosmosEvent {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> PacketEvents<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
     type SendPacketEvent = SendPacketEvent;
     type WriteAckEvent = WriteAckEvent;
-    type Packet = CosmosPacket;
-    type Acknowledgement = PacketAcknowledgement;
 
     fn try_extract_send_packet_event(event: &CosmosEvent) -> Option<SendPacketEvent> {
         if event.kind != "send_packet" {
@@ -173,7 +171,7 @@ impl<S: CosmosSigner> PacketEvents<Self> for CosmosChain<S> {
             for event in &tx.tx_result.events {
                 let cosmos_event = abci_event_to_cosmos_event(event);
                 if let Some(send_event) =
-                    <Self as PacketEvents<Self>>::try_extract_send_packet_event(&cosmos_event)
+                    <Self as PacketEvents>::try_extract_send_packet_event(&cosmos_event)
                     && send_event.packet.source_client_id.as_str() == client_id.as_str()
                 {
                     return Ok(Some(send_event));

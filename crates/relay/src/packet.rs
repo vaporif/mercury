@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use tracing::{debug, instrument};
 
 use mercury_chain_traits::builders::PacketMessageBuilder;
-use mercury_chain_traits::events::PacketEvents;
 use mercury_chain_traits::queries::PacketStateQuery;
 use mercury_chain_traits::relay::{Relay, RelayPacketBuilder};
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
@@ -13,31 +12,21 @@ use crate::context::RelayContext;
 #[async_trait]
 impl<Src, Dst> RelayPacketBuilder for RelayContext<Src, Dst>
 where
-    Src: ChainTypes
-        + PacketEvents<Dst>
-        + IbcTypes<Dst, Packet = <Src as PacketEvents<Dst>>::Packet>
-        + PacketStateQuery<Dst>
-        + PacketMessageBuilder<Dst>,
-    Dst: ChainTypes
-        + PacketStateQuery<Src>
-        + PacketMessageBuilder<
-            Src,
-            CounterpartyPacket = <Src as PacketEvents<Dst>>::Packet,
-            CounterpartyAcknowledgement = <Src as PacketEvents<Dst>>::Acknowledgement,
-        >,
+    Src: ChainTypes + IbcTypes + PacketStateQuery + PacketMessageBuilder<Dst>,
+    Dst: ChainTypes + IbcTypes + PacketStateQuery + PacketMessageBuilder<Src>,
     Self: Relay<SrcChain = Src, DstChain = Dst>,
     <Dst as PacketMessageBuilder<Src>>::ReceivePacketPayload: From<(
-        <Src as PacketStateQuery<Dst>>::CommitmentProof,
+        <Src as IbcTypes>::CommitmentProof,
         <Src as ChainTypes>::Height,
         u64,
     )>,
     <Dst as PacketMessageBuilder<Src>>::AckPacketPayload: From<(
-        <Src as PacketStateQuery<Dst>>::CommitmentProof,
+        <Src as IbcTypes>::CommitmentProof,
         <Src as ChainTypes>::Height,
         u64,
     )>,
     <Src as PacketMessageBuilder<Dst>>::TimeoutPacketPayload: From<(
-        <Dst as PacketStateQuery<Src>>::CommitmentProof,
+        <Dst as IbcTypes>::CommitmentProof,
         <Dst as ChainTypes>::Height,
         u64,
     )>,
@@ -45,7 +34,7 @@ where
     #[instrument(skip_all, name = "build_receive_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_receive_packet_messages(
         &self,
-        packet: &<Src as PacketEvents<Dst>>::Packet,
+        packet: &<Src as IbcTypes>::Packet,
         proof_height: &<Src as ChainTypes>::Height,
     ) -> Result<Vec<<Dst as ChainTypes>::Message>> {
         let sequence = Src::packet_sequence(packet);
@@ -74,8 +63,8 @@ where
     #[instrument(skip_all, name = "build_ack_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_ack_packet_messages(
         &self,
-        packet: &<Src as PacketEvents<Dst>>::Packet,
-        ack: &<Src as PacketEvents<Dst>>::Acknowledgement,
+        packet: &<Src as IbcTypes>::Packet,
+        ack: &<Src as IbcTypes>::Acknowledgement,
         proof_height: &<Src as ChainTypes>::Height,
     ) -> Result<Vec<<Dst as ChainTypes>::Message>> {
         let sequence = Src::packet_sequence(packet);
@@ -104,7 +93,7 @@ where
     #[instrument(skip_all, name = "build_timeout_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_timeout_packet_messages(
         &self,
-        packet: &<Src as PacketEvents<Dst>>::Packet,
+        packet: &<Src as IbcTypes>::Packet,
         proof_height: &<Dst as ChainTypes>::Height,
     ) -> Result<Vec<<Src as ChainTypes>::Message>> {
         let sequence = Src::packet_sequence(packet);

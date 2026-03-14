@@ -18,18 +18,15 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
         &self,
         trusted_height: &Self::Height,
         target_height: &Self::Height,
-        counterparty_client_state: &<Counterparty as IbcTypes<Self>>::ClientState,
+        counterparty_client_state: &<Counterparty as IbcTypes>::ClientState,
     ) -> Result<Self::UpdateClientPayload>
     where
-        Counterparty: IbcTypes<Self>;
+        Counterparty: IbcTypes;
 }
 
 /// Builds messages for creating/updating IBC clients and registering counterparties.
 #[async_trait]
-pub trait ClientMessageBuilder<Counterparty>: IbcTypes<Counterparty>
-where
-    Counterparty: ChainTypes,
-{
+pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     type CreateClientPayload: ThreadSafe;
     type UpdateClientPayload: ThreadSafe;
 
@@ -54,7 +51,7 @@ where
 
 /// Checks update headers against the source chain for light client divergence.
 #[async_trait]
-pub trait MisbehaviourDetector<Counterparty: ChainTypes>: IbcTypes<Counterparty> {
+pub trait MisbehaviourDetector<Counterparty: ChainTypes>: IbcTypes {
     type UpdateHeader: ThreadSafe;
     type MisbehaviourEvidence: ThreadSafe;
     type CounterpartyClientState: Clone + Debug + ThreadSafe;
@@ -72,10 +69,7 @@ pub trait MisbehaviourDetector<Counterparty: ChainTypes>: IbcTypes<Counterparty>
 
 /// Builds a `MsgUpdateClient` containing misbehaviour evidence for submission on the destination chain.
 #[async_trait]
-pub trait MisbehaviourMessageBuilder<Counterparty>: IbcTypes<Counterparty>
-where
-    Counterparty: ChainTypes,
-{
+pub trait MisbehaviourMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     type MisbehaviourEvidence: ThreadSafe;
 
     /// Build a `MsgUpdateClient` containing the misbehaviour evidence.
@@ -88,26 +82,21 @@ where
 
 /// Builds receive, ack, and timeout packet messages.
 #[async_trait]
-pub trait PacketMessageBuilder<Counterparty>: IbcTypes<Counterparty>
-where
-    Counterparty: ChainTypes,
-{
+pub trait PacketMessageBuilder<Counterparty: IbcTypes>: IbcTypes {
     type ReceivePacketPayload: ThreadSafe;
     type AckPacketPayload: ThreadSafe;
     type TimeoutPacketPayload: ThreadSafe;
-    type CounterpartyPacket: Clone + Debug + ThreadSafe;
-    type CounterpartyAcknowledgement: ThreadSafe;
 
     async fn build_receive_packet_message(
         &self,
-        packet: &Self::CounterpartyPacket,
+        packet: &<Counterparty as IbcTypes>::Packet,
         payload: Self::ReceivePacketPayload,
     ) -> Result<Self::Message>;
 
     async fn build_ack_packet_message(
         &self,
-        packet: &Self::CounterpartyPacket,
-        ack: &Self::CounterpartyAcknowledgement,
+        packet: &<Counterparty as IbcTypes>::Packet,
+        ack: &<Counterparty as IbcTypes>::Acknowledgement,
         payload: Self::AckPacketPayload,
     ) -> Result<Self::Message>;
 

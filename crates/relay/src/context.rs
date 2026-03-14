@@ -48,18 +48,18 @@ where
     Src: ChainTypes
         + ChainStatusQuery
         + MessageSender
+        + IbcTypes
         + ClientPayloadBuilder<Dst>
-        + PacketEvents<Dst>
-        + IbcTypes<Dst, Packet = <Src as PacketEvents<Dst>>::Packet>,
+        + PacketEvents,
     Dst: ChainTypes
         + ChainStatusQuery
         + MessageSender
-        + IbcTypes<Src>
+        + IbcTypes
         + ClientMessageBuilder<
             Src,
             CreateClientPayload = <Src as ClientPayloadBuilder<Dst>>::CreateClientPayload,
             UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,
-        > + ClientQuery<Src, ClientState = <Dst as IbcTypes<Src>>::ClientState>,
+        > + ClientQuery<Src>,
 {
     type SrcChain = Src;
     type DstChain = Dst;
@@ -86,33 +86,30 @@ where
     Src: ChainTypes
         + ChainStatusQuery
         + MessageSender
+        + IbcTypes
         + ClientPayloadBuilder<Dst>
-        + PacketEvents<Dst>
-        + IbcTypes<Dst, Packet = <Src as PacketEvents<Dst>>::Packet>
-        + PacketStateQuery<Dst>
+        + PacketEvents
+        + PacketStateQuery
         + PacketMessageBuilder<Dst>
-        + ClientQuery<Dst, ClientState = <Src as IbcTypes<Dst>>::ClientState>
+        + ClientQuery<Dst>
         + ClientMessageBuilder<
             Dst,
             CreateClientPayload = <Dst as ClientPayloadBuilder<Src>>::CreateClientPayload,
             UpdateClientPayload = <Dst as ClientPayloadBuilder<Src>>::UpdateClientPayload,
-        > + MisbehaviourDetector<Dst, CounterpartyClientState = <Dst as ClientQuery<Src>>::ClientState>,
+        > + MisbehaviourDetector<Dst, CounterpartyClientState = <Dst as IbcTypes>::ClientState>,
     Dst: ChainTypes
         + ChainStatusQuery
         + MessageSender
-        + IbcTypes<Src>
+        + IbcTypes
         + ClientMessageBuilder<
             Src,
             CreateClientPayload = <Src as ClientPayloadBuilder<Dst>>::CreateClientPayload,
             UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,
-        > + ClientQuery<Src, ClientState = <Dst as IbcTypes<Src>>::ClientState>
-        + PacketEvents<Src>
-        + PacketStateQuery<Src>
-        + PacketMessageBuilder<
-            Src,
-            CounterpartyPacket = <Src as PacketEvents<Dst>>::Packet,
-            CounterpartyAcknowledgement = <Src as PacketEvents<Dst>>::Acknowledgement,
-        > + ClientPayloadBuilder<Src>
+        > + ClientQuery<Src>
+        + PacketEvents
+        + PacketStateQuery
+        + PacketMessageBuilder<Src>
+        + ClientPayloadBuilder<Src>
         + MisbehaviourQuery<
             Src,
             CounterpartyUpdateHeader = <Src as MisbehaviourDetector<Dst>>::UpdateHeader,
@@ -122,17 +119,17 @@ where
         >,
     // Payload From bounds
     <Dst as PacketMessageBuilder<Src>>::ReceivePacketPayload: From<(
-        <Src as PacketStateQuery<Dst>>::CommitmentProof,
+        <Src as IbcTypes>::CommitmentProof,
         <Src as ChainTypes>::Height,
         u64,
     )>,
     <Dst as PacketMessageBuilder<Src>>::AckPacketPayload: From<(
-        <Src as PacketStateQuery<Dst>>::CommitmentProof,
+        <Src as IbcTypes>::CommitmentProof,
         <Src as ChainTypes>::Height,
         u64,
     )>,
     <Src as PacketMessageBuilder<Dst>>::TimeoutPacketPayload: From<(
-        <Dst as PacketStateQuery<Src>>::CommitmentProof,
+        <Dst as IbcTypes>::CommitmentProof,
         <Dst as ChainTypes>::Height,
         u64,
     )>,

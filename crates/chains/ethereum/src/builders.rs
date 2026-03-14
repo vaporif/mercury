@@ -64,8 +64,6 @@ impl PacketMessageBuilder<Self> for EthereumChain {
     type ReceivePacketPayload = ReceivePacketPayload;
     type AckPacketPayload = AckPacketPayload;
     type TimeoutPacketPayload = TimeoutPacketPayload;
-    type CounterpartyPacket = EvmPacket;
-    type CounterpartyAcknowledgement = EvmAcknowledgement;
 
     async fn build_receive_packet_message(
         &self,

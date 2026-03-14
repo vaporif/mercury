@@ -14,3 +14,6 @@ pub mod types;
 
 #[cfg(feature = "sp1")]
 pub mod sp1;
+
+#[cfg(feature = "cosmos-sp1")]
+pub mod cosmos_bridge;

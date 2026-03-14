@@ -31,8 +31,8 @@ pub struct ClearingWorker<R: Relay> {
 impl<R> Worker for ClearingWorker<R>
 where
     R: Relay,
-    R::SrcChain: PacketStateQuery<R::DstChain>,
-    R::DstChain: PacketStateQuery<R::SrcChain>,
+    R::SrcChain: PacketStateQuery,
+    R::DstChain: PacketStateQuery,
 {
     fn name(&self) -> &'static str {
         "clearing_worker"
@@ -58,8 +58,8 @@ where
 impl<R> ClearingWorker<R>
 where
     R: Relay,
-    R::SrcChain: PacketStateQuery<R::DstChain>,
-    R::DstChain: PacketStateQuery<R::SrcChain>,
+    R::SrcChain: PacketStateQuery,
+    R::DstChain: PacketStateQuery,
 {
     async fn scan(&self) -> Result<()> {
         let src = self.relay.src_chain();
@@ -115,11 +115,8 @@ where
                 Ok(Some(send_event)) => {
                     if let Some(ref filter) = self.packet_filter {
                         let packet =
-                            <R::SrcChain as PacketEvents<R::DstChain>>::packet_from_send_event(
-                                &send_event,
-                            );
-                        let ports =
-                            <R::SrcChain as IbcTypes<R::DstChain>>::packet_source_ports(packet);
+                            <R::SrcChain as PacketEvents>::packet_from_send_event(&send_event);
+                        let ports = <R::SrcChain as IbcTypes>::packet_source_ports(packet);
                         if !filter.allows(&ports) {
                             debug!(seq, ?ports, "cleared packet filtered out");
                             continue;

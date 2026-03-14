@@ -15,11 +15,11 @@ where
     Dst: ChainTypes
         + ChainStatusQuery
         + MessageSender
-        + IbcTypes<Src>
+        + IbcTypes
         + ClientMessageBuilder<
             Src,
             UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,
-        > + ClientQuery<Src, ClientState = <Dst as IbcTypes<Src>>::ClientState>,
+        > + ClientQuery<Src>,
     Self: Relay<SrcChain = Src, DstChain = Dst>,
 {
     async fn update_dst_client(&self) -> Result<()> {

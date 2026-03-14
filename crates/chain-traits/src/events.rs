@@ -1,18 +1,14 @@
-use std::fmt::Debug;
-
 use async_trait::async_trait;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
-use crate::types::ChainTypes;
+use crate::types::IbcTypes;
 
 /// Extracts IBC packet events from raw chain events and queries block events.
 #[async_trait]
-pub trait PacketEvents<Counterparty: ChainTypes>: ChainTypes {
+pub trait PacketEvents: IbcTypes {
     type SendPacketEvent: ThreadSafe;
     type WriteAckEvent: ThreadSafe;
-    type Packet: Clone + Debug + ThreadSafe;
-    type Acknowledgement: ThreadSafe;
 
     fn try_extract_send_packet_event(event: &Self::Event) -> Option<Self::SendPacketEvent>;
     fn try_extract_write_ack_event(event: &Self::Event) -> Option<Self::WriteAckEvent>;

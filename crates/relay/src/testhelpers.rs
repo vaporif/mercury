@@ -122,7 +122,7 @@ impl ChainTypes for MockChain {
     }
 }
 
-impl IbcTypes<MockChain> for MockChain {
+impl IbcTypes for MockChain {
     type ClientState = MockClientState;
     type ConsensusState = MockConsensusState;
     type CommitmentProof = MockCommitmentProof;
@@ -165,9 +165,6 @@ impl ChainStatusQuery for MockChain {
 
 #[async_trait]
 impl ClientQuery<MockChain> for MockChain {
-    type ClientState = MockClientState;
-    type ConsensusState = MockConsensusState;
-
     async fn query_client_state(
         &self,
         _client_id: &String,
@@ -252,11 +249,9 @@ impl MisbehaviourMessageBuilder<MockChain> for MockChain {
 }
 
 #[async_trait]
-impl PacketEvents<MockChain> for MockChain {
+impl PacketEvents for MockChain {
     type SendPacketEvent = MockSendPacketEvent;
     type WriteAckEvent = MockWriteAckEvent;
-    type Packet = MockPacket;
-    type Acknowledgement = ();
 
     fn try_extract_send_packet_event(_event: &MockEvent) -> Option<MockSendPacketEvent> {
         None
@@ -326,12 +321,7 @@ impl ClientMessageBuilder<MockChain> for MockChain {
 }
 
 #[async_trait]
-impl PacketStateQuery<MockChain> for MockChain {
-    type PacketCommitment = ();
-    type CommitmentProof = MockCommitmentProof;
-    type PacketReceipt = ();
-    type Acknowledgement = ();
-
+impl PacketStateQuery for MockChain {
     async fn query_packet_commitment(
         &self,
         _client_id: &String,
@@ -370,8 +360,6 @@ impl PacketMessageBuilder<MockChain> for MockChain {
     type ReceivePacketPayload = ();
     type AckPacketPayload = ();
     type TimeoutPacketPayload = ();
-    type CounterpartyPacket = MockPacket;
-    type CounterpartyAcknowledgement = ();
 
     async fn build_receive_packet_message(
         &self,

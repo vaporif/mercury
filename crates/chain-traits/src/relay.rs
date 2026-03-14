@@ -12,18 +12,16 @@ pub trait Relay: ThreadSafe {
     type SrcChain: ChainTypes
         + ChainStatusQuery
         + MessageSender
+        + IbcTypes
         + ClientPayloadBuilder<Self::DstChain>
-        + PacketEvents<Self::DstChain>
-        + IbcTypes<Self::DstChain, Packet = <Self::SrcChain as PacketEvents<Self::DstChain>>::Packet>;
+        + PacketEvents;
     type DstChain: ChainTypes + ChainStatusQuery + MessageSender
-        + IbcTypes<Self::SrcChain>
+        + IbcTypes
         + ClientMessageBuilder<Self::SrcChain,
             CreateClientPayload = <Self::SrcChain as ClientPayloadBuilder<Self::DstChain>>::CreateClientPayload,
             UpdateClientPayload = <Self::SrcChain as ClientPayloadBuilder<Self::DstChain>>::UpdateClientPayload,
         >
-        + ClientQuery<Self::SrcChain,
-            ClientState = <Self::DstChain as IbcTypes<Self::SrcChain>>::ClientState,
-        >;
+        + ClientQuery<Self::SrcChain>;
 
     fn src_chain(&self) -> &Self::SrcChain;
     fn dst_chain(&self) -> &Self::DstChain;
@@ -53,23 +51,19 @@ pub trait ClientUpdater: Relay {
 #[async_trait]
 pub trait RelayPacketBuilder: Relay
 where
-    Self::SrcChain: PacketStateQuery<Self::DstChain>,
-    Self::DstChain: crate::builders::PacketMessageBuilder<
-        Self::SrcChain,
-        CounterpartyPacket = <Self::SrcChain as PacketEvents<Self::DstChain>>::Packet,
-        CounterpartyAcknowledgement = <Self::SrcChain as PacketEvents<Self::DstChain>>::Acknowledgement,
-    >,
+    Self::SrcChain: PacketStateQuery,
+    Self::DstChain: crate::builders::PacketMessageBuilder<Self::SrcChain> + PacketStateQuery,
 {
     async fn build_receive_packet_messages(
         &self,
-        packet: &<Self::SrcChain as PacketEvents<Self::DstChain>>::Packet,
+        packet: &<Self::SrcChain as IbcTypes>::Packet,
         proof_height: &<Self::SrcChain as ChainTypes>::Height,
     ) -> Result<Vec<<Self::DstChain as ChainTypes>::Message>>;
 
     async fn build_ack_packet_messages(
         &self,
-        packet: &<Self::SrcChain as PacketEvents<Self::DstChain>>::Packet,
-        ack: &<Self::SrcChain as PacketEvents<Self::DstChain>>::Acknowledgement,
+        packet: &<Self::SrcChain as IbcTypes>::Packet,
+        ack: &<Self::SrcChain as IbcTypes>::Acknowledgement,
         proof_height: &<Self::SrcChain as ChainTypes>::Height,
     ) -> Result<Vec<<Self::DstChain as ChainTypes>::Message>>;
 
@@ -77,13 +71,13 @@ where
     /// The proof of non-receipt comes from the destination chain.
     async fn build_timeout_packet_messages(
         &self,
-        packet: &<Self::SrcChain as PacketEvents<Self::DstChain>>::Packet,
+        packet: &<Self::SrcChain as IbcTypes>::Packet,
         proof_height: &<Self::DstChain as ChainTypes>::Height,
     ) -> Result<Vec<<Self::SrcChain as ChainTypes>::Message>>;
 }
 
 /// An IBC event relevant to packet relaying.
 pub enum IbcEvent<R: Relay> {
-    SendPacket(<R::SrcChain as PacketEvents<R::DstChain>>::SendPacketEvent),
-    WriteAck(<R::SrcChain as PacketEvents<R::DstChain>>::WriteAckEvent),
+    SendPacket(<R::SrcChain as PacketEvents>::SendPacketEvent),
+    WriteAck(<R::SrcChain as PacketEvents>::WriteAckEvent),
 }

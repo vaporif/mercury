@@ -22,7 +22,7 @@ impl<R> Worker for MisbehaviourWorker<R>
 where
     R: Relay,
     R::SrcChain: MisbehaviourDetector<R::DstChain,
-        CounterpartyClientState = <R::DstChain as ClientQuery<R::SrcChain>>::ClientState,
+        CounterpartyClientState = <R::DstChain as IbcTypes>::ClientState,
     >,
     R::DstChain: MisbehaviourQuery<R::SrcChain,
         CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<R::DstChain>>::UpdateHeader,
@@ -64,7 +64,7 @@ impl<R> MisbehaviourWorker<R>
 where
     R: Relay,
     R::SrcChain: MisbehaviourDetector<R::DstChain,
-        CounterpartyClientState = <R::DstChain as ClientQuery<R::SrcChain>>::ClientState,
+        CounterpartyClientState = <R::DstChain as IbcTypes>::ClientState,
     >,
     R::DstChain: MisbehaviourQuery<R::SrcChain,
         CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<R::DstChain>>::UpdateHeader,

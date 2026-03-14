@@ -112,7 +112,7 @@ impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
     }
 }
 
-impl<S: CosmosSigner> IbcTypes<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> IbcTypes for CosmosChain<S> {
     type ClientState = TendermintClientState;
     type ConsensusState = TendermintConsensusState;
     type CommitmentProof = MerkleProof;

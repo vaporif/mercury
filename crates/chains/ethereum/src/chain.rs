@@ -157,7 +157,7 @@ impl ChainTypes for EthereumChain {
     }
 }
 
-impl IbcTypes<Self> for EthereumChain {
+impl IbcTypes for EthereumChain {
     type ClientState = Vec<u8>;
     type ConsensusState = Vec<u8>;
     type CommitmentProof = EvmCommitmentProof;
@@ -203,7 +203,7 @@ impl ClientPayloadBuilder<Self> for EthereumChain {
         &self,
         trusted_height: &EvmHeight,
         target_height: &EvmHeight,
-        counterparty_client_state: &<Self as IbcTypes<Self>>::ClientState,
+        counterparty_client_state: &<Self as IbcTypes>::ClientState,
     ) -> mercury_core::error::Result<UpdateClientPayload> {
         if target_height <= trusted_height {
             eyre::bail!(
@@ -435,7 +435,9 @@ impl EthereumChain {
     }
 }
 
-fn to_sol_merkle_prefix(prefix: &mercury_core::MerklePrefix) -> Vec<alloy::primitives::Bytes> {
+pub(crate) fn to_sol_merkle_prefix(
+    prefix: &mercury_core::MerklePrefix,
+) -> Vec<alloy::primitives::Bytes> {
     prefix
         .0
         .iter()
@@ -579,7 +581,7 @@ mod tests {
             timeout_timestamp: 0,
             payloads: vec![],
         };
-        assert_eq!(EthereumChain::packet_sequence(&packet), 42);
+        assert_eq!(<EthereumChain as IbcTypes>::packet_sequence(&packet), 42);
     }
 
     #[test]
@@ -592,7 +594,7 @@ mod tests {
             payloads: vec![],
         };
         assert_eq!(
-            EthereumChain::packet_timeout_timestamp(&packet),
+            <EthereumChain as IbcTypes>::packet_timeout_timestamp(&packet),
             1_700_000_000
         );
     }

@@ -126,10 +126,10 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
         &self,
         trusted_height: &Self::Height,
         target_height: &Self::Height,
-        _counterparty_client_state: &<C as IbcTypes<Self>>::ClientState,
+        _counterparty_client_state: &<C as IbcTypes>::ClientState,
     ) -> Result<Self::UpdateClientPayload>
     where
-        C: IbcTypes<Self>,
+        C: IbcTypes,
     {
         let trusted_height_value = trusted_height.value();
         let target_height_value = target_height.value();
@@ -320,8 +320,6 @@ impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChain<S> {
     type ReceivePacketPayload = CosmosProofPayload;
     type AckPacketPayload = CosmosProofPayload;
     type TimeoutPacketPayload = CosmosProofPayload;
-    type CounterpartyPacket = CosmosPacket;
-    type CounterpartyAcknowledgement = PacketAcknowledgement;
 
     async fn build_receive_packet_message(
         &self,

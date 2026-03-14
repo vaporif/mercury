@@ -43,7 +43,10 @@ impl ChainStatusQuery for EthereumChain {
     }
 }
 
-async fn resolve_light_client(chain: &EthereumChain, client_id: &EvmClientId) -> Result<Address> {
+pub(crate) async fn resolve_light_client(
+    chain: &EthereumChain,
+    client_id: &EvmClientId,
+) -> Result<Address> {
     let router = ICS26Router::new(chain.router_address, &*chain.provider);
     router
         .getClient(client_id.0.clone())
@@ -56,7 +59,7 @@ type ClientStateReturn = sp1_ics07::SP1ICS07Tendermint::clientStateReturn;
 
 // `getClientState()` returns `abi.encode(clientState())` — same ABI layout,
 // so we decode using `clientStateCall::abi_decode_returns`.
-fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
+pub(crate) fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
     use alloy::sol_types::SolCall;
     sp1_ics07::SP1ICS07Tendermint::clientStateCall::abi_decode_returns(bytes)
         .inspect_err(|e| tracing::warn!(error = %e, "failed to decode SP1 client state"))
@@ -65,9 +68,6 @@ fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
 
 #[async_trait]
 impl ClientQuery<Self> for EthereumChain {
-    type ClientState = Vec<u8>;
-    type ConsensusState = Vec<u8>;
-
     #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
@@ -175,12 +175,7 @@ async fn query_commitment_with_proof(
 }
 
 #[async_trait]
-impl PacketStateQuery<Self> for EthereumChain {
-    type PacketCommitment = EvmPacketCommitment;
-    type CommitmentProof = EvmCommitmentProof;
-    type PacketReceipt = EvmPacketReceipt;
-    type Acknowledgement = EvmAcknowledgement;
-
+impl PacketStateQuery for EthereumChain {
     #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
     async fn query_packet_commitment(
         &self,

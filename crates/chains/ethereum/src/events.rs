@@ -35,11 +35,9 @@ fn sol_packet_to_evm(p: &IICS26RouterMsgs::Packet) -> EvmPacket {
 }
 
 #[async_trait]
-impl PacketEvents<Self> for EthereumChain {
+impl PacketEvents for EthereumChain {
     type SendPacketEvent = EvmSendPacketEvent;
     type WriteAckEvent = EvmWriteAckEvent;
-    type Packet = EvmPacket;
-    type Acknowledgement = EvmAcknowledgement;
 
     fn try_extract_send_packet_event(event: &EvmEvent) -> Option<EvmSendPacketEvent> {
         if event.topics.first() != Some(&ICS26Router::SendPacket::SIGNATURE_HASH) {
