@@ -14,6 +14,7 @@ pub trait ChainTypes: ThreadSafe {
     type Height: Clone + Ord + Debug + Display + ThreadSafe;
     type Timestamp: Clone + Ord + Debug + ThreadSafe;
     type ChainId: Clone + Debug + Display + ThreadSafe;
+    type ClientId: Clone + Debug + Display + ThreadSafe;
     type Event: Clone + Debug + ThreadSafe;
     type Message: ThreadSafe;
     type MessageResponse: ThreadSafe;
@@ -30,7 +31,6 @@ pub trait ChainTypes: ThreadSafe {
 
 /// IBC-specific types relative to a counterparty chain (client, proofs, packets).
 pub trait IbcTypes<Counterparty: ChainTypes + ?Sized>: ChainTypes {
-    type ClientId: Clone + Debug + Display + ThreadSafe;
     type ClientState: Clone + Debug + ThreadSafe;
     type ConsensusState: Clone + Debug + ThreadSafe;
     type CommitmentProof: Clone + ThreadSafe;
@@ -66,7 +66,7 @@ pub trait Chain<Counterparty>:
     + PacketStateQuery<Counterparty>
     + PacketMessageBuilder<Counterparty>
 where
-    Counterparty: ChainTypes + IbcTypes<Self> + ClientPayloadBuilder<Self>,
+    Counterparty: ChainTypes,
 {
 }
 
@@ -82,7 +82,7 @@ where
         + ClientMessageBuilder<C>
         + PacketStateQuery<C>
         + PacketMessageBuilder<C>,
-    C: ChainTypes + IbcTypes<T> + ClientPayloadBuilder<T>,
+    C: ChainTypes,
 {
 }
 

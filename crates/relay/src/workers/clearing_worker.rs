@@ -7,8 +7,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
-use mercury_chain_traits::prelude::*;
+use mercury_chain_traits::events::PacketEvents;
+use mercury_chain_traits::queries::{ChainStatusQuery, PacketStateQuery};
 use mercury_chain_traits::relay::{IbcEvent, Relay};
+use mercury_chain_traits::types::IbcTypes;
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -26,7 +28,12 @@ pub struct ClearingWorker<R: Relay> {
 }
 
 #[async_trait]
-impl<R: Relay> Worker for ClearingWorker<R> {
+impl<R> Worker for ClearingWorker<R>
+where
+    R: Relay,
+    R::SrcChain: PacketStateQuery<R::DstChain>,
+    R::DstChain: PacketStateQuery<R::SrcChain>,
+{
     fn name(&self) -> &'static str {
         "clearing_worker"
     }
@@ -48,7 +55,12 @@ impl<R: Relay> Worker for ClearingWorker<R> {
     }
 }
 
-impl<R: Relay> ClearingWorker<R> {
+impl<R> ClearingWorker<R>
+where
+    R: Relay,
+    R::SrcChain: PacketStateQuery<R::DstChain>,
+    R::DstChain: PacketStateQuery<R::SrcChain>,
+{
     async fn scan(&self) -> Result<()> {
         let src = self.relay.src_chain();
         let dst = self.relay.dst_chain();
@@ -67,7 +79,6 @@ impl<R: Relay> ClearingWorker<R> {
         }
 
         let dst_client_id = self.relay.dst_client_id().clone();
-        let src_client_id = self.relay.src_client_id().clone();
 
         let unrelayed: Vec<u64> = stream::iter(commitment_seqs)
             .map(|seq| {
@@ -97,6 +108,7 @@ impl<R: Relay> ClearingWorker<R> {
             return Ok(());
         }
 
+        let src_client_id = self.relay.src_client_id().clone();
         let mut events: Vec<IbcEvent<R>> = Vec::new();
         for seq in &unrelayed {
             match src.query_send_packet_event(&src_client_id, *seq).await {

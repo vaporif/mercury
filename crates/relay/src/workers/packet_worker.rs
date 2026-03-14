@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -8,8 +7,11 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, warn};
 
-use mercury_chain_traits::prelude::*;
+use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
+use mercury_chain_traits::events::PacketEvents;
+use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_chain_traits::relay::{IbcEvent, Relay, RelayPacketBuilder};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -42,8 +44,18 @@ struct PendingSend<E> {
 impl<R> PacketWorker<R>
 where
     R: Relay + RelayPacketBuilder,
-    <R::SrcChain as IbcTypes<R::DstChain>>::Acknowledgement:
-        Borrow<<R::DstChain as IbcTypes<R::SrcChain>>::Acknowledgement>,
+    R::SrcChain: PacketStateQuery<R::DstChain>
+        + ClientQuery<R::DstChain, ClientState = <R::SrcChain as IbcTypes<R::DstChain>>::ClientState>
+        + ClientMessageBuilder<R::DstChain,
+            CreateClientPayload = <R::DstChain as ClientPayloadBuilder<R::SrcChain>>::CreateClientPayload,
+            UpdateClientPayload = <R::DstChain as ClientPayloadBuilder<R::SrcChain>>::UpdateClientPayload,
+        >,
+    R::DstChain: mercury_chain_traits::builders::PacketMessageBuilder<
+        R::SrcChain,
+        CounterpartyPacket = <R::SrcChain as PacketEvents<R::DstChain>>::Packet,
+        CounterpartyAcknowledgement = <R::SrcChain as PacketEvents<R::DstChain>>::Acknowledgement,
+    > + PacketStateQuery<R::SrcChain>
+      + ClientPayloadBuilder<R::SrcChain>,
 {
     #[instrument(skip_all, name = "build_dst_update_client")]
     async fn build_dst_update_client_messages(
@@ -250,7 +262,7 @@ where
                         <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_write_ack_event(&e);
                     let result = retry_proof_fetch(|| async {
                         relay
-                            .build_ack_packet_messages(pkt, ack.borrow(), &src_height)
+                            .build_ack_packet_messages(pkt, ack, &src_height)
                             .await
                     })
                     .await;
@@ -361,8 +373,18 @@ where
 impl<R> Worker for PacketWorker<R>
 where
     R: Relay + RelayPacketBuilder,
-    <R::SrcChain as IbcTypes<R::DstChain>>::Acknowledgement:
-        Borrow<<R::DstChain as IbcTypes<R::SrcChain>>::Acknowledgement>,
+    R::SrcChain: PacketStateQuery<R::DstChain>
+        + ClientQuery<R::DstChain, ClientState = <R::SrcChain as IbcTypes<R::DstChain>>::ClientState>
+        + ClientMessageBuilder<R::DstChain,
+            CreateClientPayload = <R::DstChain as ClientPayloadBuilder<R::SrcChain>>::CreateClientPayload,
+            UpdateClientPayload = <R::DstChain as ClientPayloadBuilder<R::SrcChain>>::UpdateClientPayload,
+        >,
+    R::DstChain: mercury_chain_traits::builders::PacketMessageBuilder<
+        R::SrcChain,
+        CounterpartyPacket = <R::SrcChain as PacketEvents<R::DstChain>>::Packet,
+        CounterpartyAcknowledgement = <R::SrcChain as PacketEvents<R::DstChain>>::Acknowledgement,
+    > + PacketStateQuery<R::SrcChain>
+      + ClientPayloadBuilder<R::SrcChain>,
 {
     fn name(&self) -> &'static str {
         "packet_worker"

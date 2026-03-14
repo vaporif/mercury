@@ -21,10 +21,14 @@ pub struct MisbehaviourWorker<R: Relay> {
 impl<R> Worker for MisbehaviourWorker<R>
 where
     R: Relay,
-    R::SrcChain: MisbehaviourDetector<R::DstChain>,
-    R::DstChain: MisbehaviourQuery<R::SrcChain>
-        + MisbehaviourMessageBuilder<R::SrcChain>
-        + ClientQuery<R::SrcChain>,
+    R::SrcChain: MisbehaviourDetector<R::DstChain,
+        CounterpartyClientState = <R::DstChain as ClientQuery<R::SrcChain>>::ClientState,
+    >,
+    R::DstChain: MisbehaviourQuery<R::SrcChain,
+        CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<R::DstChain>>::UpdateHeader,
+    > + MisbehaviourMessageBuilder<R::SrcChain,
+        MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<R::DstChain>>::MisbehaviourEvidence,
+    >,
 {
     fn name(&self) -> &'static str {
         "misbehaviour_worker"
@@ -59,10 +63,14 @@ where
 impl<R> MisbehaviourWorker<R>
 where
     R: Relay,
-    R::SrcChain: MisbehaviourDetector<R::DstChain>,
-    R::DstChain: MisbehaviourQuery<R::SrcChain>
-        + MisbehaviourMessageBuilder<R::SrcChain>
-        + ClientQuery<R::SrcChain>,
+    R::SrcChain: MisbehaviourDetector<R::DstChain,
+        CounterpartyClientState = <R::DstChain as ClientQuery<R::SrcChain>>::ClientState,
+    >,
+    R::DstChain: MisbehaviourQuery<R::SrcChain,
+        CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<R::DstChain>>::UpdateHeader,
+    > + MisbehaviourMessageBuilder<R::SrcChain,
+        MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<R::DstChain>>::MisbehaviourEvidence,
+    >,
 {
     /// Scan for misbehaviour. Returns `true` if misbehaviour was found and submitted.
     async fn scan(

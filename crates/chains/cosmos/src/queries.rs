@@ -145,6 +145,9 @@ impl<S: CosmosSigner> ChainStatusQuery for CosmosChain<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
+    type ClientState = TendermintClientState;
+    type ConsensusState = TendermintConsensusState;
+
     #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
@@ -285,6 +288,11 @@ fn extract_proof(
 
 #[async_trait]
 impl<S: CosmosSigner> PacketStateQuery<Self> for CosmosChain<S> {
+    type PacketCommitment = PacketCommitment;
+    type CommitmentProof = MerkleProof;
+    type PacketReceipt = PacketReceipt;
+    type Acknowledgement = PacketAcknowledgement;
+
     #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
     async fn query_packet_commitment(
         &self,

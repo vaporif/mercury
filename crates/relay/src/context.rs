@@ -1,9 +1,16 @@
-use std::borrow::Borrow;
 use std::sync::Arc;
 use std::time::Duration;
 
-use mercury_chain_traits::prelude::*;
+use mercury_chain_traits::builders::{
+    ClientMessageBuilder, ClientPayloadBuilder, MisbehaviourDetector, MisbehaviourMessageBuilder,
+    PacketMessageBuilder,
+};
+use mercury_chain_traits::events::PacketEvents;
+use mercury_chain_traits::queries::{
+    ChainStatusQuery, ClientQuery, MisbehaviourQuery, PacketStateQuery,
+};
 use mercury_chain_traits::relay::Relay;
+use mercury_chain_traits::types::{ChainTypes, IbcTypes, MessageSender};
 use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
@@ -29,21 +36,30 @@ pub struct RelayWorkerConfig {
 }
 
 /// Unidirectional relay context between a source and destination chain.
-pub struct RelayContext<Src, Dst>
-where
-    Src: Chain<Dst>,
-    Dst: Chain<Src>,
-{
+pub struct RelayContext<Src: ChainTypes, Dst: ChainTypes> {
     pub src_chain: Src,
     pub dst_chain: Dst,
-    pub src_client_id: <Src as IbcTypes<Dst>>::ClientId,
-    pub dst_client_id: <Dst as IbcTypes<Src>>::ClientId,
+    pub src_client_id: Src::ClientId,
+    pub dst_client_id: Dst::ClientId,
 }
 
 impl<Src, Dst> Relay for RelayContext<Src, Dst>
 where
-    Src: Chain<Dst>,
-    Dst: Chain<Src>,
+    Src: ChainTypes
+        + ChainStatusQuery
+        + MessageSender
+        + ClientPayloadBuilder<Dst>
+        + PacketEvents<Dst>
+        + IbcTypes<Dst, Packet = <Src as PacketEvents<Dst>>::Packet>,
+    Dst: ChainTypes
+        + ChainStatusQuery
+        + MessageSender
+        + IbcTypes<Src>
+        + ClientMessageBuilder<
+            Src,
+            CreateClientPayload = <Src as ClientPayloadBuilder<Dst>>::CreateClientPayload,
+            UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,
+        > + ClientQuery<Src, ClientState = <Dst as IbcTypes<Src>>::ClientState>,
 {
     type SrcChain = Src;
     type DstChain = Dst;
@@ -56,37 +72,70 @@ where
         &self.dst_chain
     }
 
-    fn src_client_id(&self) -> &<Src as IbcTypes<Dst>>::ClientId {
+    fn src_client_id(&self) -> &Src::ClientId {
         &self.src_client_id
     }
 
-    fn dst_client_id(&self) -> &<Dst as IbcTypes<Src>>::ClientId {
+    fn dst_client_id(&self) -> &Dst::ClientId {
         &self.dst_client_id
     }
 }
 
 impl<Src, Dst> RelayContext<Src, Dst>
 where
-    Src: Chain<Dst> + MisbehaviourDetector<Dst>,
-    Dst: Chain<Src> + MisbehaviourQuery<Src> + MisbehaviourMessageBuilder<Src>,
+    Src: ChainTypes
+        + ChainStatusQuery
+        + MessageSender
+        + ClientPayloadBuilder<Dst>
+        + PacketEvents<Dst>
+        + IbcTypes<Dst, Packet = <Src as PacketEvents<Dst>>::Packet>
+        + PacketStateQuery<Dst>
+        + PacketMessageBuilder<Dst>
+        + ClientQuery<Dst, ClientState = <Src as IbcTypes<Dst>>::ClientState>
+        + ClientMessageBuilder<
+            Dst,
+            CreateClientPayload = <Dst as ClientPayloadBuilder<Src>>::CreateClientPayload,
+            UpdateClientPayload = <Dst as ClientPayloadBuilder<Src>>::UpdateClientPayload,
+        > + MisbehaviourDetector<Dst, CounterpartyClientState = <Dst as ClientQuery<Src>>::ClientState>,
+    Dst: ChainTypes
+        + ChainStatusQuery
+        + MessageSender
+        + IbcTypes<Src>
+        + ClientMessageBuilder<
+            Src,
+            CreateClientPayload = <Src as ClientPayloadBuilder<Dst>>::CreateClientPayload,
+            UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,
+        > + ClientQuery<Src, ClientState = <Dst as IbcTypes<Src>>::ClientState>
+        + PacketEvents<Src>
+        + PacketStateQuery<Src>
+        + PacketMessageBuilder<
+            Src,
+            CounterpartyPacket = <Src as PacketEvents<Dst>>::Packet,
+            CounterpartyAcknowledgement = <Src as PacketEvents<Dst>>::Acknowledgement,
+        > + ClientPayloadBuilder<Src>
+        + MisbehaviourQuery<
+            Src,
+            CounterpartyUpdateHeader = <Src as MisbehaviourDetector<Dst>>::UpdateHeader,
+        > + MisbehaviourMessageBuilder<
+            Src,
+            MisbehaviourEvidence = <Src as MisbehaviourDetector<Dst>>::MisbehaviourEvidence,
+        >,
+    // Payload From bounds
     <Dst as PacketMessageBuilder<Src>>::ReceivePacketPayload: From<(
-        <Src as IbcTypes<Dst>>::CommitmentProof,
+        <Src as PacketStateQuery<Dst>>::CommitmentProof,
         <Src as ChainTypes>::Height,
         u64,
     )>,
     <Dst as PacketMessageBuilder<Src>>::AckPacketPayload: From<(
-        <Src as IbcTypes<Dst>>::CommitmentProof,
+        <Src as PacketStateQuery<Dst>>::CommitmentProof,
         <Src as ChainTypes>::Height,
         u64,
     )>,
     <Src as PacketMessageBuilder<Dst>>::TimeoutPacketPayload: From<(
-        <Dst as IbcTypes<Src>>::CommitmentProof,
+        <Dst as PacketStateQuery<Src>>::CommitmentProof,
         <Dst as ChainTypes>::Height,
         u64,
     )>,
-    <Src as IbcTypes<Dst>>::Packet: Borrow<<Dst as IbcTypes<Src>>::Packet>,
-    <Src as IbcTypes<Dst>>::Acknowledgement: Borrow<<Dst as IbcTypes<Src>>::Acknowledgement>,
-    <Dst as IbcTypes<Src>>::Acknowledgement: Borrow<<Src as IbcTypes<Dst>>::Acknowledgement>,
 {
     pub async fn run_with_token(
         self: Arc<Self>,

@@ -73,6 +73,7 @@ impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
     type Height = TmHeight;
     type Timestamp = TmTime;
     type ChainId = ChainId;
+    type ClientId = ibc::core::host::types::identifiers::ClientId;
     type Event = CosmosEvent;
     type Message = CosmosMessage;
     type MessageResponse = CosmosTxResponse;
@@ -112,7 +113,6 @@ impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
 }
 
 impl<S: CosmosSigner> IbcTypes<Self> for CosmosChain<S> {
-    type ClientId = ibc::core::host::types::identifiers::ClientId;
     type ClientState = TendermintClientState;
     type ConsensusState = TendermintConsensusState;
     type CommitmentProof = MerkleProof;

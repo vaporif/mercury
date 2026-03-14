@@ -20,7 +20,7 @@ use tracing::instrument;
 use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder,
 };
-use mercury_chain_traits::types::IbcTypes;
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 
 use ibc_proto::ibc::core::channel::v2::{
@@ -71,7 +71,7 @@ impl From<(MerkleProof, TmHeight, u64)> for CosmosProofPayload {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> ClientPayloadBuilder<Self> for CosmosChain<S> {
+impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> {
     type CreateClientPayload = CosmosCreateClientPayload;
     type UpdateClientPayload = CosmosUpdateClientPayload;
 
@@ -126,8 +126,11 @@ impl<S: CosmosSigner> ClientPayloadBuilder<Self> for CosmosChain<S> {
         &self,
         trusted_height: &Self::Height,
         target_height: &Self::Height,
-        _counterparty_client_state: &<Self as IbcTypes<Self>>::ClientState,
-    ) -> Result<Self::UpdateClientPayload> {
+        _counterparty_client_state: &<C as IbcTypes<Self>>::ClientState,
+    ) -> Result<Self::UpdateClientPayload>
+    where
+        C: IbcTypes<Self>,
+    {
         let trusted_height_value = trusted_height.value();
         let target_height_value = target_height.value();
 
@@ -225,6 +228,9 @@ fn find_proposer(
 
 #[async_trait]
 impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
+    type CreateClientPayload = CosmosCreateClientPayload;
+    type UpdateClientPayload = CosmosUpdateClientPayload;
+
     async fn build_create_client_message(
         &self,
         payload: CosmosCreateClientPayload,
@@ -314,6 +320,8 @@ impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChain<S> {
     type ReceivePacketPayload = CosmosProofPayload;
     type AckPacketPayload = CosmosProofPayload;
     type TimeoutPacketPayload = CosmosProofPayload;
+    type CounterpartyPacket = CosmosPacket;
+    type CounterpartyAcknowledgement = PacketAcknowledgement;
 
     async fn build_receive_packet_message(
         &self,

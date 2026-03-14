@@ -93,6 +93,7 @@ impl ChainTypes for MockChain {
     type Height = u64;
     type Timestamp = u64;
     type ChainId = String;
+    type ClientId = String;
     type Event = MockEvent;
     type Message = MockMsg;
     type MessageResponse = ();
@@ -122,7 +123,6 @@ impl ChainTypes for MockChain {
 }
 
 impl IbcTypes<MockChain> for MockChain {
-    type ClientId = String;
     type ClientState = MockClientState;
     type ConsensusState = MockConsensusState;
     type CommitmentProof = MockCommitmentProof;
@@ -165,6 +165,9 @@ impl ChainStatusQuery for MockChain {
 
 #[async_trait]
 impl ClientQuery<MockChain> for MockChain {
+    type ClientState = MockClientState;
+    type ConsensusState = MockConsensusState;
+
     async fn query_client_state(
         &self,
         _client_id: &String,
@@ -195,6 +198,7 @@ impl ClientQuery<MockChain> for MockChain {
 impl MisbehaviourDetector<MockChain> for MockChain {
     type UpdateHeader = MockHeader;
     type MisbehaviourEvidence = MockEvidence;
+    type CounterpartyClientState = MockClientState;
 
     async fn check_for_misbehaviour(
         &self,
@@ -213,6 +217,8 @@ impl MisbehaviourDetector<MockChain> for MockChain {
 
 #[async_trait]
 impl MisbehaviourQuery<MockChain> for MockChain {
+    type CounterpartyUpdateHeader = MockHeader;
+
     async fn query_consensus_state_heights(&self, _client_id: &String) -> Result<Vec<u64>> {
         let state = self.state.lock().unwrap();
         Ok(state.consensus_heights.clone())
@@ -234,6 +240,8 @@ impl MisbehaviourQuery<MockChain> for MockChain {
 
 #[async_trait]
 impl MisbehaviourMessageBuilder<MockChain> for MockChain {
+    type MisbehaviourEvidence = MockEvidence;
+
     async fn build_misbehaviour_message(
         &self,
         _client_id: &String,
@@ -247,6 +255,8 @@ impl MisbehaviourMessageBuilder<MockChain> for MockChain {
 impl PacketEvents<MockChain> for MockChain {
     type SendPacketEvent = MockSendPacketEvent;
     type WriteAckEvent = MockWriteAckEvent;
+    type Packet = MockPacket;
+    type Acknowledgement = ();
 
     fn try_extract_send_packet_event(_event: &MockEvent) -> Option<MockSendPacketEvent> {
         None
@@ -292,6 +302,9 @@ impl ClientPayloadBuilder<MockChain> for MockChain {
 
 #[async_trait]
 impl ClientMessageBuilder<MockChain> for MockChain {
+    type CreateClientPayload = ();
+    type UpdateClientPayload = ();
+
     async fn build_create_client_message(&self, _payload: ()) -> Result<MockMsg> {
         Ok(MockMsg)
     }
@@ -314,6 +327,11 @@ impl ClientMessageBuilder<MockChain> for MockChain {
 
 #[async_trait]
 impl PacketStateQuery<MockChain> for MockChain {
+    type PacketCommitment = ();
+    type CommitmentProof = MockCommitmentProof;
+    type PacketReceipt = ();
+    type Acknowledgement = ();
+
     async fn query_packet_commitment(
         &self,
         _client_id: &String,
@@ -352,6 +370,8 @@ impl PacketMessageBuilder<MockChain> for MockChain {
     type ReceivePacketPayload = ();
     type AckPacketPayload = ();
     type TimeoutPacketPayload = ();
+    type CounterpartyPacket = MockPacket;
+    type CounterpartyAcknowledgement = ();
 
     async fn build_receive_packet_message(
         &self,

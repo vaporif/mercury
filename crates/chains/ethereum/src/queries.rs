@@ -65,6 +65,9 @@ fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
 
 #[async_trait]
 impl ClientQuery<Self> for EthereumChain {
+    type ClientState = Vec<u8>;
+    type ConsensusState = Vec<u8>;
+
     #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
@@ -173,6 +176,11 @@ async fn query_commitment_with_proof(
 
 #[async_trait]
 impl PacketStateQuery<Self> for EthereumChain {
+    type PacketCommitment = EvmPacketCommitment;
+    type CommitmentProof = EvmCommitmentProof;
+    type PacketReceipt = EvmPacketReceipt;
+    type Acknowledgement = EvmAcknowledgement;
+
     #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
     async fn query_packet_commitment(
         &self,

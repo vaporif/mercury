@@ -6,8 +6,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, warn};
 
-use mercury_chain_traits::prelude::*;
+use mercury_chain_traits::events::PacketEvents;
+use mercury_chain_traits::queries::ChainStatusQuery;
 use mercury_chain_traits::relay::{IbcEvent, Relay};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 

@@ -16,6 +16,8 @@ use tracing::info;
 use crate::bootstrap::cosmos_docker::CosmosDockerHandle;
 use crate::bootstrap::traits::ChainHandle;
 
+type Cosmos = CosmosChain<Secp256k1KeyPair>;
+
 pub struct TestContext {
     pub handle_a: CosmosDockerHandle,
     pub handle_b: CosmosDockerHandle,
@@ -32,8 +34,7 @@ impl TestContext {
 
         // Create client on chain B for chain A
         info!("creating IBC client on chain B for chain A");
-        let payload_a = cosmos_a
-            .build_create_client_payload()
+        let payload_a = ClientPayloadBuilder::<Cosmos>::build_create_client_payload(&cosmos_a)
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let msg_create_b = cosmos_b
@@ -49,8 +50,7 @@ impl TestContext {
 
         // Create client on chain A for chain B
         info!("creating IBC client on chain A for chain B");
-        let payload_b = cosmos_b
-            .build_create_client_payload()
+        let payload_b = ClientPayloadBuilder::<Cosmos>::build_create_client_payload(&cosmos_b)
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let msg_create_a = cosmos_a

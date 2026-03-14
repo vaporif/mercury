@@ -122,6 +122,7 @@ impl ChainTypes for EthereumChain {
     type Height = EvmHeight;
     type Timestamp = EvmTimestamp;
     type ChainId = EvmChainId;
+    type ClientId = EvmClientId;
     type Event = EvmEvent;
     type Message = EvmMessage;
     type MessageResponse = EvmTxResponse;
@@ -157,7 +158,6 @@ impl ChainTypes for EthereumChain {
 }
 
 impl IbcTypes<Self> for EthereumChain {
-    type ClientId = EvmClientId;
     type ClientState = Vec<u8>;
     type ConsensusState = Vec<u8>;
     type CommitmentProof = EvmCommitmentProof;
@@ -445,6 +445,9 @@ fn to_sol_merkle_prefix(prefix: &mercury_core::MerklePrefix) -> Vec<alloy::primi
 
 #[async_trait]
 impl ClientMessageBuilder<Self> for EthereumChain {
+    type CreateClientPayload = CreateClientPayload;
+    type UpdateClientPayload = UpdateClientPayload;
+
     async fn build_create_client_message(
         &self,
         payload: CreateClientPayload,

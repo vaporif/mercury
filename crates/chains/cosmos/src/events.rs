@@ -78,6 +78,8 @@ fn abci_event_to_cosmos_event(event: &tendermint::abci::Event) -> CosmosEvent {
 impl<S: CosmosSigner> PacketEvents<Self> for CosmosChain<S> {
     type SendPacketEvent = SendPacketEvent;
     type WriteAckEvent = WriteAckEvent;
+    type Packet = CosmosPacket;
+    type Acknowledgement = PacketAcknowledgement;
 
     fn try_extract_send_packet_event(event: &CosmosEvent) -> Option<SendPacketEvent> {
         if event.kind != "send_packet" {

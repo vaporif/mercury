@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use async_trait::async_trait;
 use mercury_core::error::Result;
 use mercury_core::{MerklePrefix, ThreadSafe};
@@ -6,7 +8,7 @@ use crate::types::{ChainTypes, IbcTypes};
 
 /// Builds payloads for creating and updating IBC light clients.
 #[async_trait]
-pub trait ClientPayloadBuilder<Counterparty: ChainTypes + ?Sized>: IbcTypes<Counterparty> {
+pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
     type CreateClientPayload: ThreadSafe;
     type UpdateClientPayload: ThreadSafe;
 
@@ -26,43 +28,45 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes + ?Sized>: IbcTypes<Coun
 #[async_trait]
 pub trait ClientMessageBuilder<Counterparty>: IbcTypes<Counterparty>
 where
-    Counterparty: ChainTypes + ClientPayloadBuilder<Self> + IbcTypes<Self>,
+    Counterparty: ChainTypes,
 {
+    type CreateClientPayload: ThreadSafe;
+    type UpdateClientPayload: ThreadSafe;
+
     async fn build_create_client_message(
         &self,
-        payload: Counterparty::CreateClientPayload,
+        payload: Self::CreateClientPayload,
     ) -> Result<Self::Message>;
 
     async fn build_update_client_message(
         &self,
         client_id: &Self::ClientId,
-        payload: Counterparty::UpdateClientPayload,
+        payload: Self::UpdateClientPayload,
     ) -> Result<Vec<Self::Message>>;
 
     async fn build_register_counterparty_message(
         &self,
         client_id: &Self::ClientId,
-        counterparty_client_id: &<Counterparty as IbcTypes<Self>>::ClientId,
+        counterparty_client_id: &Counterparty::ClientId,
         counterparty_merkle_prefix: MerklePrefix,
     ) -> Result<Self::Message>;
 }
 
 /// Checks update headers against the source chain for light client divergence.
 #[async_trait]
-pub trait MisbehaviourDetector<Counterparty: ChainTypes + IbcTypes<Self> + ?Sized>:
-    IbcTypes<Counterparty>
-{
+pub trait MisbehaviourDetector<Counterparty: ChainTypes>: IbcTypes<Counterparty> {
     type UpdateHeader: ThreadSafe;
     type MisbehaviourEvidence: ThreadSafe;
+    type CounterpartyClientState: Clone + Debug + ThreadSafe;
 
     /// Check a decoded update header against the source chain for divergence.
     /// `client_id` is the counterparty's client ID tracking this chain.
     /// Returns evidence if divergence detected, None if valid.
     async fn check_for_misbehaviour(
         &self,
-        client_id: &<Counterparty as IbcTypes<Self>>::ClientId,
+        client_id: &Counterparty::ClientId,
         update_header: &Self::UpdateHeader,
-        client_state: &<Counterparty as IbcTypes<Self>>::ClientState,
+        client_state: &Self::CounterpartyClientState,
     ) -> Result<Option<Self::MisbehaviourEvidence>>;
 }
 
@@ -70,13 +74,15 @@ pub trait MisbehaviourDetector<Counterparty: ChainTypes + IbcTypes<Self> + ?Size
 #[async_trait]
 pub trait MisbehaviourMessageBuilder<Counterparty>: IbcTypes<Counterparty>
 where
-    Counterparty: ChainTypes + MisbehaviourDetector<Self>,
+    Counterparty: ChainTypes,
 {
+    type MisbehaviourEvidence: ThreadSafe;
+
     /// Build a `MsgUpdateClient` containing the misbehaviour evidence.
     async fn build_misbehaviour_message(
         &self,
         client_id: &Self::ClientId,
-        evidence: Counterparty::MisbehaviourEvidence,
+        evidence: Self::MisbehaviourEvidence,
     ) -> Result<Self::Message>;
 }
 
@@ -84,22 +90,24 @@ where
 #[async_trait]
 pub trait PacketMessageBuilder<Counterparty>: IbcTypes<Counterparty>
 where
-    Counterparty: ChainTypes + IbcTypes<Self>,
+    Counterparty: ChainTypes,
 {
     type ReceivePacketPayload: ThreadSafe;
     type AckPacketPayload: ThreadSafe;
     type TimeoutPacketPayload: ThreadSafe;
+    type CounterpartyPacket: Clone + Debug + ThreadSafe;
+    type CounterpartyAcknowledgement: ThreadSafe;
 
     async fn build_receive_packet_message(
         &self,
-        packet: &<Counterparty as IbcTypes<Self>>::Packet,
+        packet: &Self::CounterpartyPacket,
         payload: Self::ReceivePacketPayload,
     ) -> Result<Self::Message>;
 
     async fn build_ack_packet_message(
         &self,
-        packet: &Self::Packet,
-        ack: &<Counterparty as IbcTypes<Self>>::Acknowledgement,
+        packet: &Self::CounterpartyPacket,
+        ack: &Self::CounterpartyAcknowledgement,
         payload: Self::AckPacketPayload,
     ) -> Result<Self::Message>;
 
