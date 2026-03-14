@@ -87,3 +87,8 @@ base64 = "0.22"
 ethereum-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
 ethereum-apis = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
 ethereum-light-client = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
+sp1-ics07-tendermint-prover = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
+ibc-proto-eureka = { package = "ibc-proto", version = "0.51", default-features = false }
+sp1-sdk = { version = "5.0", default-features = false, features = ["network"] }
+sp1-prover = { version = "5.0", default-features = false }
+ibc-eureka-solidity-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee", features = ["rpc"] }

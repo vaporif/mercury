@@ -11,3 +11,6 @@ pub mod keys;
 pub mod queries;
 pub mod tx;
 pub mod types;
+
+#[cfg(feature = "sp1")]
+pub mod sp1;

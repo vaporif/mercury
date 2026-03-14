@@ -8,6 +8,40 @@ const fn default_quorum() -> usize {
     1
 }
 
+const fn default_proof_timeout_secs() -> u64 {
+    120
+}
+
+const fn default_max_concurrent_proofs() -> usize {
+    4
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Sp1ProverConfig {
+    pub elf_dir: PathBuf,
+    pub zk_algorithm: ZkAlgorithm,
+    pub prover_mode: ProverMode,
+    #[serde(default = "default_proof_timeout_secs")]
+    pub proof_timeout_secs: u64,
+    #[serde(default = "default_max_concurrent_proofs")]
+    pub max_concurrent_proofs: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ZkAlgorithm {
+    Groth16,
+    Plonk,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProverMode {
+    Mock,
+    Cpu,
+    Network,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientPayloadMode {
@@ -39,6 +73,8 @@ pub struct EthereumChainConfig {
     #[serde(default)]
     pub light_client_address: Option<String>,
     pub client_payload_mode: ClientPayloadMode,
+    #[serde(default)]
+    pub sp1_prover: Option<Sp1ProverConfig>,
 }
 
 const fn default_block_time_secs() -> u64 {
@@ -90,6 +126,39 @@ impl EthereumChainConfig {
                         "ethereum chain '{}': quorum_threshold must be 1..={}",
                         self.chain_id,
                         attestor_endpoints.len()
+                    );
+                }
+            }
+        }
+        if let Some(ref sp1) = self.sp1_prover {
+            #[cfg(not(feature = "sp1"))]
+            {
+                let _ = sp1;
+                eyre::bail!(
+                    "ethereum chain '{}': sp1_prover is configured but the binary was built \
+                     without the `sp1` feature — rebuild with `--features sp1`",
+                    self.chain_id
+                );
+            }
+
+            #[cfg(feature = "sp1")]
+            {
+                if self.light_client_address.is_none() {
+                    eyre::bail!(
+                        "ethereum chain '{}': light_client_address is required when sp1_prover is configured",
+                        self.chain_id
+                    );
+                }
+                if sp1.proof_timeout_secs == 0 {
+                    eyre::bail!(
+                        "ethereum chain '{}': proof_timeout_secs must be > 0",
+                        self.chain_id
+                    );
+                }
+                if sp1.max_concurrent_proofs == 0 {
+                    eyre::bail!(
+                        "ethereum chain '{}': max_concurrent_proofs must be > 0",
+                        self.chain_id
                     );
                 }
             }
@@ -159,6 +228,7 @@ mod tests {
             deployment_block: 0,
             light_client_address: None,
             client_payload_mode: test_payload_mode(),
+            sp1_prover: None,
         };
         assert!(config.validate().is_err());
     }
@@ -174,6 +244,7 @@ mod tests {
             deployment_block: 0,
             light_client_address: None,
             client_payload_mode: test_payload_mode(),
+            sp1_prover: None,
         };
         assert!(config.validate().is_err());
     }
@@ -189,6 +260,7 @@ mod tests {
             deployment_block: 0,
             light_client_address: None,
             client_payload_mode: test_payload_mode(),
+            sp1_prover: None,
         };
         assert!(config.validate().is_err());
     }
@@ -324,5 +396,209 @@ mod tests {
         )
         .unwrap();
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn deserialize_sp1_prover_config() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+            chain_id = 1
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            light_client_address = "0x0000000000000000000000000000000000000002"
+
+            [client_payload_mode]
+            type = "beacon"
+            beacon_api_url = "http://localhost:5052"
+
+            [sp1_prover]
+            elf_dir = "/opt/mercury/elf"
+            zk_algorithm = "groth16"
+            prover_mode = "network"
+            "#,
+        )
+        .unwrap();
+
+        let sp1 = config.sp1_prover.expect("sp1_prover should be Some");
+        assert!(matches!(sp1.zk_algorithm, ZkAlgorithm::Groth16));
+        assert!(matches!(sp1.prover_mode, ProverMode::Network));
+        assert_eq!(sp1.proof_timeout_secs, 120);
+        assert_eq!(sp1.max_concurrent_proofs, 4);
+    }
+
+    #[test]
+    fn sp1_prover_config_defaults_to_none() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+            chain_id = 1
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+
+            [client_payload_mode]
+            type = "beacon"
+            beacon_api_url = "http://localhost:5052"
+            "#,
+        )
+        .unwrap();
+
+        assert!(config.sp1_prover.is_none());
+    }
+
+    #[test]
+    fn sp1_prover_custom_values() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+            chain_id = 1
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+
+            [client_payload_mode]
+            type = "beacon"
+            beacon_api_url = "http://localhost:5052"
+
+            [sp1_prover]
+            elf_dir = "/tmp/elf"
+            zk_algorithm = "plonk"
+            prover_mode = "cpu"
+            proof_timeout_secs = 300
+            max_concurrent_proofs = 8
+            "#,
+        )
+        .unwrap();
+
+        let sp1 = config.sp1_prover.unwrap();
+        assert!(matches!(sp1.zk_algorithm, ZkAlgorithm::Plonk));
+        assert!(matches!(sp1.prover_mode, ProverMode::Cpu));
+        assert_eq!(sp1.proof_timeout_secs, 300);
+        assert_eq!(sp1.max_concurrent_proofs, 8);
+    }
+
+    #[cfg(feature = "sp1")]
+    #[test]
+    fn validate_rejects_sp1_without_light_client_address() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+            chain_id = 1
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+
+            [client_payload_mode]
+            type = "beacon"
+            beacon_api_url = "http://localhost:5052"
+
+            [sp1_prover]
+            elf_dir = "/tmp/elf"
+            zk_algorithm = "groth16"
+            prover_mode = "mock"
+            "#,
+        )
+        .unwrap();
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.to_string().contains("light_client_address"),
+            "expected light_client_address error, got: {err}"
+        );
+    }
+
+    #[cfg(feature = "sp1")]
+    #[test]
+    fn validate_rejects_zero_proof_timeout() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+            chain_id = 1
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            light_client_address = "0x0000000000000000000000000000000000000002"
+
+            [client_payload_mode]
+            type = "beacon"
+            beacon_api_url = "http://localhost:5052"
+
+            [sp1_prover]
+            elf_dir = "/tmp/elf"
+            zk_algorithm = "groth16"
+            prover_mode = "mock"
+            proof_timeout_secs = 0
+            "#,
+        )
+        .unwrap();
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.to_string().contains("proof_timeout_secs"),
+            "expected proof_timeout_secs error, got: {err}"
+        );
+    }
+
+    #[cfg(feature = "sp1")]
+    #[test]
+    fn validate_rejects_zero_max_concurrent_proofs() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+            chain_id = 1
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            light_client_address = "0x0000000000000000000000000000000000000002"
+
+            [client_payload_mode]
+            type = "beacon"
+            beacon_api_url = "http://localhost:5052"
+
+            [sp1_prover]
+            elf_dir = "/tmp/elf"
+            zk_algorithm = "groth16"
+            prover_mode = "mock"
+            max_concurrent_proofs = 0
+            "#,
+        )
+        .unwrap();
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.to_string().contains("max_concurrent_proofs"),
+            "expected max_concurrent_proofs error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_sp1_config_accepted_when_valid() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+            chain_id = 1
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            light_client_address = "0x0000000000000000000000000000000000000002"
+
+            [client_payload_mode]
+            type = "beacon"
+            beacon_api_url = "http://localhost:5052"
+
+            [sp1_prover]
+            elf_dir = "/tmp/elf"
+            zk_algorithm = "groth16"
+            prover_mode = "mock"
+            "#,
+        )
+        .unwrap();
+
+        #[cfg(not(feature = "sp1"))]
+        {
+            let err = config.validate().unwrap_err();
+            assert!(
+                err.to_string().contains("sp1"),
+                "expected sp1 feature error, got: {err}"
+            );
+        }
+
+        #[cfg(feature = "sp1")]
+        assert!(config.validate().is_ok());
     }
 }

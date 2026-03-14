@@ -45,6 +45,8 @@ pub struct EthereumChain {
     pub router_address: Address,
     pub provider: Arc<DynProvider>,
     pub payload_client: PayloadClient,
+    #[cfg(feature = "sp1")]
+    pub sp1: Option<Arc<crate::sp1::Sp1Instance<sp1_prover::components::CpuProverComponents>>>,
 }
 
 impl std::fmt::Debug for EthereumChain {
@@ -97,12 +99,21 @@ impl EthereumChain {
             )),
         };
 
+        #[cfg(feature = "sp1")]
+        let sp1 = if let Some(ref sp1_config) = config.sp1_prover {
+            Some(Arc::new(crate::sp1::create_sp1_instance(sp1_config)?))
+        } else {
+            None
+        };
+
         Ok(Self {
             chain_id: EvmChainId(config.chain_id),
             config,
             router_address,
             provider: Arc::new(provider),
             payload_client,
+            #[cfg(feature = "sp1")]
+            sp1,
         })
     }
 }
@@ -464,6 +475,13 @@ impl ClientMessageBuilder<Self> for EthereumChain {
         client_id: &EvmClientId,
         payload: UpdateClientPayload,
     ) -> mercury_core::error::Result<Vec<EvmMessage>> {
+        #[cfg(feature = "sp1")]
+        if let Some(ref sp1) = self.sp1 {
+            return self
+                .build_update_client_message_sp1(client_id, payload.headers, None, sp1)
+                .await;
+        }
+
         let messages = payload
             .headers
             .into_iter()

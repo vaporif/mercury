@@ -49,6 +49,7 @@ pub struct CosmosCreateClientPayload {
 #[derive(Clone, Debug)]
 pub struct CosmosUpdateClientPayload {
     pub headers: Vec<Any>,
+    pub trusted_consensus_state: Option<TendermintConsensusState>,
 }
 
 /// Proof data needed to build packet relay messages.
@@ -158,6 +159,9 @@ impl<S: CosmosSigner> ClientPayloadBuilder<Self> for CosmosChain<S> {
                 .header
                 .proposer_address,
         );
+        let trusted_consensus_state = Some(TendermintConsensusState::from(
+            trusted_commit_response.signed_header.header,
+        ));
         let trusted_next_validator_set =
             ValidatorSet::new(trusted_validators_response.validators, trusted_proposer);
 
@@ -202,7 +206,10 @@ impl<S: CosmosSigner> ClientPayloadBuilder<Self> for CosmosChain<S> {
             .try_collect()
             .await?;
 
-        Ok(CosmosUpdateClientPayload { headers })
+        Ok(CosmosUpdateClientPayload {
+            headers,
+            trusted_consensus_state,
+        })
     }
 }
 
