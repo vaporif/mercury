@@ -68,9 +68,6 @@ impl From<(MerkleProof, TmHeight, u64)> for CosmosProofPayload {
     }
 }
 
-/// Default IBC store merkle prefix used by Cosmos SDK chains.
-const DEFAULT_MERKLE_PREFIX: &[&[u8]] = &[b"ibc", b""];
-
 #[async_trait]
 impl<S: CosmosSigner> ClientPayloadBuilder<Self> for CosmosChain<S> {
     type CreateClientPayload = CosmosCreateClientPayload;
@@ -261,12 +258,13 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
         &self,
         client_id: &Self::ClientId,
         counterparty_client_id: &Self::ClientId,
+        counterparty_merkle_prefix: Vec<Vec<u8>>,
     ) -> Result<CosmosMessage> {
         let signer = self.signer.account_address()?;
 
         let msg = MsgRegisterCounterparty {
             client_id: client_id.to_string(),
-            counterparty_merkle_prefix: DEFAULT_MERKLE_PREFIX.iter().map(|s| s.to_vec()).collect(),
+            counterparty_merkle_prefix,
             counterparty_client_id: counterparty_client_id.to_string(),
             signer,
         };

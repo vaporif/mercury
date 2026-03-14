@@ -305,6 +305,7 @@ impl ClientMessageBuilder<MockChain> for MockChain {
         &self,
         _client_id: &String,
         _counterparty_client_id: &String,
+        _counterparty_merkle_prefix: Vec<Vec<u8>>,
     ) -> Result<MockMsg> {
         Ok(MockMsg)
     }

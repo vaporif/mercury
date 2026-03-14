@@ -67,7 +67,11 @@ impl TestContext {
         // Register counterparties (IBC v2)
         info!("registering counterparties");
         let msg_register_a = cosmos_a
-            .build_register_counterparty_message(&client_id_a, &client_id_b)
+            .build_register_counterparty_message(
+                &client_id_a,
+                &client_id_b,
+                vec![b"ibc".to_vec(), b"".to_vec()],
+            )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         cosmos_a
@@ -76,7 +80,11 @@ impl TestContext {
             .map_err(|e| eyre::eyre!("{e}"))?;
 
         let msg_register_b = cosmos_b
-            .build_register_counterparty_message(&client_id_b, &client_id_a)
+            .build_register_counterparty_message(
+                &client_id_b,
+                &client_id_a,
+                vec![b"ibc".to_vec(), b"".to_vec()],
+            )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         cosmos_b

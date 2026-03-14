@@ -40,6 +40,7 @@ where
         &self,
         client_id: &Self::ClientId,
         counterparty_client_id: &<Counterparty as IbcTypes<Self>>::ClientId,
+        counterparty_merkle_prefix: Vec<Vec<u8>>,
     ) -> Result<Self::Message>;
 }
 

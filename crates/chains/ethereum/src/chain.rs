@@ -157,10 +157,8 @@ impl ClientPayloadBuilder<Self> for EthereumChain {
     }
 }
 
-const DEFAULT_EVM_MERKLE_PREFIX: &[&[u8]] = &[b"ibc", b""];
-
-fn default_merkle_prefix() -> Vec<alloy::primitives::Bytes> {
-    DEFAULT_EVM_MERKLE_PREFIX
+fn to_sol_merkle_prefix(prefix: &[Vec<u8>]) -> Vec<alloy::primitives::Bytes> {
+    prefix
         .iter()
         .map(|b| alloy::primitives::Bytes::copy_from_slice(b))
         .collect()
@@ -172,11 +170,11 @@ impl ClientMessageBuilder<Self> for EthereumChain {
         &self,
         payload: CreateClientPayload,
     ) -> mercury_core::error::Result<EvmMessage> {
-        let merkle_prefix = if payload.counterparty_client_id.is_some() {
-            default_merkle_prefix()
-        } else {
-            vec![]
-        };
+        let merkle_prefix = payload
+            .counterparty_merkle_prefix
+            .as_deref()
+            .map(to_sol_merkle_prefix)
+            .unwrap_or_default();
 
         let call = ICS26Router::addClient_1Call {
             counterpartyInfo: IICS02ClientMsgs::CounterpartyInfo {
@@ -223,12 +221,13 @@ impl ClientMessageBuilder<Self> for EthereumChain {
         &self,
         client_id: &EvmClientId,
         counterparty_client_id: &EvmClientId,
+        counterparty_merkle_prefix: Vec<Vec<u8>>,
     ) -> mercury_core::error::Result<EvmMessage> {
         let call = ICS26Router::migrateClientCall {
             clientId: client_id.0.clone(),
             counterpartyInfo: IICS02ClientMsgs::CounterpartyInfo {
                 clientId: counterparty_client_id.0.clone(),
-                merklePrefix: default_merkle_prefix(),
+                merklePrefix: to_sol_merkle_prefix(&counterparty_merkle_prefix),
             },
             client: self.config.light_client_address()?,
         };
@@ -306,14 +305,6 @@ mod tests {
         assert_eq!(
             EthereumChain::packet_timeout_timestamp(&packet),
             1_700_000_000
-        );
-    }
-
-    #[test]
-    fn default_merkle_prefix() {
-        assert_eq!(
-            super::DEFAULT_EVM_MERKLE_PREFIX,
-            &[b"ibc".as_slice(), b"".as_slice()]
         );
     }
 }
