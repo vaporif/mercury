@@ -58,7 +58,9 @@ type ClientStateReturn = sp1_ics07::SP1ICS07Tendermint::clientStateReturn;
 // so we decode using `clientStateCall::abi_decode_returns`.
 fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
     use alloy::sol_types::SolCall;
-    sp1_ics07::SP1ICS07Tendermint::clientStateCall::abi_decode_returns(bytes).ok()
+    sp1_ics07::SP1ICS07Tendermint::clientStateCall::abi_decode_returns(bytes)
+        .inspect_err(|e| tracing::warn!(error = %e, "failed to decode SP1 client state"))
+        .ok()
 }
 
 #[async_trait]

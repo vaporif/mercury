@@ -174,7 +174,11 @@ impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChain<S> {
         let mut heights: Vec<TmHeight> = response
             .consensus_state_heights
             .iter()
-            .filter_map(|h| TmHeight::try_from(h.revision_height).ok())
+            .filter_map(|h| {
+                TmHeight::try_from(h.revision_height)
+                    .inspect_err(|e| tracing::warn!(height = h.revision_height, error = %e, "invalid consensus height"))
+                    .ok()
+            })
             .collect();
 
         heights.sort_unstable_by(|a, b| b.cmp(a));

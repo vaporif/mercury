@@ -271,8 +271,12 @@ async fn serve_health(port: u16) {
     let response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
     loop {
         if let Ok((mut stream, _)) = listener.accept().await {
-            let _ = stream.write_all(response).await;
-            let _ = stream.shutdown().await;
+            if let Err(e) = stream.write_all(response).await {
+                tracing::debug!(error = %e, "health check write failed");
+            }
+            if let Err(e) = stream.shutdown().await {
+                tracing::debug!(error = %e, "health check shutdown failed");
+            }
         }
     }
 }

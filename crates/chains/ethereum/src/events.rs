@@ -48,7 +48,9 @@ impl PacketEvents<Self> for EthereumChain {
             event.topics.clone(),
             event.data.clone().into(),
         );
-        let decoded = ICS26Router::SendPacket::decode_log(&log).ok()?;
+        let decoded = ICS26Router::SendPacket::decode_log(&log)
+            .inspect_err(|e| tracing::warn!(error = %e, "failed to decode SendPacket event"))
+            .ok()?;
         Some(EvmSendPacketEvent {
             packet: sol_packet_to_evm(&decoded.data.packet),
             block_number: event.block_number,
@@ -64,7 +66,11 @@ impl PacketEvents<Self> for EthereumChain {
             event.topics.clone(),
             event.data.clone().into(),
         );
-        let decoded = ICS26Router::WriteAcknowledgement::decode_log(&log).ok()?;
+        let decoded = ICS26Router::WriteAcknowledgement::decode_log(&log)
+            .inspect_err(
+                |e| tracing::warn!(error = %e, "failed to decode WriteAcknowledgement event"),
+            )
+            .ok()?;
         // The Eureka contract currently only supports single-payload packets
         // (enforced by IBCMultiPayloadPacketNotSupported), so exactly one ack is expected.
         let ack_bytes = decoded

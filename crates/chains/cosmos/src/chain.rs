@@ -40,8 +40,8 @@ impl<S: CosmosSigner> CosmosChain<S> {
             .status()
             .await
             .wrap_err("querying chain status")?;
-        let chain_id =
-            ChainId::new(status.node_info.network.as_str()).map_err(|e| eyre::eyre!("{e}"))?;
+        let chain_id = ChainId::new(status.node_info.network.as_str())
+            .map_err(|e| eyre::eyre!("parsing chain ID: {e}"))?;
 
         let grpc_endpoint = tonic::transport::Channel::from_shared(config.grpc_addr.clone())
             .wrap_err("parsing gRPC address")?;

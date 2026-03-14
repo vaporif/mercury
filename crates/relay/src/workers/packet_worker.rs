@@ -354,7 +354,7 @@ where
             }
         }
     }
-    Err(last_err.expect("retry loop ran at least once"))
+    Err(last_err.unwrap_or_else(|| eyre::eyre!("retry loop completed without attempting")))
 }
 
 #[async_trait]

@@ -20,8 +20,16 @@ fn get_attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
 }
 
 fn v2_packet_to_cosmos(pkt: channel::Packet) -> Option<CosmosPacket> {
-    let source_client_id = pkt.source_client.parse().ok()?;
-    let dest_client_id = pkt.destination_client.parse().ok()?;
+    let source_client_id = pkt
+        .source_client
+        .parse()
+        .inspect_err(|e| warn!(client = %pkt.source_client, error = %e, "invalid source_client"))
+        .ok()?;
+    let dest_client_id = pkt
+        .destination_client
+        .parse()
+        .inspect_err(|e| warn!(client = %pkt.destination_client, error = %e, "invalid dest_client"))
+        .ok()?;
     Some(CosmosPacket {
         source_client_id,
         dest_client_id,
@@ -46,8 +54,16 @@ fn abci_event_to_cosmos_event(event: &tendermint::abci::Event) -> CosmosEvent {
         .attributes
         .iter()
         .filter_map(|attr| {
-            let key = attr.key_str().ok()?.to_string();
-            let value = attr.value_str().ok()?.to_string();
+            let key = attr
+                .key_str()
+                .inspect_err(|e| warn!(error = %e, "event attribute key decode failed"))
+                .ok()?
+                .to_string();
+            let value = attr
+                .value_str()
+                .inspect_err(|e| warn!(error = %e, "event attribute value decode failed"))
+                .ok()?
+                .to_string();
             Some((key, value))
         })
         .collect();
@@ -68,8 +84,12 @@ impl<S: CosmosSigner> PacketEvents<Self> for CosmosChain<S> {
             return None;
         }
         let hex_str = get_attr(&event.attributes, "encoded_packet_hex")?;
-        let bytes = hex::decode(hex_str).ok()?;
-        let pkt = channel::Packet::decode(bytes.as_slice()).ok()?;
+        let bytes = hex::decode(hex_str)
+            .inspect_err(|e| warn!(error = %e, "failed to hex-decode send_packet"))
+            .ok()?;
+        let pkt = channel::Packet::decode(bytes.as_slice())
+            .inspect_err(|e| warn!(error = %e, "failed to proto-decode send_packet"))
+            .ok()?;
         Some(SendPacketEvent {
             packet: v2_packet_to_cosmos(pkt)?,
         })
@@ -81,9 +101,15 @@ impl<S: CosmosSigner> PacketEvents<Self> for CosmosChain<S> {
         }
         let pkt_hex = get_attr(&event.attributes, "encoded_packet_hex")?;
         let ack_hex = get_attr(&event.attributes, "encoded_acknowledgement_hex")?;
-        let pkt_bytes = hex::decode(pkt_hex).ok()?;
-        let ack_bytes = hex::decode(ack_hex).ok()?;
-        let pkt = channel::Packet::decode(pkt_bytes.as_slice()).ok()?;
+        let pkt_bytes = hex::decode(pkt_hex)
+            .inspect_err(|e| warn!(error = %e, "failed to hex-decode write_ack packet"))
+            .ok()?;
+        let ack_bytes = hex::decode(ack_hex)
+            .inspect_err(|e| warn!(error = %e, "failed to hex-decode write_ack acknowledgement"))
+            .ok()?;
+        let pkt = channel::Packet::decode(pkt_bytes.as_slice())
+            .inspect_err(|e| warn!(error = %e, "failed to proto-decode write_ack packet"))
+            .ok()?;
         Some(WriteAckEvent {
             packet: v2_packet_to_cosmos(pkt)?,
             ack: PacketAcknowledgement(ack_bytes),
