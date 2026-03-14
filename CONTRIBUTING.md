@@ -22,9 +22,13 @@ Requires a stable Rust toolchain. Install via [rustup](https://rustup.rs).
 
 You'll also need these tools (provided automatically by the Nix dev shell):
 
-- `cargo-nextest` — test runner for E2E tests
-- `taplo` — TOML formatter/linter
-- `typos` — spell checker
+- [just](https://github.com/casey/just) — command runner
+- [cargo-nextest](https://nexte.st) — test runner for E2E tests
+- [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) — dependency auditing
+- [taplo](https://taplo.tamasfe.dev) — TOML formatter/linter
+- [typos](https://github.com/crate-ci/typos) — spell checker
+- [actionlint](https://github.com/rhysd/actionlint) — GitHub Actions linter
+- A container runtime — required for E2E tests. Any OCI-compatible runtime works: [Docker](https://docs.docker.com/get-docker/), [Podman](https://podman.io), [OrbStack](https://orbstack.dev) (macOS), [colima](https://github.com/abiosoft/colima), [nerdctl](https://github.com/containerd/nerdctl)
 
 ## Cloning
 
@@ -104,23 +108,34 @@ CI runs on every push to `main` and on pull requests. It includes:
 - TOML — `taplo`
 - Nix — `alejandra`
 
-### AI-Generated Code
+### AI-Assisted Contributions
 
-AI assistants are welcome as tools, not as authors. Review what they produce — if you haven't read and verified the code yourself, don't submit it. PRs with obvious unreviewed AI output will be declined.
+AI assistants are welcome as tools. The human contributor bears full responsibility for every line submitted — correctness, licensing, and review. If you used AI to generate code, you must have read and verified it yourself before opening a PR. Unreviewed AI output will be declined.
 
-## Project Structure
+## Understanding the Codebase
+
+Read the [Architecture](./docs/architecture.md) doc before diving into the code. It covers the trait hierarchy, worker pipeline, crate boundaries, and design decisions.
+
+### Crate Map
 
 | Crate | Description |
 |-------|-------------|
-| `mercury-relayer` (`crates/cli`) | CLI binary |
-| `mercury-cosmos` (`crates/chains/cosmos`) | Cosmos chain implementation |
+| `mercury-relayer` (`crates/cli`) | CLI binary — entry point, config parsing, worker orchestration |
+| `mercury-cosmos` (`crates/chains/cosmos`) | Cosmos chain implementation — RPC, protobuf, tx signing |
 | `mercury-relay` (`crates/relay`) | Worker pipeline, generic over chain traits |
-| `mercury-chain-traits` (`crates/chain-traits`) | Chain types, messaging, queries, relay traits |
+| `mercury-chain-traits` (`crates/chain-traits`) | Chain types, messaging, queries, relay traits (~16 traits) |
 | `mercury-core` (`crates/core`) | Error types, encoding, worker trait |
 | `mercury-e2e` (`crates/e2e`) | End-to-end tests |
 
-See [Architecture](./docs/architecture.md) for the full pipeline, trait hierarchy, and design decisions.
+### Entry Points
 
-## Adding a New Chain
+- **Adding a chain?** Start with [Adding a new chain](./docs/adding-a-chain.md) and use `crates/chains/cosmos/` as reference
+- **Understanding the relay pipeline?** Read `crates/relay/src/workers/` — each worker is a self-contained module
+- **Working on traits?** All chain abstractions live in `crates/chain-traits/src/`
 
-See [Adding a new chain](./docs/adding-a-chain.md) for a step-by-step guide.
+### Design Principles
+
+- **Plain traits, no frameworks.** Direct `impl` blocks, no provider indirection or macro-heavy abstractions
+- **Few, focused traits.** ~16 traits grouped by concern — `ChainTypes` and `IbcTypes<C>` carry associated types, not one trait per type
+- **Concrete error type.** One `eyre`-based error with retryability tracking, no generic error parameters
+- **Don't abstract implementation details.** Transaction internals (fees, nonces, signing) are concrete methods on chain types, not traits
