@@ -58,13 +58,24 @@
           runHook postInstall
         '';
       };
-      # Vendor deps with a workaround for upstream solidity-ibc-eureka having
-      # a relative readme path that doesn't exist when crane extracts the git dep.
+      # Vendor deps with workarounds:
+      # 1. solidity-ibc-eureka has relative readme paths that don't exist when crane extracts the git dep
+      # 2. sp1-core-machine ships a stale Cargo.lock pinning cfg-if 1.0.0; its build.rs uses cbindgen
+      #    which runs `cargo metadata` and picks up that lockfile, but the vendor dir has cfg-if 1.0.4
       cargoVendorDir = craneLib.vendorCargoDeps {
         inherit src;
         outputHashes = {
           "git+https://github.com/srdtrk/ibc-proto-rs?rev=3613891e18478811216cce02dc867b7c6ff8811b#3613891e18478811216cce02dc867b7c6ff8811b" = "sha256-tzo5lOTVAAxNHXtP7+vZVsi41BvkYE8JrcBn54CIDaQ=";
         };
+        overrideVendorCargoPackage = p: drv:
+          if p.name == "sp1-core-machine"
+          then
+            drv.overrideAttrs (_old: {
+              postPatch = ''
+                rm -f Cargo.lock
+              '';
+            })
+          else drv;
         overrideVendorGitCheckout = ps: drv:
           if pkgs.lib.any (p: pkgs.lib.hasPrefix "git+https://github.com/cosmos/solidity-ibc-eureka" p.source) ps
           then
