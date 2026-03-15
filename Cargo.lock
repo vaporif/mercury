@@ -5120,6 +5120,8 @@ dependencies = [
  "globset",
  "mercury-chain-traits",
  "mercury-core",
+ "mercury-cosmos-bridges",
+ "mercury-ethereum-bridges",
  "serde",
  "tokio",
  "tokio-util",

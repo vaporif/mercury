@@ -3,8 +3,10 @@ use std::time::Duration;
 use eyre::{Context, Result, bail};
 use ibc::core::host::types::identifiers::ClientId;
 use ibc_proto::ibc::core::channel::v2::{MsgSendPacket, Payload};
+use mercury_chain_traits::builders::ClientMessageBuilder;
 use mercury_chain_traits::prelude::*;
 use mercury_cosmos_bridges::CosmosChain;
+use mercury_cosmos_bridges::chain::CosmosChainInner;
 use mercury_cosmos_bridges::config::{CosmosChainConfig, GasPrice};
 use mercury_cosmos_bridges::keys::Secp256k1KeyPair;
 use mercury_cosmos_bridges::types::{CosmosMessage, CosmosTxResponse};
@@ -37,8 +39,10 @@ impl TestContext {
         let payload_a = ClientPayloadBuilder::<Cosmos>::build_create_client_payload(&cosmos_a)
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
-        let msg_create_b = cosmos_b
-            .build_create_client_message(payload_a)
+        let msg_create_b =
+            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_create_client_message(
+                &cosmos_b, payload_a,
+            )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let responses_b = cosmos_b
@@ -53,8 +57,10 @@ impl TestContext {
         let payload_b = ClientPayloadBuilder::<Cosmos>::build_create_client_payload(&cosmos_b)
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
-        let msg_create_a = cosmos_a
-            .build_create_client_message(payload_b)
+        let msg_create_a =
+            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_create_client_message(
+                &cosmos_a, payload_b,
+            )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let responses_a = cosmos_a
@@ -66,8 +72,9 @@ impl TestContext {
 
         // Register counterparties (IBC v2)
         info!("registering counterparties");
-        let msg_register_a = cosmos_a
-            .build_register_counterparty_message(
+        let msg_register_a =
+            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_register_counterparty_message(
+                &cosmos_a,
                 &client_id_a,
                 &client_id_b,
                 mercury_core::MerklePrefix::ibc_default(),
@@ -79,8 +86,9 @@ impl TestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
 
-        let msg_register_b = cosmos_b
-            .build_register_counterparty_message(
+        let msg_register_b =
+            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_register_counterparty_message(
+                &cosmos_b,
                 &client_id_b,
                 &client_id_a,
                 mercury_core::MerklePrefix::ibc_default(),
