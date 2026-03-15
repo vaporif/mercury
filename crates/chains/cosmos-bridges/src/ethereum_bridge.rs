@@ -1,29 +1,39 @@
 //! Cross-chain trait impls for `CosmosChain<S>` with `EthereumChainInner` counterparty.
 //!
-//! Implements: `ClientQuery`, `ClientMessageBuilder`, `PacketMessageBuilder`.
+//! Implements: `ClientQuery`, `ClientMessageBuilder`, `PacketMessageBuilder`,
+//! `MisbehaviourDetector`, `MisbehaviourQuery`, `MisbehaviourMessageBuilder`.
 //! Gated behind the `ethereum-beacon` feature.
 
 use std::time::Duration;
 
 use async_trait::async_trait;
 use mercury_chain_traits::builders::{
-    ClientMessageBuilder, PacketMessageBuilder, UpdateClientOutput,
+    ClientMessageBuilder, MisbehaviourDetector, MisbehaviourMessageBuilder, PacketMessageBuilder,
+    UpdateClientOutput,
 };
-use mercury_chain_traits::queries::ClientQuery;
+use mercury_chain_traits::queries::{ClientQuery, MisbehaviourQuery};
 use mercury_core::error::Result;
 
+use mercury_cosmos::client_types::CosmosClientState;
 use mercury_cosmos::keys::CosmosSigner;
 use mercury_cosmos::types::{CosmosMessage, CosmosPacket, to_any};
 
+use mercury_ethereum::builders::encode_evm_proof;
 use mercury_ethereum::builders::{CreateClientPayload, UpdateClientPayload};
 use mercury_ethereum::chain::EthereumChainInner;
-use mercury_ethereum::types::{EvmAcknowledgement, EvmCommitmentProof, EvmHeight, EvmPacket};
+use mercury_ethereum::types::{
+    EvmAcknowledgement, EvmClientState, EvmCommitmentProof, EvmHeight, EvmPacket,
+};
 
+use ethereum_light_client::client_state::ClientState as EthClientState;
 use ibc_proto::ibc::core::channel::v2::{
     self as channel, MsgAcknowledgement, MsgRecvPacket, MsgTimeout, Packet as V2Packet,
 };
-use ibc_proto::ibc::core::client::v1::{Height as ProtoHeight, MsgUpdateClient};
+use ibc_proto::ibc::core::client::v1::{Height as ProtoHeight, MsgCreateClient, MsgUpdateClient};
 use ibc_proto::ibc::core::client::v2::MsgRegisterCounterparty;
+use ibc_proto::ibc::lightclients::wasm::v1::{
+    ClientState as WasmClientState, ConsensusState as WasmConsensusState,
+};
 use prost::Message as _;
 
 use crate::wrapper::CosmosChain;
@@ -55,16 +65,33 @@ impl<S: CosmosSigner> ClientQuery<EthereumChainInner> for CosmosChain<S> {
             .await
     }
 
-    fn trusting_period(_client_state: &Self::ClientState) -> Option<Duration> {
-        // Beacon sync committee period is ~27 hours.
-        // Use a conservative trusting period.
-        Some(Duration::from_secs(24 * 3600))
+    fn trusting_period(client_state: &Self::ClientState) -> Option<Duration> {
+        match client_state {
+            CosmosClientState::Wasm(_) => {
+                // Beacon sync committee period is ~27 hours.
+                Some(Duration::from_secs(24 * 3600))
+            }
+            CosmosClientState::Tendermint(_) => {
+                tracing::warn!("unexpected Tendermint client state for Ethereum counterparty");
+                None
+            }
+        }
     }
 
-    fn client_latest_height(_client_state: &Self::ClientState) -> EvmHeight {
-        // TODO: Decode WASM-wrapped Beacon client state to extract latest slot.
-        // For now, return a default that forces an update.
-        EvmHeight(0)
+    fn client_latest_height(client_state: &Self::ClientState) -> EvmHeight {
+        match client_state {
+            CosmosClientState::Wasm(cs) => cs.latest_height.as_ref().map_or_else(
+                || {
+                    tracing::warn!("WASM client state missing latest_height, defaulting to 0");
+                    EvmHeight(0)
+                },
+                |h| EvmHeight(h.revision_height),
+            ),
+            CosmosClientState::Tendermint(_) => {
+                tracing::warn!("unexpected Tendermint client state for Ethereum counterparty");
+                EvmHeight(0)
+            }
+        }
     }
 }
 
@@ -75,10 +102,45 @@ impl<S: CosmosSigner> ClientMessageBuilder<EthereumChainInner> for CosmosChain<S
 
     async fn build_create_client_message(
         &self,
-        _payload: CreateClientPayload,
+        payload: CreateClientPayload,
     ) -> Result<CosmosMessage> {
-        // TODO: Wrap Beacon client state in WASM envelope, build MsgCreateClient.
-        todo!("Beacon create client not yet implemented")
+        let signer = self.0.signer.account_address()?;
+
+        let eth_cs: EthClientState = serde_json::from_slice(&payload.client_state)
+            .map_err(|e| eyre::eyre!("deserializing Beacon client state: {e}"))?;
+
+        let checksum_hex = self.0.config.wasm_checksum.as_ref().ok_or_else(|| {
+            eyre::eyre!("wasm_checksum not configured — required for Beacon light client creation")
+        })?;
+        let checksum =
+            hex::decode(checksum_hex).map_err(|e| eyre::eyre!("decoding wasm_checksum: {e}"))?;
+
+        let wasm_client_state = WasmClientState {
+            data: payload.client_state,
+            checksum,
+            latest_height: Some(ProtoHeight {
+                revision_number: 0,
+                revision_height: eth_cs.latest_slot,
+            }),
+        };
+
+        let wasm_consensus_state = WasmConsensusState {
+            data: payload.consensus_state,
+        };
+
+        let msg = MsgCreateClient {
+            client_state: Some(ibc_proto::google::protobuf::Any {
+                type_url: "/ibc.lightclients.wasm.v1.ClientState".to_string(),
+                value: wasm_client_state.encode_to_vec(),
+            }),
+            consensus_state: Some(ibc_proto::google::protobuf::Any {
+                type_url: "/ibc.lightclients.wasm.v1.ConsensusState".to_string(),
+                value: wasm_consensus_state.encode_to_vec(),
+            }),
+            signer,
+        };
+
+        Ok(to_any(&msg))
     }
 
     async fn build_update_client_message(
@@ -144,21 +206,6 @@ fn evm_packet_to_v2(packet: &EvmPacket) -> V2Packet {
             })
             .collect(),
     }
-}
-
-fn encode_evm_proof(proof: &EvmCommitmentProof) -> Vec<u8> {
-    // Encode the EIP-1186 storage proof as bytes for the on-chain verifier.
-    // The exact encoding depends on the WASM light client's expected format.
-    // For now, we ABI-encode the proof components.
-    use alloy::sol_types::SolValue;
-    (
-        proof.storage_root,
-        proof.account_proof.clone(),
-        proof.storage_key,
-        proof.storage_value,
-        proof.storage_proof.clone(),
-    )
-        .abi_encode()
 }
 
 #[async_trait]
@@ -228,5 +275,56 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChainInner> for CosmosChain<S
             signer: self.0.signer.account_address()?,
         };
         Ok(to_any(&msg))
+    }
+}
+
+// -- Misbehaviour stubs for CosmosChain as Src, EthereumChain as Dst --
+
+#[async_trait]
+impl<S: CosmosSigner> MisbehaviourDetector<EthereumChainInner> for CosmosChain<S> {
+    type UpdateHeader = ();
+    type MisbehaviourEvidence = ();
+    type CounterpartyClientState = EvmClientState;
+
+    async fn check_for_misbehaviour(
+        &self,
+        _client_id: &<EthereumChainInner as mercury_chain_traits::types::ChainTypes>::ClientId,
+        _update_header: &(),
+        _client_state: &EvmClientState,
+    ) -> Result<Option<()>> {
+        Ok(None)
+    }
+}
+
+#[async_trait]
+impl<S: CosmosSigner> MisbehaviourQuery<EthereumChainInner> for CosmosChain<S> {
+    type CounterpartyUpdateHeader = ();
+
+    async fn query_consensus_state_heights(
+        &self,
+        _client_id: &Self::ClientId,
+    ) -> Result<Vec<EvmHeight>> {
+        Ok(vec![])
+    }
+
+    async fn query_update_client_header(
+        &self,
+        _client_id: &Self::ClientId,
+        _consensus_height: &EvmHeight,
+    ) -> Result<Option<()>> {
+        Ok(None)
+    }
+}
+
+#[async_trait]
+impl<S: CosmosSigner> MisbehaviourMessageBuilder<EthereumChainInner> for CosmosChain<S> {
+    type MisbehaviourEvidence = ();
+
+    async fn build_misbehaviour_message(
+        &self,
+        _client_id: &Self::ClientId,
+        _evidence: (),
+    ) -> Result<CosmosMessage> {
+        eyre::bail!("Ethereum misbehaviour message building not yet implemented")
     }
 }

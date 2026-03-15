@@ -2,12 +2,11 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use ibc::core::host::types::identifiers::ChainId;
-use ibc_client_tendermint::types::ClientState as TendermintClientState;
-use ibc_client_tendermint::types::ConsensusState as TendermintConsensusState;
 use tendermint::Time as TmTime;
 use tendermint::block::Height as TmHeight;
 use tendermint_rpc::HttpClient;
 
+use crate::client_types::{CosmosClientState, CosmosConsensusState};
 use crate::config::CosmosChainConfig;
 use crate::keys::CosmosSigner;
 use crate::types::{
@@ -113,8 +112,8 @@ impl<S: CosmosSigner> ChainTypes for CosmosChainInner<S> {
 }
 
 impl<S: CosmosSigner> IbcTypes for CosmosChainInner<S> {
-    type ClientState = TendermintClientState;
-    type ConsensusState = TendermintConsensusState;
+    type ClientState = CosmosClientState;
+    type ConsensusState = CosmosConsensusState;
     type CommitmentProof = MerkleProof;
     type Packet = CosmosPacket;
     type PacketCommitment = PacketCommitment;

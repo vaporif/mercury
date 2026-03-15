@@ -1,9 +1,11 @@
 use async_trait::async_trait;
 use mercury_chain_traits::builders::{
-    ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder, UpdateClientOutput,
+    ClientMessageBuilder, ClientPayloadBuilder, MisbehaviourDetector, MisbehaviourMessageBuilder,
+    PacketMessageBuilder, UpdateClientOutput,
 };
 use mercury_chain_traits::events::PacketEvents;
 use mercury_chain_traits::inner::HasInner;
+use mercury_chain_traits::queries::MisbehaviourQuery;
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_chain_traits::types::{ChainTypes, IbcTypes, MessageSender};
 use mercury_core::error::Result;
@@ -182,12 +184,11 @@ impl PacketEvents for EthereumChain {
 }
 
 #[async_trait]
-impl<C: ChainTypes> ClientPayloadBuilder<C> for EthereumChain
-where
-    EthereumChainInner: ClientPayloadBuilder<C>,
-{
-    type CreateClientPayload = <EthereumChainInner as ClientPayloadBuilder<C>>::CreateClientPayload;
-    type UpdateClientPayload = <EthereumChainInner as ClientPayloadBuilder<C>>::UpdateClientPayload;
+impl ClientPayloadBuilder<EthereumChainInner> for EthereumChain {
+    type CreateClientPayload =
+        <EthereumChainInner as ClientPayloadBuilder<EthereumChainInner>>::CreateClientPayload;
+    type UpdateClientPayload =
+        <EthereumChainInner as ClientPayloadBuilder<EthereumChainInner>>::UpdateClientPayload;
 
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
         self.0.build_create_client_payload().await
@@ -197,11 +198,8 @@ where
         &self,
         trusted_height: &Self::Height,
         target_height: &Self::Height,
-        counterparty_client_state: &<C as IbcTypes>::ClientState,
-    ) -> Result<Self::UpdateClientPayload>
-    where
-        C: IbcTypes,
-    {
+        counterparty_client_state: &<EthereumChainInner as IbcTypes>::ClientState,
+    ) -> Result<Self::UpdateClientPayload> {
         self.0
             .build_update_client_payload(trusted_height, target_height, counterparty_client_state)
             .await
@@ -318,6 +316,62 @@ where
     ) -> Result<Self::Message> {
         self.0
             .build_timeout_packet_message(packet, proof, proof_height, revision)
+            .await
+    }
+}
+
+// === MisbehaviourDetector<Self> forwarding ===
+#[async_trait]
+impl MisbehaviourDetector<EthereumChainInner> for EthereumChain {
+    type UpdateHeader = ();
+    type MisbehaviourEvidence = ();
+    type CounterpartyClientState = mercury_ethereum::types::EvmClientState;
+
+    async fn check_for_misbehaviour(
+        &self,
+        client_id: &Self::ClientId,
+        update_header: &(),
+        client_state: &mercury_ethereum::types::EvmClientState,
+    ) -> Result<Option<()>> {
+        self.0
+            .check_for_misbehaviour(client_id, update_header, client_state)
+            .await
+    }
+}
+
+// === MisbehaviourMessageBuilder<Self> forwarding ===
+#[async_trait]
+impl MisbehaviourMessageBuilder<EthereumChainInner> for EthereumChain {
+    type MisbehaviourEvidence = ();
+
+    async fn build_misbehaviour_message(
+        &self,
+        client_id: &Self::ClientId,
+        evidence: (),
+    ) -> Result<Self::Message> {
+        self.0.build_misbehaviour_message(client_id, evidence).await
+    }
+}
+
+// === MisbehaviourQuery<Self> forwarding ===
+#[async_trait]
+impl MisbehaviourQuery<EthereumChainInner> for EthereumChain {
+    type CounterpartyUpdateHeader = ();
+
+    async fn query_consensus_state_heights(
+        &self,
+        client_id: &Self::ClientId,
+    ) -> Result<Vec<Self::Height>> {
+        self.0.query_consensus_state_heights(client_id).await
+    }
+
+    async fn query_update_client_header(
+        &self,
+        client_id: &Self::ClientId,
+        consensus_height: &Self::Height,
+    ) -> Result<Option<()>> {
+        self.0
+            .query_update_client_header(client_id, consensus_height)
             .await
     }
 }

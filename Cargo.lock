@@ -4943,6 +4943,7 @@ dependencies = [
 name = "mercury-cli"
 version = "0.1.0-alpha.2"
 dependencies = [
+ "alloy",
  "clap",
  "color-eyre",
  "eyre",
@@ -4950,6 +4951,7 @@ dependencies = [
  "ibc",
  "mercury-core",
  "mercury-cosmos-bridges",
+ "mercury-ethereum",
  "mercury-ethereum-bridges",
  "mercury-relay",
  "serde",
@@ -4958,6 +4960,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -5008,13 +5011,16 @@ version = "0.1.0-alpha.2"
 dependencies = [
  "alloy",
  "async-trait",
+ "ethereum-light-client",
  "eyre",
+ "hex",
  "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
  "mercury-chain-traits",
  "mercury-core",
  "mercury-cosmos",
  "mercury-ethereum",
  "prost 0.13.5",
+ "serde_json",
  "tendermint",
  "tracing",
 ]

@@ -19,8 +19,9 @@ path = "src/main.rs"
 
 [dependencies]
 mercury-core = { workspace = true }
-mercury-cosmos-bridges = { workspace = true }
-mercury-ethereum-bridges = { workspace = true }
+mercury-cosmos-bridges = { workspace = true, features = ["ethereum-beacon"] }
+mercury-ethereum = { workspace = true }
+mercury-ethereum-bridges = { workspace = true, features = ["cosmos-sp1"] }
 mercury-relay = { workspace = true }
 
 clap = { workspace = true }
@@ -34,3 +35,5 @@ toml = { workspace = true }
 ibc = { workspace = true }
 futures = { workspace = true }
 tokio-util = { workspace = true }
+alloy = { workspace = true }
+url = { workspace = true }

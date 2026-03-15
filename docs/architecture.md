@@ -82,6 +82,8 @@ pub trait HasInner: ChainTypes + IbcTypes {
 
 `HasInner` guarantees that the wrapper and inner types share identical associated types. Relay code works with wrappers but can pass values through to inner types seamlessly. The wrapper forwards operational traits (queries, message sending) to the inner type via blanket-style impls, while cross-chain traits (`ClientMessageBuilder<CosmosChainInner>`, `PacketMessageBuilder<CosmosChainInner>`) are implemented directly on the wrapper.
 
+**Why wrappers exist.** The wrapper layer is the cost of splitting chain implementations into separate crates. Rust's orphan rule forbids implementing a foreign trait on a foreign type — so `mercury-ethereum-bridges` can't implement `ClientMessageBuilder<CosmosChainInner<S>>` directly on `EthereumChainInner` (defined in `mercury-ethereum`). The wrapper (`EthereumChain`, local to the bridge crate) exists solely to satisfy the orphan rule. A single-crate design wouldn't need wrappers, but would lose independent compilation, feature gating, and the ability to add new chain pairs without touching existing chain crates.
+
 ### RelayChain Supertrait
 
 `RelayChain` bundles the universally required capabilities — any chain participating in a relay must have all of these:
@@ -126,7 +128,7 @@ When implementing Cosmos→EVM relay, the EVM crate needs to know about Cosmos t
 
 **Wrapper pattern with HasInner.** Bridge crates define local wrapper types that can implement cross-chain traits without violating the orphan rule. `EthereumChain` (in `mercury-ethereum-bridges`) wraps `EthereumChainInner` and implements `ClientMessageBuilder<CosmosChainInner<S>>`. The wrapper is local to the bridge crate, so the orphan rule is satisfied.
 
-**Weakened counterparty bounds on builders.** Builder traits require only `Counterparty: ChainTypes`, not `Counterparty: IbcTypes`. Types that cross the chain boundary (payload types, counterparty client IDs) become associated types on the consuming trait:
+**Weakened counterparty bounds on most builders.** `ClientPayloadBuilder` and `ClientMessageBuilder` require only `Counterparty: ChainTypes`, not `Counterparty: IbcTypes`. `PacketMessageBuilder` requires `Counterparty: IbcTypes` since it needs the counterparty's packet and proof types. Types that cross the chain boundary (payload types, counterparty client IDs) become associated types on the consuming trait:
 
 ```rust
 pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {

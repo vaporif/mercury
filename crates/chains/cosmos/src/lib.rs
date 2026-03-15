@@ -4,6 +4,8 @@
 pub mod builders;
 /// Cosmos chain definition and trait implementations.
 pub mod chain;
+/// Client state and consensus state enum types (Tendermint / Wasm).
+pub mod client_types;
 /// Chain configuration and gas price settings.
 pub mod config;
 /// Event parsing from transaction results.

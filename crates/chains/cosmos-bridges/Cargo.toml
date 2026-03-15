@@ -28,6 +28,9 @@ ibc-proto = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
 tendermint = { workspace = true, optional = true }
 alloy = { workspace = true, optional = true }
+ethereum-light-client = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
 
 [features]
 ethereum-beacon = [
@@ -36,4 +39,7 @@ ethereum-beacon = [
     "dep:prost",
     "dep:tendermint",
     "dep:alloy",
+    "dep:ethereum-light-client",
+    "dep:serde_json",
+    "dep:hex",
 ]

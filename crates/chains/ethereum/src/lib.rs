@@ -8,6 +8,7 @@ pub mod contracts;
 pub mod events;
 pub mod ics24;
 pub mod keys;
+pub mod misbehaviour;
 pub mod queries;
 pub mod tx;
 pub mod types;

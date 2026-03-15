@@ -17,6 +17,10 @@ use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChainInner;
+use crate::client_types::{
+    CosmosClientState, CosmosConsensusState, TENDERMINT_CLIENT_STATE_TYPE_URL,
+    TENDERMINT_CONSENSUS_STATE_TYPE_URL, WASM_CLIENT_STATE_TYPE_URL, WASM_CONSENSUS_STATE_TYPE_URL,
+};
 use crate::keys::CosmosSigner;
 use crate::types::{
     CosmosChainStatus, MerkleProof, PacketAcknowledgement, PacketCommitment, PacketReceipt,
@@ -171,9 +175,23 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChainInner<S> {
             .client_state
             .ok_or_else(|| eyre::eyre!("client state not found for {client_id}"))?;
 
-        let client_state = <TendermintClientState as Protobuf<
-            ibc_client_tendermint::types::proto::v1::ClientState,
-        >>::decode(any.value.as_slice())?;
+        let type_url = any.type_url.strip_prefix('/').unwrap_or(&any.type_url);
+
+        let client_state = match type_url {
+            TENDERMINT_CLIENT_STATE_TYPE_URL => {
+                let cs = <TendermintClientState as Protobuf<
+                    ibc_client_tendermint::types::proto::v1::ClientState,
+                >>::decode(any.value.as_slice())?;
+                CosmosClientState::Tendermint(cs)
+            }
+            WASM_CLIENT_STATE_TYPE_URL => {
+                let cs = ibc_proto::ibc::lightclients::wasm::v1::ClientState::decode(
+                    any.value.as_slice(),
+                )?;
+                CosmosClientState::Wasm(cs)
+            }
+            other => eyre::bail!("unsupported client state type_url: {other}"),
+        };
         Ok(client_state)
     }
 
@@ -211,19 +229,48 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChainInner<S> {
             eyre::eyre!("consensus state not found for {client_id} at height {consensus_height}")
         })?;
 
-        let consensus_state = <TendermintConsensusState as Protobuf<
-            ibc_client_tendermint::types::proto::v1::ConsensusState,
-        >>::decode(any.value.as_slice())?;
+        let type_url = any.type_url.strip_prefix('/').unwrap_or(&any.type_url);
+
+        let consensus_state = match type_url {
+            TENDERMINT_CONSENSUS_STATE_TYPE_URL => {
+                let cs = <TendermintConsensusState as Protobuf<
+                    ibc_client_tendermint::types::proto::v1::ConsensusState,
+                >>::decode(any.value.as_slice())?;
+                CosmosConsensusState::Tendermint(cs)
+            }
+            WASM_CONSENSUS_STATE_TYPE_URL => {
+                let cs = ibc_proto::ibc::lightclients::wasm::v1::ConsensusState::decode(
+                    any.value.as_slice(),
+                )?;
+                CosmosConsensusState::Wasm(cs)
+            }
+            other => eyre::bail!("unsupported consensus state type_url: {other}"),
+        };
         Ok(consensus_state)
     }
 
     fn trusting_period(client_state: &Self::ClientState) -> Option<std::time::Duration> {
-        Some(client_state.trusting_period)
+        match client_state {
+            CosmosClientState::Tendermint(cs) => Some(cs.trusting_period),
+            CosmosClientState::Wasm(_) => None,
+        }
     }
 
     fn client_latest_height(client_state: &Self::ClientState) -> Self::Height {
-        let h = client_state.latest_height.revision_height();
-        TmHeight::try_from(h.max(1)).unwrap_or_else(|_| TmHeight::from(1_u32))
+        match client_state {
+            CosmosClientState::Tendermint(cs) => {
+                let h = cs.latest_height.revision_height();
+                TmHeight::try_from(h.max(1)).unwrap_or_else(|_| TmHeight::from(1_u32))
+            }
+            CosmosClientState::Wasm(cs) => cs
+                .latest_height
+                .as_ref()
+                .and_then(|h| TmHeight::try_from(h.revision_height.max(1)).ok())
+                .unwrap_or_else(|| {
+                    tracing::warn!("WASM client state missing latest_height, defaulting to 1");
+                    TmHeight::from(1_u32)
+                }),
+        }
     }
 }
 

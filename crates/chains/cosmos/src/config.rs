@@ -47,6 +47,10 @@ pub struct CosmosChainConfig {
     pub dynamic_gas_price: Option<DynamicGasPrice>,
     #[serde(default)]
     pub max_tx_size: Option<usize>,
+    /// SHA-256 checksum of the WASM light client module (hex-encoded, 32 bytes).
+    /// Required when this chain hosts WASM light clients (e.g., Ethereum Beacon).
+    #[serde(default)]
+    pub wasm_checksum: Option<String>,
 }
 
 /// Gas price amount and denomination for fee calculation.
@@ -127,6 +131,21 @@ impl CosmosChainConfig {
         {
             eyre::bail!("chain '{}': max_tx_size must be > 0", self.chain_id);
         }
+        if let Some(ref checksum) = self.wasm_checksum {
+            let bytes = hex::decode(checksum).map_err(|e| {
+                eyre::eyre!(
+                    "chain '{}': wasm_checksum is not valid hex: {e}",
+                    self.chain_id
+                )
+            })?;
+            if bytes.len() != 32 {
+                eyre::bail!(
+                    "chain '{}': wasm_checksum must be 32 bytes (64 hex chars), got {} bytes",
+                    self.chain_id,
+                    bytes.len()
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -168,6 +187,7 @@ mod tests {
             fee_granter: None,
             dynamic_gas_price: None,
             max_tx_size: None,
+            wasm_checksum: None,
         }
     }
 
@@ -262,6 +282,27 @@ mod tests {
         let mut cfg = valid_config();
         cfg.default_gas = Some(500_000);
         assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn valid_wasm_checksum_passes() {
+        let mut cfg = valid_config();
+        cfg.wasm_checksum = Some("a".repeat(64));
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn invalid_wasm_checksum_hex_fails() {
+        let mut cfg = valid_config();
+        cfg.wasm_checksum = Some("not_hex".to_string());
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn wasm_checksum_wrong_length_fails() {
+        let mut cfg = valid_config();
+        cfg.wasm_checksum = Some("aabb".to_string());
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

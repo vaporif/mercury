@@ -1,8 +1,6 @@
 use async_trait::async_trait;
 use ibc::core::host::types::identifiers::ClientId;
-use ibc_client_tendermint::types::{
-    ClientState as TendermintClientState, Header as TmIbcHeader, Misbehaviour as TmMisbehaviour,
-};
+use ibc_client_tendermint::types::{Header as TmIbcHeader, Misbehaviour as TmMisbehaviour};
 use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::core::client::v1::{
     MsgUpdateClient, QueryConsensusStateHeightsRequest, QueryConsensusStateHeightsResponse,
@@ -18,6 +16,7 @@ use mercury_chain_traits::queries::MisbehaviourQuery;
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChainInner;
+use crate::client_types::CosmosClientState;
 use crate::keys::CosmosSigner;
 use crate::queries::grpc_unary;
 use crate::types::{CosmosMessage, to_any};
@@ -33,7 +32,7 @@ pub struct CosmosMisbehaviourEvidence {
 impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChainInner<S> {
     type UpdateHeader = TmIbcHeader;
     type MisbehaviourEvidence = CosmosMisbehaviourEvidence;
-    type CounterpartyClientState = TendermintClientState;
+    type CounterpartyClientState = CosmosClientState;
 
     #[instrument(skip_all, name = "check_for_misbehaviour")]
     async fn check_for_misbehaviour(
@@ -42,7 +41,11 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChainInner<S> {
         update_header: &Self::UpdateHeader,
         client_state: &Self::CounterpartyClientState,
     ) -> Result<Option<Self::MisbehaviourEvidence>> {
-        if client_state.is_frozen() {
+        let CosmosClientState::Tendermint(tm_cs) = client_state else {
+            eyre::bail!("misbehaviour detection not supported for WASM clients");
+        };
+
+        if tm_cs.is_frozen() {
             tracing::info!("client is frozen, skipping misbehaviour check");
             return Ok(None);
         }

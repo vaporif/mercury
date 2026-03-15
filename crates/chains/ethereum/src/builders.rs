@@ -41,14 +41,15 @@ fn evm_packet_to_sol(packet: &EvmPacket) -> IICS26RouterMsgs::Packet {
     }
 }
 
-fn encode_evm_proof(proof: EvmCommitmentProof) -> Vec<u8> {
+#[must_use]
+pub fn encode_evm_proof(proof: &EvmCommitmentProof) -> Vec<u8> {
     use alloy::sol_types::SolValue;
     (
         proof.storage_root,
-        proof.account_proof,
+        proof.account_proof.clone(),
         proof.storage_key,
         proof.storage_value,
-        proof.storage_proof,
+        proof.storage_proof.clone(),
     )
         .abi_encode()
 }
@@ -65,7 +66,7 @@ impl PacketMessageBuilder<Self> for EthereumChainInner {
         let call = ICS26Router::recvPacketCall {
             msg_: IICS26RouterMsgs::MsgRecvPacket {
                 packet: evm_packet_to_sol(packet),
-                proofCommitment: encode_evm_proof(proof).into(),
+                proofCommitment: encode_evm_proof(&proof).into(),
                 proofHeight: IICS02ClientMsgs::Height {
                     revisionNumber: revision,
                     revisionHeight: proof_height.0,
@@ -92,7 +93,7 @@ impl PacketMessageBuilder<Self> for EthereumChainInner {
             msg_: IICS26RouterMsgs::MsgAckPacket {
                 packet: evm_packet_to_sol(packet),
                 acknowledgement: ack.0.clone().into(),
-                proofAcked: encode_evm_proof(proof).into(),
+                proofAcked: encode_evm_proof(&proof).into(),
                 proofHeight: IICS02ClientMsgs::Height {
                     revisionNumber: revision,
                     revisionHeight: proof_height.0,
@@ -117,7 +118,7 @@ impl PacketMessageBuilder<Self> for EthereumChainInner {
         let call = ICS26Router::timeoutPacketCall {
             msg_: IICS26RouterMsgs::MsgTimeoutPacket {
                 packet: evm_packet_to_sol(packet),
-                proofTimeout: encode_evm_proof(proof).into(),
+                proofTimeout: encode_evm_proof(&proof).into(),
                 proofHeight: IICS02ClientMsgs::Height {
                     revisionNumber: revision,
                     revisionHeight: proof_height.0,
