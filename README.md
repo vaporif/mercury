@@ -32,9 +32,9 @@ Each relay direction (A→B, B→A) runs its own set of workers connected by `to
 |-------|-------------|
 | `mercury-cli` | CLI binary — `mercury-relayer start`, `mercury-relayer status` |
 | `mercury-cosmos` | Cosmos chain — RPC, protobuf, tx signing |
-| `mercury-ethereum` | EVM chain — alloy, SP1 proofs, ICS07 contract interaction |
+| `mercury-ethereum` | EVM chain — alloy, ICS07 contract interaction |
 | `mercury-cosmos-bridges` | Cosmos wrapper — cross-chain impls (EVM→Cosmos via beacon) |
-| `mercury-ethereum-bridges` | Ethereum wrapper — cross-chain impls (Cosmos→EVM via SP1) |
+| `mercury-ethereum-bridges` | Ethereum wrapper — cross-chain impls (Cosmos→EVM) |
 | `mercury-relay` | Worker pipeline, generic over chain traits |
 | `mercury-chain-traits` | Chain types, messaging, queries, relay traits |
 | `mercury-core` | Error types, encoding, worker trait, membership proofs |
@@ -42,7 +42,7 @@ Each relay direction (A→B, B→A) runs its own set of workers connected by `to
 ## Docs
 
 - [Why rewrite?](./docs/why-rewrite.md) — Hermes limitations, what CGP gets right, how Mercury applies the same insight without the framework
-- [Architecture](./docs/architecture.md) — trait hierarchy, cross-chain design, crate layout, worker pipeline, SP1 combined proofs
+- [Architecture](./docs/architecture.md) — trait hierarchy, cross-chain design, crate layout, worker pipeline
 - [IBC v2](./docs/ibc-v2.md) — Eureka protocol changes vs v1
 - [Adding a new chain](./docs/adding-a-chain.md) — step-by-step guide
 

@@ -120,7 +120,7 @@ IBC relaying between different chain types (Cosmos↔EVM, Cosmos↔Solana) requi
 
 ### The Problem
 
-When implementing Cosmos→EVM relay, the EVM crate needs to know about Cosmos types (to build messages that target the EVM chain from Cosmos data). If `IbcTypes` were generic (`IbcTypes<Counterparty>`), the EVM crate would need `CosmosChain: IbcTypes<EthereumChain>` — an impl that must live in the Cosmos crate (orphan rule), creating a circular dependency since the Ethereum crate already depends on the Cosmos crate for SP1 proof verification.
+When implementing Cosmos→EVM relay, the EVM crate needs to know about Cosmos types (to build messages that target the EVM chain from Cosmos data). If `IbcTypes` were generic (`IbcTypes<Counterparty>`), the EVM crate would need `CosmosChain: IbcTypes<EthereumChain>` — an impl that must live in the Cosmos crate (orphan rule), creating a circular dependency since the Ethereum crate already depends on the Cosmos crate for proof verification.
 
 ### The Solution
 
@@ -190,7 +190,7 @@ These hooks are no-ops for Cosmos↔Cosmos relaying. The Ethereum bridge uses th
 graph TD
     CLI[mercury-cli<br/><i>CLI binary</i>]
     COSMOS[mercury-cosmos<br/><i>chains/cosmos — RPC, protobuf, tx signing</i>]
-    ETH[mercury-ethereum<br/><i>chains/ethereum — alloy, SP1, EVM contracts</i>]
+    ETH[mercury-ethereum<br/><i>chains/ethereum — alloy, EVM contracts</i>]
     COSMOS_BR[mercury-cosmos-bridges<br/><i>chains/cosmos-bridges — wrapper + cross-chain impls</i>]
     ETH_BR[mercury-ethereum-bridges<br/><i>chains/ethereum-bridges — wrapper + cross-chain impls</i>]
     RELAY[mercury-relay<br/><i>Worker pipeline, generic over chain traits</i>]
@@ -212,7 +212,7 @@ graph TD
     TRAITS --> CORE
 ```
 
-Default builds: core chain crates (`mercury-cosmos`, `mercury-ethereum`) are independent. Bridge crates add the cross-chain dependency behind feature flags. The `cosmos-sp1` feature on `mercury-ethereum-bridges` activates Cosmos→EVM impls (SP1 proof generation, ICS07 contract interaction). The `ethereum-beacon` feature on `mercury-cosmos-bridges` activates EVM→Cosmos impls. The relay binary enables features as needed.
+Default builds: core chain crates (`mercury-cosmos`, `mercury-ethereum`) are independent. Bridge crates add the cross-chain dependency behind feature flags. The `cosmos-sp1` feature on `mercury-ethereum-bridges` activates Cosmos→EVM impls. The `ethereum-beacon` feature on `mercury-cosmos-bridges` activates EVM→Cosmos impls. The relay binary enables features as needed.
 
 ## Data Flow: Relaying a Packet
 
