@@ -28,12 +28,7 @@ pub struct ClearingWorker<R: Relay> {
 }
 
 #[async_trait]
-impl<R> Worker for ClearingWorker<R>
-where
-    R: Relay,
-    R::SrcChain: PacketStateQuery,
-    R::DstChain: PacketStateQuery,
-{
+impl<R: Relay> Worker for ClearingWorker<R> {
     fn name(&self) -> &'static str {
         "clearing_worker"
     }
@@ -55,12 +50,7 @@ where
     }
 }
 
-impl<R> ClearingWorker<R>
-where
-    R: Relay,
-    R::SrcChain: PacketStateQuery,
-    R::DstChain: PacketStateQuery,
-{
+impl<R: Relay> ClearingWorker<R> {
     async fn scan(&self) -> Result<()> {
         let src = self.relay.src_chain();
         let dst = self.relay.dst_chain();

@@ -50,7 +50,8 @@ where
         + MessageSender
         + IbcTypes
         + ClientPayloadBuilder<Dst>
-        + PacketEvents,
+        + PacketEvents
+        + PacketStateQuery,
     Dst: ChainTypes
         + ChainStatusQuery
         + MessageSender
@@ -59,7 +60,10 @@ where
             Src,
             CreateClientPayload = <Src as ClientPayloadBuilder<Dst>>::CreateClientPayload,
             UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,
-        > + ClientQuery<Src>,
+        > + ClientQuery<Src>
+        + PacketStateQuery
+        + PacketMessageBuilder<Src>
+        + ClientPayloadBuilder<Src>,
 {
     type SrcChain = Src;
     type DstChain = Dst;

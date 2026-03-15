@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
-use crate::builders::{ClientMessageBuilder, ClientPayloadBuilder};
+use crate::builders::{ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder};
 use crate::events::PacketEvents;
 use crate::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use crate::types::{ChainTypes, IbcTypes, MessageSender};
@@ -14,14 +14,21 @@ pub trait Relay: ThreadSafe {
         + MessageSender
         + IbcTypes
         + ClientPayloadBuilder<Self::DstChain>
-        + PacketEvents;
-    type DstChain: ChainTypes + ChainStatusQuery + MessageSender
+        + PacketEvents
+        + PacketStateQuery;
+    type DstChain: ChainTypes
+        + ChainStatusQuery
+        + MessageSender
         + IbcTypes
-        + ClientMessageBuilder<Self::SrcChain,
+        + ClientMessageBuilder<
+            Self::SrcChain,
             CreateClientPayload = <Self::SrcChain as ClientPayloadBuilder<Self::DstChain>>::CreateClientPayload,
             UpdateClientPayload = <Self::SrcChain as ClientPayloadBuilder<Self::DstChain>>::UpdateClientPayload,
         >
-        + ClientQuery<Self::SrcChain>;
+        + ClientQuery<Self::SrcChain>
+        + PacketStateQuery
+        + PacketMessageBuilder<Self::SrcChain>
+        + ClientPayloadBuilder<Self::SrcChain>;
 
     fn src_chain(&self) -> &Self::SrcChain;
     fn dst_chain(&self) -> &Self::DstChain;
@@ -49,11 +56,7 @@ pub trait ClientUpdater: Relay {
 
 /// Builds relay-level packet messages (receive, ack, timeout).
 #[async_trait]
-pub trait RelayPacketBuilder: Relay
-where
-    Self::SrcChain: PacketStateQuery,
-    Self::DstChain: crate::builders::PacketMessageBuilder<Self::SrcChain> + PacketStateQuery,
-{
+pub trait RelayPacketBuilder: Relay {
     async fn build_receive_packet_messages(
         &self,
         packet: &<Self::SrcChain as IbcTypes>::Packet,

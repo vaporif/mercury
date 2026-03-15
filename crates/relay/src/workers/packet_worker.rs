@@ -44,15 +44,12 @@ struct PendingSend<E> {
 impl<R> PacketWorker<R>
 where
     R: Relay + RelayPacketBuilder,
-    R::SrcChain: PacketStateQuery
-        + ClientQuery<R::DstChain>
-        + ClientMessageBuilder<R::DstChain,
+    R::SrcChain: ClientQuery<R::DstChain>
+        + ClientMessageBuilder<
+            R::DstChain,
             CreateClientPayload = <R::DstChain as ClientPayloadBuilder<R::SrcChain>>::CreateClientPayload,
             UpdateClientPayload = <R::DstChain as ClientPayloadBuilder<R::SrcChain>>::UpdateClientPayload,
         >,
-    R::DstChain: mercury_chain_traits::builders::PacketMessageBuilder<R::SrcChain>
-        + PacketStateQuery
-        + ClientPayloadBuilder<R::SrcChain>,
 {
     #[instrument(skip_all, name = "build_dst_update_client")]
     async fn build_dst_update_client_messages(
@@ -364,15 +361,12 @@ where
 impl<R> Worker for PacketWorker<R>
 where
     R: Relay + RelayPacketBuilder,
-    R::SrcChain: PacketStateQuery
-        + ClientQuery<R::DstChain>
-        + ClientMessageBuilder<R::DstChain,
+    R::SrcChain: ClientQuery<R::DstChain>
+        + ClientMessageBuilder<
+            R::DstChain,
             CreateClientPayload = <R::DstChain as ClientPayloadBuilder<R::SrcChain>>::CreateClientPayload,
             UpdateClientPayload = <R::DstChain as ClientPayloadBuilder<R::SrcChain>>::UpdateClientPayload,
         >,
-    R::DstChain: mercury_chain_traits::builders::PacketMessageBuilder<R::SrcChain>
-        + PacketStateQuery
-        + ClientPayloadBuilder<R::SrcChain>,
 {
     fn name(&self) -> &'static str {
         "packet_worker"
