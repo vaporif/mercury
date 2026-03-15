@@ -53,10 +53,8 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     fn enrich_update_payload(
         &self,
         _payload: &mut Self::UpdateClientPayload,
-        _packet_proofs: &[crate::inner::PacketProofData<Counterparty>],
-    ) where
-        Counterparty: IbcTypes,
-    {
+        _packet_proofs: &[crate::inner::PacketProofData],
+    ) {
     }
 }
 

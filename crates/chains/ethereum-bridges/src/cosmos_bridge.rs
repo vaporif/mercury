@@ -94,7 +94,22 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChainInner<S>> for EthereumChai
         &self,
         _payload: CosmosCreateClientPayload,
     ) -> Result<EvmMessage> {
-        todo!("cross-chain create client not yet implemented")
+        // The SP1ICS07Tendermint light client contract is deployed separately
+        // with its initial state. We just register it on the ICS26Router.
+        // Counterparty info is set later via `build_register_counterparty_message`.
+        let call = ICS26Router::addClient_1Call {
+            counterpartyInfo: IICS02ClientMsgs::CounterpartyInfo {
+                clientId: String::new(),
+                merklePrefix: Vec::new(),
+            },
+            client: self.config.light_client_address()?,
+        };
+
+        Ok(EvmMessage {
+            to: self.router_address,
+            calldata: call.abi_encode(),
+            value: U256::ZERO,
+        })
     }
 
     async fn build_update_client_message(
@@ -143,6 +158,18 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChainInner<S>> for EthereumChai
             calldata: call.abi_encode(),
             value: U256::ZERO,
         })
+    }
+
+    fn enrich_update_payload(
+        &self,
+        payload: &mut CosmosUpdateClientPayload,
+        packet_proofs: &[mercury_chain_traits::inner::PacketProofData],
+    ) {
+        for proof_data in packet_proofs {
+            payload
+                .membership_kvs
+                .push((proof_data.commitment.clone(), proof_data.proof.clone()));
+        }
     }
 }
 

@@ -50,6 +50,10 @@ pub struct CosmosCreateClientPayload {
 pub struct CosmosUpdateClientPayload {
     pub headers: Vec<Any>,
     pub trusted_consensus_state: Option<TendermintConsensusState>,
+    /// Membership key-value pairs for batched SP1 proving.
+    /// Populated by `enrich_update_payload` when packet proofs need to be
+    /// bundled into the preceding `updateClient` call.
+    pub membership_kvs: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
 #[async_trait]
@@ -194,6 +198,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChainInne
         Ok(CosmosUpdateClientPayload {
             headers,
             trusted_consensus_state,
+            membership_kvs: Vec::new(),
         })
     }
 }
