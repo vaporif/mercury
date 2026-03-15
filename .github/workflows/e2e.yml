@@ -41,6 +41,10 @@ jobs:
         with:
           tool: cargo-nextest
 
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - uses: oven-sh/setup-bun@v2
+
       - name: E2E tests
         run: cargo nextest run -p mercury-e2e --run-ignored all
         timeout-minutes: 15
