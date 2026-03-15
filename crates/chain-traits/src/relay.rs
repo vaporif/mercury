@@ -32,6 +32,8 @@ pub trait Relay: ThreadSafe {
             >>::CreateClientPayload,
         >;
 
+    /// `ClientPayloadBuilder` is bound here (not on `SrcChain`) so the compiler can resolve
+    /// the associated type equality constraints on `SrcChain::*Payload` above.
     type DstChain: RelayChain
         + ClientQuery<<Self::SrcChain as HasInner>::Inner>
         + ClientMessageBuilder<<Self::SrcChain as HasInner>::Inner>

@@ -20,6 +20,7 @@ mercury-cosmos = { workspace = true }
 
 async-trait = { workspace = true }
 eyre = { workspace = true }
+tracing = { workspace = true }
 
 # Cross-chain (optional)
 mercury-ethereum = { workspace = true, optional = true }

@@ -43,15 +43,12 @@ use crate::types::{EvmClientId, EvmMessage};
 /// Caches SP1 prover setup (keys, program) so proof generation avoids re-running `setup()`.
 pub struct Sp1Instance<C: SP1ProverComponents> {
     prover: Sp1Prover<C>,
-    // Update-client only
     update_program: UpdateClientProgram,
     update_pkey: SP1ProvingKey,
     update_vkey: SP1VerifyingKey,
-    // Combined update-client + membership
     uc_membership_program: UpdateClientAndMembershipProgram,
     uc_membership_pkey: SP1ProvingKey,
     uc_membership_vkey: SP1VerifyingKey,
-    // Shared
     zk_algorithm: SupportedZkAlgorithm,
     pub proof_timeout: Duration,
     pub max_concurrent_proofs: usize,
@@ -60,7 +57,6 @@ pub struct Sp1Instance<C: SP1ProverComponents> {
 impl<C: SP1ProverComponents> Sp1Instance<C> {
     #[allow(clippy::similar_names)]
     pub fn from_prover(prover: Sp1Prover<C>, config: &Sp1ProverConfig) -> eyre::Result<Self> {
-        // Load update-client ELF
         let uc_elf_path = config.elf_dir.join("sp1-ics07-tendermint-update-client");
         let uc_elf_bytes = std::fs::read(&uc_elf_path)
             .wrap_err_with(|| format!("reading SP1 ELF from {}", uc_elf_path.display()))?;
@@ -72,7 +68,6 @@ impl<C: SP1ProverComponents> Sp1Instance<C> {
         let (update_pkey, update_vkey) = prover.setup(update_program.elf());
         tracing::info!(vkey = %update_vkey.bytes32(), "update-client SP1 prover setup complete");
 
-        // Load combined update-client + membership ELF
         let ucm_elf_path = config
             .elf_dir
             .join("sp1-ics07-tendermint-uc-and-membership");
@@ -105,7 +100,6 @@ impl<C: SP1ProverComponents> Sp1Instance<C> {
         })
     }
 
-    /// Synchronous update-only proof — must be called from `spawn_blocking`.
     #[must_use]
     pub fn generate_update_proof(
         &self,
@@ -124,7 +118,6 @@ impl<C: SP1ProverComponents> Sp1Instance<C> {
         prover.generate_proof(client_state, consensus_state, header, time)
     }
 
-    /// Synchronous combined update-client + membership proof — must be called from `spawn_blocking`.
     #[must_use]
     pub fn generate_uc_and_membership_proof(
         &self,
@@ -241,7 +234,7 @@ fn convert_membership_proofs(
         .iter()
         .map(|entry| {
             let kv_pair = KVPair {
-                path: entry.path.iter().map(|p| p.clone().into()).collect(),
+                path: entry.path.iter().cloned().map(Into::into).collect(),
                 value: entry.value.clone().into(),
             };
             let raw_proof = ibc_proto_eureka::ibc::core::commitment::v1::MerkleProof::decode(

@@ -1,5 +1,6 @@
-//! Cross-chain trait impls for CosmosChain<S> with EthereumChainInner counterparty.
-//! Implements: ClientQuery, ClientMessageBuilder, PacketMessageBuilder.
+//! Cross-chain trait impls for `CosmosChain<S>` with `EthereumChainInner` counterparty.
+//!
+//! Implements: `ClientQuery`, `ClientMessageBuilder`, `PacketMessageBuilder`.
 //! Gated behind the `ethereum-beacon` feature.
 
 use std::time::Duration;
@@ -26,8 +27,6 @@ use ibc_proto::ibc::core::client::v2::MsgRegisterCounterparty;
 use prost::Message as _;
 
 use crate::wrapper::CosmosChain;
-
-// === ClientQuery<EthereumChainInner> ===
 
 #[async_trait]
 impl<S: CosmosSigner> ClientQuery<EthereumChainInner> for CosmosChain<S> {
@@ -68,8 +67,6 @@ impl<S: CosmosSigner> ClientQuery<EthereumChainInner> for CosmosChain<S> {
         EvmHeight(0)
     }
 }
-
-// === ClientMessageBuilder<EthereumChainInner> ===
 
 #[async_trait]
 impl<S: CosmosSigner> ClientMessageBuilder<EthereumChainInner> for CosmosChain<S> {
@@ -128,8 +125,6 @@ impl<S: CosmosSigner> ClientMessageBuilder<EthereumChainInner> for CosmosChain<S
         Ok(to_any(&msg))
     }
 }
-
-// === PacketMessageBuilder<EthereumChainInner> ===
 
 fn evm_packet_to_v2(packet: &EvmPacket) -> V2Packet {
     V2Packet {
@@ -196,7 +191,8 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChainInner> for CosmosChain<S
         revision: u64,
     ) -> Result<CosmosMessage> {
         let acknowledgement =
-            channel::Acknowledgement::decode(ack.0.as_slice()).unwrap_or_else(|_| {
+            channel::Acknowledgement::decode(ack.0.as_slice()).unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "ack proto decode failed, treating raw bytes as single app-ack");
                 channel::Acknowledgement {
                     app_acknowledgements: vec![ack.0.clone()],
                 }

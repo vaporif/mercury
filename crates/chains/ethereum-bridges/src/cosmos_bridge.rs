@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use alloy::primitives::U256;
-use alloy::sol_types::{SolCall, SolValue};
+use alloy::sol_types::SolCall;
 use async_trait::async_trait;
 use eyre::Context;
 use tendermint::block::Height as TmHeight;

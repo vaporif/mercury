@@ -486,6 +486,8 @@ impl ClientMessageBuilder<Self> for EthereumChainInner {
     ) -> mercury_core::error::Result<UpdateClientOutput<EvmMessage>> {
         #[cfg(feature = "sp1")]
         if let Some(ref sp1) = self.sp1 {
+            // Self-relay SP1 path: trusted_consensus_state is not available here.
+            // Cross-chain relay uses the bridge crate which provides it.
             return self
                 .build_update_client_message_sp1(
                     client_id,

@@ -90,7 +90,7 @@ impl fmt::Debug for MockChain {
 }
 
 impl HasInner for MockChain {
-    type Inner = MockChain;
+    type Inner = Self;
 }
 
 impl ChainTypes for MockChain {
@@ -168,7 +168,7 @@ impl ChainStatusQuery for MockChain {
 }
 
 #[async_trait]
-impl ClientQuery<MockChain> for MockChain {
+impl ClientQuery<Self> for MockChain {
     async fn query_client_state(
         &self,
         _client_id: &String,
@@ -196,7 +196,7 @@ impl ClientQuery<MockChain> for MockChain {
 }
 
 #[async_trait]
-impl MisbehaviourDetector<MockChain> for MockChain {
+impl MisbehaviourDetector<Self> for MockChain {
     type UpdateHeader = MockHeader;
     type MisbehaviourEvidence = MockEvidence;
     type CounterpartyClientState = MockClientState;
@@ -217,7 +217,7 @@ impl MisbehaviourDetector<MockChain> for MockChain {
 }
 
 #[async_trait]
-impl MisbehaviourQuery<MockChain> for MockChain {
+impl MisbehaviourQuery<Self> for MockChain {
     type CounterpartyUpdateHeader = MockHeader;
 
     async fn query_consensus_state_heights(&self, _client_id: &String) -> Result<Vec<u64>> {
@@ -240,7 +240,7 @@ impl MisbehaviourQuery<MockChain> for MockChain {
 }
 
 #[async_trait]
-impl MisbehaviourMessageBuilder<MockChain> for MockChain {
+impl MisbehaviourMessageBuilder<Self> for MockChain {
     type MisbehaviourEvidence = MockEvidence;
 
     async fn build_misbehaviour_message(
@@ -282,7 +282,7 @@ impl PacketEvents for MockChain {
 }
 
 #[async_trait]
-impl ClientPayloadBuilder<MockChain> for MockChain {
+impl ClientPayloadBuilder<Self> for MockChain {
     type CreateClientPayload = ();
     type UpdateClientPayload = ();
 
@@ -300,7 +300,7 @@ impl ClientPayloadBuilder<MockChain> for MockChain {
 }
 
 #[async_trait]
-impl ClientMessageBuilder<MockChain> for MockChain {
+impl ClientMessageBuilder<Self> for MockChain {
     type CreateClientPayload = ();
     type UpdateClientPayload = ();
 
@@ -360,7 +360,7 @@ impl PacketStateQuery for MockChain {
 }
 
 #[async_trait]
-impl PacketMessageBuilder<MockChain> for MockChain {
+impl PacketMessageBuilder<Self> for MockChain {
     async fn build_receive_packet_message(
         &self,
         _packet: &MockPacket,

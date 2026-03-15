@@ -36,7 +36,6 @@ impl HasInner for EthereumChain {
     type Inner = EthereumChainInner;
 }
 
-// === ChainTypes forwarding ===
 impl ChainTypes for EthereumChain {
     type Height = <EthereumChainInner as ChainTypes>::Height;
     type Timestamp = <EthereumChainInner as ChainTypes>::Timestamp;
@@ -70,7 +69,6 @@ impl ChainTypes for EthereumChain {
     }
 }
 
-// === IbcTypes forwarding ===
 impl IbcTypes for EthereumChain {
     type ClientState = <EthereumChainInner as IbcTypes>::ClientState;
     type ConsensusState = <EthereumChainInner as IbcTypes>::ConsensusState;
@@ -91,7 +89,6 @@ impl IbcTypes for EthereumChain {
     }
 }
 
-// === MessageSender forwarding ===
 #[async_trait]
 impl MessageSender for EthereumChain {
     async fn send_messages(
@@ -102,7 +99,6 @@ impl MessageSender for EthereumChain {
     }
 }
 
-// === ChainStatusQuery forwarding ===
 #[async_trait]
 impl ChainStatusQuery for EthereumChain {
     async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
@@ -110,7 +106,6 @@ impl ChainStatusQuery for EthereumChain {
     }
 }
 
-// === PacketStateQuery forwarding ===
 #[async_trait]
 impl PacketStateQuery for EthereumChain {
     async fn query_packet_commitment(
@@ -155,7 +150,6 @@ impl PacketStateQuery for EthereumChain {
     }
 }
 
-// === PacketEvents forwarding ===
 #[async_trait]
 impl PacketEvents for EthereumChain {
     type SendPacketEvent = <EthereumChainInner as PacketEvents>::SendPacketEvent;
@@ -187,7 +181,6 @@ impl PacketEvents for EthereumChain {
     }
 }
 
-// === ClientPayloadBuilder<C> forwarding (generic) ===
 #[async_trait]
 impl<C: ChainTypes> ClientPayloadBuilder<C> for EthereumChain
 where
@@ -215,7 +208,6 @@ where
     }
 }
 
-// === ClientQuery<EthereumChainInner> forwarding (same-chain) ===
 #[async_trait]
 impl ClientQuery<EthereumChainInner> for EthereumChain {
     async fn query_client_state(
@@ -246,7 +238,6 @@ impl ClientQuery<EthereumChainInner> for EthereumChain {
     }
 }
 
-// === ClientMessageBuilder<EthereumChainInner> forwarding (same-chain) ===
 #[async_trait]
 impl ClientMessageBuilder<EthereumChainInner> for EthereumChain
 where
@@ -288,7 +279,6 @@ where
     }
 }
 
-// === PacketMessageBuilder<EthereumChainInner> forwarding (same-chain) ===
 #[async_trait]
 impl PacketMessageBuilder<EthereumChainInner> for EthereumChain
 where

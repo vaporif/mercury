@@ -5016,6 +5016,7 @@ dependencies = [
  "mercury-ethereum",
  "prost 0.13.5",
  "tendermint",
+ "tracing",
 ]
 
 [[package]]

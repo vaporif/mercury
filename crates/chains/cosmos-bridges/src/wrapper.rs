@@ -37,7 +37,6 @@ impl<S: CosmosSigner> HasInner for CosmosChain<S> {
     type Inner = CosmosChainInner<S>;
 }
 
-// === ChainTypes forwarding ===
 impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
     type Height = <CosmosChainInner<S> as ChainTypes>::Height;
     type Timestamp = <CosmosChainInner<S> as ChainTypes>::Timestamp;
@@ -71,7 +70,6 @@ impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
     }
 }
 
-// === IbcTypes forwarding ===
 impl<S: CosmosSigner> IbcTypes for CosmosChain<S> {
     type ClientState = <CosmosChainInner<S> as IbcTypes>::ClientState;
     type ConsensusState = <CosmosChainInner<S> as IbcTypes>::ConsensusState;
@@ -92,7 +90,6 @@ impl<S: CosmosSigner> IbcTypes for CosmosChain<S> {
     }
 }
 
-// === MessageSender forwarding ===
 #[async_trait]
 impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
     async fn send_messages(
@@ -103,7 +100,6 @@ impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
     }
 }
 
-// === ChainStatusQuery forwarding ===
 #[async_trait]
 impl<S: CosmosSigner> ChainStatusQuery for CosmosChain<S> {
     async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
@@ -111,7 +107,6 @@ impl<S: CosmosSigner> ChainStatusQuery for CosmosChain<S> {
     }
 }
 
-// === PacketStateQuery forwarding ===
 #[async_trait]
 impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
     async fn query_packet_commitment(
@@ -156,7 +151,6 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
     }
 }
 
-// === PacketEvents forwarding ===
 #[async_trait]
 impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
     type SendPacketEvent = <CosmosChainInner<S> as PacketEvents>::SendPacketEvent;
@@ -188,7 +182,6 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
     }
 }
 
-// === ClientPayloadBuilder<C> forwarding (generic) ===
 #[async_trait]
 impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S>
 where
@@ -218,7 +211,6 @@ where
     }
 }
 
-// === ClientQuery<CosmosChainInner<S>> forwarding (same-chain) ===
 #[async_trait]
 impl<S: CosmosSigner> ClientQuery<CosmosChainInner<S>> for CosmosChain<S> {
     async fn query_client_state(
@@ -249,7 +241,6 @@ impl<S: CosmosSigner> ClientQuery<CosmosChainInner<S>> for CosmosChain<S> {
     }
 }
 
-// === ClientMessageBuilder<CosmosChainInner<S>> forwarding (same-chain) ===
 #[async_trait]
 impl<S: CosmosSigner> ClientMessageBuilder<CosmosChainInner<S>> for CosmosChain<S>
 where
@@ -291,7 +282,6 @@ where
     }
 }
 
-// === PacketMessageBuilder<CosmosChainInner<S>> forwarding (same-chain) ===
 #[async_trait]
 impl<S: CosmosSigner> PacketMessageBuilder<CosmosChainInner<S>> for CosmosChain<S>
 where
@@ -335,7 +325,6 @@ where
     }
 }
 
-// === MisbehaviourDetector<CosmosChainInner<S>> forwarding ===
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourDetector<CosmosChainInner<S>> for CosmosChain<S>
 where
@@ -360,7 +349,6 @@ where
     }
 }
 
-// === MisbehaviourMessageBuilder<CosmosChainInner<S>> forwarding ===
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChainInner<S>> for CosmosChain<S>
 where
@@ -379,7 +367,6 @@ where
     }
 }
 
-// === MisbehaviourQuery<CosmosChainInner<S>> forwarding ===
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourQuery<CosmosChainInner<S>> for CosmosChain<S>
 where

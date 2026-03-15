@@ -331,7 +331,8 @@ impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChainInner<S> {
         revision: u64,
     ) -> Result<CosmosMessage> {
         let acknowledgement =
-            channel::Acknowledgement::decode(ack.0.as_slice()).unwrap_or_else(|_| {
+            channel::Acknowledgement::decode(ack.0.as_slice()).unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "ack proto decode failed, treating raw bytes as single app-ack");
                 channel::Acknowledgement {
                     app_acknowledgements: vec![ack.0.clone()],
                 }

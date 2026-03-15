@@ -347,17 +347,13 @@ fn build_signer_from_wallet(
     ))
 }
 
-async fn build_cosmos_chain_with_wallet(
-    handle: &CosmosDockerHandle,
-    wallet: &crate::bootstrap::traits::Wallet,
-) -> Result<CosmosChain<Secp256k1KeyPair>> {
-    let signer = build_signer_from_wallet(wallet, "cosmos")?;
-    let config = CosmosChainConfig {
+fn make_test_cosmos_config(handle: &CosmosDockerHandle, key_name: &str) -> CosmosChainConfig {
+    CosmosChainConfig {
         chain_id: handle.chain_id().to_string(),
         rpc_addr: handle.rpc_endpoint().to_string(),
         grpc_addr: handle.grpc_endpoint().to_string(),
         account_prefix: "cosmos".to_string(),
-        key_name: "user".to_string(),
+        key_name: key_name.to_string(),
         key_file: std::path::PathBuf::new(),
         gas_price: GasPrice {
             amount: 0.0,
@@ -374,38 +370,22 @@ async fn build_cosmos_chain_with_wallet(
         fee_granter: None,
         dynamic_gas_price: None,
         max_tx_size: None,
-    };
-    CosmosChain::new(config, signer)
+    }
+}
+
+async fn build_cosmos_chain_with_wallet(
+    handle: &CosmosDockerHandle,
+    wallet: &crate::bootstrap::traits::Wallet,
+) -> Result<CosmosChain<Secp256k1KeyPair>> {
+    let signer = build_signer_from_wallet(wallet, "cosmos")?;
+    CosmosChain::new(make_test_cosmos_config(handle, "user"), signer)
         .await
         .map_err(|e| eyre::eyre!("{e}"))
 }
 
 async fn build_cosmos_chain(handle: &CosmosDockerHandle) -> Result<CosmosChain<Secp256k1KeyPair>> {
     let signer = build_signer_from_wallet(handle.relayer_wallet(), "cosmos")?;
-    let config = CosmosChainConfig {
-        chain_id: handle.chain_id().to_string(),
-        rpc_addr: handle.rpc_endpoint().to_string(),
-        grpc_addr: handle.grpc_endpoint().to_string(),
-        account_prefix: "cosmos".to_string(),
-        key_name: "relayer".to_string(),
-        key_file: std::path::PathBuf::new(),
-        gas_price: GasPrice {
-            amount: 0.0,
-            denom: "stake".to_string(),
-        },
-        block_time: Duration::from_secs(1),
-        max_msg_num: 30,
-        trusting_period: None,
-        unbonding_period: None,
-        max_clock_drift: None,
-        gas_multiplier: None,
-        max_gas: None,
-        default_gas: None,
-        fee_granter: None,
-        dynamic_gas_price: None,
-        max_tx_size: None,
-    };
-    CosmosChain::new(config, signer)
+    CosmosChain::new(make_test_cosmos_config(handle, "relayer"), signer)
         .await
         .map_err(|e| eyre::eyre!("{e}"))
 }

@@ -69,7 +69,7 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     ) -> Result<Self::Message>;
 
     /// Enriches the update client payload with membership proof entries for batched proving.
-    /// Default is a no-op. Ethereum's SP1 impl fills membership proofs.
+    /// Called before `build_update_client_message`. Default is a no-op.
     fn enrich_update_payload(
         &self,
         _payload: &mut Self::UpdateClientPayload,
@@ -78,9 +78,7 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     }
 
     /// Post-process a batch of update and packet messages before sending.
-    /// Called after both update and packet messages are built.
-    /// Default is a no-op. Ethereum overrides to inject combined membership
-    /// proofs into the first packet message's proof field.
+    /// Called after both update and packet messages are built. Default is a no-op.
     fn finalize_batch(
         &self,
         _update_output: &mut UpdateClientOutput<Self::Message>,

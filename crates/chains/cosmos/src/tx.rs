@@ -584,9 +584,9 @@ impl<S: CosmosSigner> MessageSender for CosmosChainInner<S> {
         }
 
         if batches.len() == 1 {
-            return self
-                .send_single_batch(batches.into_iter().next().unwrap())
-                .await;
+            // SAFETY: just checked len == 1
+            let batch = batches.into_iter().next().expect("checked len");
+            return self.send_single_batch(batch).await;
         }
 
         self.send_parallel_batches(batches).await
