@@ -1,9 +1,8 @@
 use async_trait::async_trait;
 
 use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
-use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery};
-use mercury_chain_traits::relay::{ClientUpdater, Relay};
-use mercury_chain_traits::types::{ChainTypes, IbcTypes, MessageSender};
+use mercury_chain_traits::queries::ClientQuery;
+use mercury_chain_traits::relay::{ClientUpdater, Relay, RelayChain};
 use mercury_core::error::Result;
 
 use crate::context::RelayContext;
@@ -11,11 +10,8 @@ use crate::context::RelayContext;
 #[async_trait]
 impl<Src, Dst> ClientUpdater for RelayContext<Src, Dst>
 where
-    Src: ChainTypes + ChainStatusQuery + ClientPayloadBuilder<Dst>,
-    Dst: ChainTypes
-        + ChainStatusQuery
-        + MessageSender
-        + IbcTypes
+    Src: RelayChain + ClientPayloadBuilder<Dst>,
+    Dst: RelayChain
         + ClientMessageBuilder<
             Src,
             UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,

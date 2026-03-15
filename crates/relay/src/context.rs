@@ -6,11 +6,9 @@ use mercury_chain_traits::builders::{
     PacketMessageBuilder,
 };
 use mercury_chain_traits::events::PacketEvents;
-use mercury_chain_traits::queries::{
-    ChainStatusQuery, ClientQuery, MisbehaviourQuery, PacketStateQuery,
-};
-use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::{ChainTypes, IbcTypes, MessageSender};
+use mercury_chain_traits::queries::{ClientQuery, MisbehaviourQuery};
+use mercury_chain_traits::relay::{Relay, RelayChain};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
@@ -45,23 +43,13 @@ pub struct RelayContext<Src: ChainTypes, Dst: ChainTypes> {
 
 impl<Src, Dst> Relay for RelayContext<Src, Dst>
 where
-    Src: ChainTypes
-        + ChainStatusQuery
-        + MessageSender
-        + IbcTypes
-        + ClientPayloadBuilder<Dst>
-        + PacketEvents
-        + PacketStateQuery,
-    Dst: ChainTypes
-        + ChainStatusQuery
-        + MessageSender
-        + IbcTypes
+    Src: RelayChain + ClientPayloadBuilder<Dst> + PacketEvents,
+    Dst: RelayChain
         + ClientMessageBuilder<
             Src,
             CreateClientPayload = <Src as ClientPayloadBuilder<Dst>>::CreateClientPayload,
             UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,
         > + ClientQuery<Src>
-        + PacketStateQuery
         + PacketMessageBuilder<Src>
         + ClientPayloadBuilder<Src>,
 {
@@ -87,13 +75,9 @@ where
 
 impl<Src, Dst> RelayContext<Src, Dst>
 where
-    Src: ChainTypes
-        + ChainStatusQuery
-        + MessageSender
-        + IbcTypes
+    Src: RelayChain
         + ClientPayloadBuilder<Dst>
         + PacketEvents
-        + PacketStateQuery
         + PacketMessageBuilder<Dst>
         + ClientQuery<Dst>
         + ClientMessageBuilder<
@@ -101,17 +85,13 @@ where
             CreateClientPayload = <Dst as ClientPayloadBuilder<Src>>::CreateClientPayload,
             UpdateClientPayload = <Dst as ClientPayloadBuilder<Src>>::UpdateClientPayload,
         > + MisbehaviourDetector<Dst, CounterpartyClientState = <Dst as IbcTypes>::ClientState>,
-    Dst: ChainTypes
-        + ChainStatusQuery
-        + MessageSender
-        + IbcTypes
+    Dst: RelayChain
         + ClientMessageBuilder<
             Src,
             CreateClientPayload = <Src as ClientPayloadBuilder<Dst>>::CreateClientPayload,
             UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,
         > + ClientQuery<Src>
         + PacketEvents
-        + PacketStateQuery
         + PacketMessageBuilder<Src>
         + ClientPayloadBuilder<Src>
         + MisbehaviourQuery<

@@ -7,26 +7,27 @@ use crate::events::PacketEvents;
 use crate::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use crate::types::{ChainTypes, IbcTypes, MessageSender};
 
+/// Common bounds shared by all chains participating in a relay.
+pub trait RelayChain:
+    ChainTypes + ChainStatusQuery + MessageSender + IbcTypes + PacketStateQuery
+{
+}
+
+impl<T: ChainTypes + ChainStatusQuery + MessageSender + IbcTypes + PacketStateQuery> RelayChain
+    for T
+{
+}
+
 /// A unidirectional relay context between a source and destination chain.
 pub trait Relay: ThreadSafe {
-    type SrcChain: ChainTypes
-        + ChainStatusQuery
-        + MessageSender
-        + IbcTypes
-        + ClientPayloadBuilder<Self::DstChain>
-        + PacketEvents
-        + PacketStateQuery;
-    type DstChain: ChainTypes
-        + ChainStatusQuery
-        + MessageSender
-        + IbcTypes
+    type SrcChain: RelayChain + ClientPayloadBuilder<Self::DstChain> + PacketEvents;
+    type DstChain: RelayChain
         + ClientMessageBuilder<
             Self::SrcChain,
             CreateClientPayload = <Self::SrcChain as ClientPayloadBuilder<Self::DstChain>>::CreateClientPayload,
             UpdateClientPayload = <Self::SrcChain as ClientPayloadBuilder<Self::DstChain>>::UpdateClientPayload,
         >
         + ClientQuery<Self::SrcChain>
-        + PacketStateQuery
         + PacketMessageBuilder<Self::SrcChain>
         + ClientPayloadBuilder<Self::SrcChain>;
 
