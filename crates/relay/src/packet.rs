@@ -14,21 +14,6 @@ where
     Src: RelayChain + PacketMessageBuilder<Dst>,
     Dst: RelayChain + PacketMessageBuilder<Src>,
     Self: Relay<SrcChain = Src, DstChain = Dst>,
-    <Dst as PacketMessageBuilder<Src>>::ReceivePacketPayload: From<(
-        <Src as IbcTypes>::CommitmentProof,
-        <Src as ChainTypes>::Height,
-        u64,
-    )>,
-    <Dst as PacketMessageBuilder<Src>>::AckPacketPayload: From<(
-        <Src as IbcTypes>::CommitmentProof,
-        <Src as ChainTypes>::Height,
-        u64,
-    )>,
-    <Src as PacketMessageBuilder<Dst>>::TimeoutPacketPayload: From<(
-        <Dst as IbcTypes>::CommitmentProof,
-        <Dst as ChainTypes>::Height,
-        u64,
-    )>,
 {
     #[instrument(skip_all, name = "build_receive_packet", fields(seq = Src::packet_sequence(packet)))]
     async fn build_receive_packet_messages(
@@ -49,11 +34,10 @@ where
         }
 
         let revision = self.src_chain().revision_number();
-        let payload = (proof, proof_height.clone(), revision).into();
 
         let msg = self
             .dst_chain()
-            .build_receive_packet_message(packet, payload)
+            .build_receive_packet_message(packet, proof, proof_height.clone(), revision)
             .await?;
 
         Ok(vec![msg])
@@ -79,11 +63,10 @@ where
         }
 
         let revision = self.src_chain().revision_number();
-        let payload = (proof, proof_height.clone(), revision).into();
 
         let msg = self
             .dst_chain()
-            .build_ack_packet_message(packet, ack, payload)
+            .build_ack_packet_message(packet, ack, proof, proof_height.clone(), revision)
             .await?;
 
         Ok(vec![msg])
@@ -111,11 +94,10 @@ where
         }
 
         let revision = self.dst_chain().revision_number();
-        let payload = (proof, proof_height.clone(), revision).into();
 
         let msg = self
             .src_chain()
-            .build_timeout_packet_message(packet, payload)
+            .build_timeout_packet_message(packet, proof, proof_height.clone(), revision)
             .await?;
 
         Ok(vec![msg])

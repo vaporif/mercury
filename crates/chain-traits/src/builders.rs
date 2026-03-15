@@ -83,26 +83,28 @@ pub trait MisbehaviourMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
 /// Builds receive, ack, and timeout packet messages.
 #[async_trait]
 pub trait PacketMessageBuilder<Counterparty: IbcTypes>: IbcTypes {
-    type ReceivePacketPayload: ThreadSafe;
-    type AckPacketPayload: ThreadSafe;
-    type TimeoutPacketPayload: ThreadSafe;
-
     async fn build_receive_packet_message(
         &self,
         packet: &<Counterparty as IbcTypes>::Packet,
-        payload: Self::ReceivePacketPayload,
+        proof: <Counterparty as IbcTypes>::CommitmentProof,
+        proof_height: <Counterparty as ChainTypes>::Height,
+        revision: u64,
     ) -> Result<Self::Message>;
 
     async fn build_ack_packet_message(
         &self,
         packet: &<Counterparty as IbcTypes>::Packet,
         ack: &<Counterparty as IbcTypes>::Acknowledgement,
-        payload: Self::AckPacketPayload,
+        proof: <Counterparty as IbcTypes>::CommitmentProof,
+        proof_height: <Counterparty as ChainTypes>::Height,
+        revision: u64,
     ) -> Result<Self::Message>;
 
     async fn build_timeout_packet_message(
         &self,
         packet: &Self::Packet,
-        payload: Self::TimeoutPacketPayload,
+        proof: <Counterparty as IbcTypes>::CommitmentProof,
+        proof_height: <Counterparty as ChainTypes>::Height,
+        revision: u64,
     ) -> Result<Self::Message>;
 }

@@ -101,22 +101,6 @@ where
             Src,
             MisbehaviourEvidence = <Src as MisbehaviourDetector<Dst>>::MisbehaviourEvidence,
         >,
-    // Payload From bounds
-    <Dst as PacketMessageBuilder<Src>>::ReceivePacketPayload: From<(
-        <Src as IbcTypes>::CommitmentProof,
-        <Src as ChainTypes>::Height,
-        u64,
-    )>,
-    <Dst as PacketMessageBuilder<Src>>::AckPacketPayload: From<(
-        <Src as IbcTypes>::CommitmentProof,
-        <Src as ChainTypes>::Height,
-        u64,
-    )>,
-    <Src as PacketMessageBuilder<Dst>>::TimeoutPacketPayload: From<(
-        <Dst as IbcTypes>::CommitmentProof,
-        <Dst as ChainTypes>::Height,
-        u64,
-    )>,
 {
     pub async fn run_with_token(
         self: Arc<Self>,

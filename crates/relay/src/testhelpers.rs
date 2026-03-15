@@ -357,14 +357,12 @@ impl PacketStateQuery for MockChain {
 
 #[async_trait]
 impl PacketMessageBuilder<MockChain> for MockChain {
-    type ReceivePacketPayload = ();
-    type AckPacketPayload = ();
-    type TimeoutPacketPayload = ();
-
     async fn build_receive_packet_message(
         &self,
         _packet: &MockPacket,
-        _payload: (),
+        _proof: MockCommitmentProof,
+        _proof_height: u64,
+        _revision: u64,
     ) -> Result<MockMsg> {
         Ok(MockMsg)
     }
@@ -372,14 +370,18 @@ impl PacketMessageBuilder<MockChain> for MockChain {
         &self,
         _packet: &MockPacket,
         _ack: &(),
-        _payload: (),
+        _proof: MockCommitmentProof,
+        _proof_height: u64,
+        _revision: u64,
     ) -> Result<MockMsg> {
         Ok(MockMsg)
     }
     async fn build_timeout_packet_message(
         &self,
         _packet: &MockPacket,
-        _payload: (),
+        _proof: MockCommitmentProof,
+        _proof_height: u64,
+        _revision: u64,
     ) -> Result<MockMsg> {
         Ok(MockMsg)
     }
