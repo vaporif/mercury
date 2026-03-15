@@ -6,6 +6,8 @@ ignore = [
   "RUSTSEC-2025-0134",
   # paste unmaintained — transitive dependency, waiting on upstream to switch to pastey
   "RUSTSEC-2024-0436",
+  # number_prefix unmaintained — transitive via indicatif -> sp1-sdk, waiting on upstream
+  "RUSTSEC-2025-0119",
 ]
 
 [licenses]
@@ -24,6 +26,7 @@ allow = [
   "Zlib",
   "BlueOak-1.0.0",
   "OpenSSL",
+  "MPL-2.0",
 ]
 confidence-threshold = 0.8
 
@@ -47,6 +50,12 @@ license-files = []
 [[licenses.clarify]]
 crate = "ethereum-types"
 expression = "Apache-2.0"
+license-files = []
+
+# halo2 doesn't set license in Cargo.toml but the repo is MIT/Apache-2.0
+[[licenses.clarify]]
+crate = "halo2"
+expression = "MIT OR Apache-2.0"
 license-files = []
 
 [bans]
