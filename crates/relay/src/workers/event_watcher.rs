@@ -6,8 +6,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, warn};
 
-use mercury_chain_traits::prelude::*;
+use mercury_chain_traits::events::PacketEvents;
+use mercury_chain_traits::queries::ChainStatusQuery;
 use mercury_chain_traits::relay::{IbcEvent, Relay};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -75,15 +77,11 @@ impl<R: Relay> Worker for EventWatcher<R> {
                 let mut ibc_events = Vec::new();
                 for event in &block_events {
                     if let Some(send) =
-                        <R::SrcChain as PacketEvents<R::DstChain>>::try_extract_send_packet_event(
-                            event,
-                        )
+                        <R::SrcChain as PacketEvents>::try_extract_send_packet_event(event)
                     {
                         ibc_events.push(IbcEvent::SendPacket(send));
                     } else if let Some(write_ack) =
-                        <R::SrcChain as PacketEvents<R::DstChain>>::try_extract_write_ack_event(
-                            event,
-                        )
+                        <R::SrcChain as PacketEvents>::try_extract_write_ack_event(event)
                     {
                         ibc_events.push(IbcEvent::WriteAck(write_ack));
                     }
@@ -91,26 +89,18 @@ impl<R: Relay> Worker for EventWatcher<R> {
 
                 if let Some(ref filter) = self.packet_filter {
                     ibc_events.retain(|event| {
-                        let packet =
-                            match event {
-                                IbcEvent::SendPacket(e) => <R::SrcChain as PacketEvents<
-                                    R::DstChain,
-                                >>::packet_from_send_event(
-                                    e
-                                ),
-                                IbcEvent::WriteAck(e) => <R::SrcChain as PacketEvents<
-                                    R::DstChain,
-                                >>::packet_from_write_ack_event(
-                                    e
-                                )
-                                .0,
-                            };
-                        let ports =
-                            <R::SrcChain as IbcTypes<R::DstChain>>::packet_source_ports(packet);
+                        let packet = match event {
+                            IbcEvent::SendPacket(e) => {
+                                <R::SrcChain as PacketEvents>::packet_from_send_event(e)
+                            }
+                            IbcEvent::WriteAck(e) => {
+                                <R::SrcChain as PacketEvents>::packet_from_write_ack_event(e).0
+                            }
+                        };
+                        let ports = <R::SrcChain as IbcTypes>::packet_source_ports(packet);
                         let allowed = filter.allows(&ports);
                         if !allowed {
-                            let seq =
-                                <R::SrcChain as IbcTypes<R::DstChain>>::packet_sequence(packet);
+                            let seq = <R::SrcChain as IbcTypes>::packet_sequence(packet);
                             debug!(seq, ?ports, "packet filtered out");
                         }
                         allowed

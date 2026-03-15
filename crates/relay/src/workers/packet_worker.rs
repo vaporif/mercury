@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -8,8 +7,12 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, warn};
 
-use mercury_chain_traits::prelude::*;
+use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
+use mercury_chain_traits::events::PacketEvents;
+use mercury_chain_traits::inner::HasInner;
+use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_chain_traits::relay::{IbcEvent, Relay, RelayPacketBuilder};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -42,8 +45,16 @@ struct PendingSend<E> {
 impl<R> PacketWorker<R>
 where
     R: Relay + RelayPacketBuilder,
-    <R::SrcChain as IbcTypes<R::DstChain>>::Acknowledgement:
-        Borrow<<R::DstChain as IbcTypes<R::SrcChain>>::Acknowledgement>,
+    R::SrcChain: ClientQuery<<R::DstChain as HasInner>::Inner>
+        + ClientMessageBuilder<
+            <R::DstChain as HasInner>::Inner,
+            CreateClientPayload = <R::DstChain as ClientPayloadBuilder<
+                <R::SrcChain as HasInner>::Inner,
+            >>::CreateClientPayload,
+            UpdateClientPayload = <R::DstChain as ClientPayloadBuilder<
+                <R::SrcChain as HasInner>::Inner,
+            >>::UpdateClientPayload,
+        >,
 {
     #[instrument(skip_all, name = "build_dst_update_client")]
     async fn build_dst_update_client_messages(
@@ -130,7 +141,6 @@ where
         src_height: &<R::SrcChain as ChainTypes>::Height,
     ) -> BuildMessagesResult<<R::DstChain as ChainTypes>::Message, R> {
         type SrcChain<R> = <R as Relay>::SrcChain;
-        type DstChain<R> = <R as Relay>::DstChain;
 
         let relay = &self.relay;
 
@@ -139,9 +149,7 @@ where
                 let relay = relay.clone();
                 let src_height = src_height.clone();
                 async move {
-                    let pkt = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
-                        &ps.event,
-                    );
+                    let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
                     let result = retry_proof_fetch(|| async {
                         relay.build_receive_packet_messages(pkt, &src_height).await
                     })
@@ -184,7 +192,6 @@ where
         dst_height: &<R::DstChain as ChainTypes>::Height,
     ) -> Vec<PendingSend<SendEvent<R>>> {
         type SrcChain<R> = <R as Relay>::SrcChain;
-        type DstChain<R> = <R as Relay>::DstChain;
 
         let relay = &self.relay;
 
@@ -193,10 +200,8 @@ where
                 let relay = relay.clone();
                 let dst_height = dst_height.clone();
                 async move {
-                    let pkt = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
-                        &ps.event,
-                    );
-                    let seq = <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_sequence(pkt);
+                    let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
+                    let seq = <SrcChain<R> as IbcTypes>::packet_sequence(pkt);
                     let result = relay
                         .dst_chain()
                         .query_packet_receipt(relay.dst_client_id(), seq, &dst_height)
@@ -237,7 +242,6 @@ where
         src_height: &<R::SrcChain as ChainTypes>::Height,
     ) -> (Vec<<R::DstChain as ChainTypes>::Message>, WriteAckEvents<R>) {
         type SrcChain<R> = <R as Relay>::SrcChain;
-        type DstChain<R> = <R as Relay>::DstChain;
 
         let relay = &self.relay;
 
@@ -246,12 +250,9 @@ where
                 let relay = relay.clone();
                 let src_height = src_height.clone();
                 async move {
-                    let (pkt, ack) =
-                        <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_write_ack_event(&e);
+                    let (pkt, ack) = <SrcChain<R> as PacketEvents>::packet_from_write_ack_event(&e);
                     let result = retry_proof_fetch(|| async {
-                        relay
-                            .build_ack_packet_messages(pkt, ack.borrow(), &src_height)
-                            .await
+                        relay.build_ack_packet_messages(pkt, ack, &src_height).await
                     })
                     .await;
                     (e, result)
@@ -287,7 +288,6 @@ where
         dst_height: &<R::DstChain as ChainTypes>::Height,
     ) -> BuildMessagesResult<<R::SrcChain as ChainTypes>::Message, R> {
         type SrcChain<R> = <R as Relay>::SrcChain;
-        type DstChain<R> = <R as Relay>::DstChain;
 
         let relay = &self.relay;
 
@@ -296,9 +296,7 @@ where
                 let relay = relay.clone();
                 let dst_height = dst_height.clone();
                 async move {
-                    let pkt = <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(
-                        &ps.event,
-                    );
+                    let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
                     let result = retry_proof_fetch(|| async {
                         relay.build_timeout_packet_messages(pkt, &dst_height).await
                     })
@@ -330,10 +328,8 @@ where
     }
 }
 
-type SendEvent<R> =
-    <<R as Relay>::SrcChain as PacketEvents<<R as Relay>::DstChain>>::SendPacketEvent;
-type WriteAckEvents<R> =
-    Vec<<<R as Relay>::SrcChain as PacketEvents<<R as Relay>::DstChain>>::WriteAckEvent>;
+type SendEvent<R> = <<R as Relay>::SrcChain as PacketEvents>::SendPacketEvent;
+type WriteAckEvents<R> = Vec<<<R as Relay>::SrcChain as PacketEvents>::WriteAckEvent>;
 
 #[instrument(skip_all, name = "retry_proof_fetch")]
 async fn retry_proof_fetch<F, Fut, T>(f: F) -> Result<T>
@@ -361,8 +357,16 @@ where
 impl<R> Worker for PacketWorker<R>
 where
     R: Relay + RelayPacketBuilder,
-    <R::SrcChain as IbcTypes<R::DstChain>>::Acknowledgement:
-        Borrow<<R::DstChain as IbcTypes<R::SrcChain>>::Acknowledgement>,
+    R::SrcChain: ClientQuery<<R::DstChain as HasInner>::Inner>
+        + ClientMessageBuilder<
+            <R::DstChain as HasInner>::Inner,
+            CreateClientPayload = <R::DstChain as ClientPayloadBuilder<
+                <R::SrcChain as HasInner>::Inner,
+            >>::CreateClientPayload,
+            UpdateClientPayload = <R::DstChain as ClientPayloadBuilder<
+                <R::SrcChain as HasInner>::Inner,
+            >>::UpdateClientPayload,
+        >,
 {
     fn name(&self) -> &'static str {
         "packet_worker"
@@ -456,11 +460,10 @@ where
             let mut timed_out = Vec::new();
 
             for ps in new_sends {
-                let pkt =
-                    <SrcChain<R> as PacketEvents<DstChain<R>>>::packet_from_send_event(&ps.event);
-                let ts = <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_timeout_timestamp(pkt);
+                let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
+                let ts = <SrcChain<R> as IbcTypes>::packet_timeout_timestamp(pkt);
                 if ts > 0 && dst_timestamp_secs >= ts {
-                    let seq = <SrcChain<R> as IbcTypes<DstChain<R>>>::packet_sequence(pkt);
+                    let seq = <SrcChain<R> as IbcTypes>::packet_sequence(pkt);
                     debug!(seq, "packet timed out, will relay timeout");
                     timed_out.push(ps);
                 } else {

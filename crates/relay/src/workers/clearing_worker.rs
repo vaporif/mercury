@@ -7,8 +7,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
-use mercury_chain_traits::prelude::*;
+use mercury_chain_traits::events::PacketEvents;
+use mercury_chain_traits::queries::{ChainStatusQuery, PacketStateQuery};
 use mercury_chain_traits::relay::{IbcEvent, Relay};
+use mercury_chain_traits::types::IbcTypes;
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -67,7 +69,6 @@ impl<R: Relay> ClearingWorker<R> {
         }
 
         let dst_client_id = self.relay.dst_client_id().clone();
-        let src_client_id = self.relay.src_client_id().clone();
 
         let unrelayed: Vec<u64> = stream::iter(commitment_seqs)
             .map(|seq| {
@@ -97,17 +98,15 @@ impl<R: Relay> ClearingWorker<R> {
             return Ok(());
         }
 
+        let src_client_id = self.relay.src_client_id().clone();
         let mut events: Vec<IbcEvent<R>> = Vec::new();
         for seq in &unrelayed {
             match src.query_send_packet_event(&src_client_id, *seq).await {
                 Ok(Some(send_event)) => {
                     if let Some(ref filter) = self.packet_filter {
                         let packet =
-                            <R::SrcChain as PacketEvents<R::DstChain>>::packet_from_send_event(
-                                &send_event,
-                            );
-                        let ports =
-                            <R::SrcChain as IbcTypes<R::DstChain>>::packet_source_ports(packet);
+                            <R::SrcChain as PacketEvents>::packet_from_send_event(&send_event);
+                        let ports = <R::SrcChain as IbcTypes>::packet_source_ports(packet);
                         if !filter.allows(&ports) {
                             debug!(seq, ?ports, "cleared packet filtered out");
                             continue;

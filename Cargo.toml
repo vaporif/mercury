@@ -5,7 +5,9 @@ members = [
   "crates/core",
   "crates/chain-traits",
   "crates/chains/cosmos",
+  "crates/chains/cosmos-bridges",
   "crates/chains/ethereum",
+  "crates/chains/ethereum-bridges",
   "crates/relay",
   "crates/cli",
   "crates/e2e",
@@ -48,7 +50,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 mercury-core = { path = "crates/core" }
 mercury-chain-traits = { path = "crates/chain-traits" }
 mercury-cosmos = { path = "crates/chains/cosmos" }
+mercury-cosmos-bridges = { path = "crates/chains/cosmos-bridges" }
 mercury-ethereum = { path = "crates/chains/ethereum" }
+mercury-ethereum-bridges = { path = "crates/chains/ethereum-bridges" }
 mercury-relay = { path = "crates/relay" }
 mercury-cli = { path = "crates/cli" }
 

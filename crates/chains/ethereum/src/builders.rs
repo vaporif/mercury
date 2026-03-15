@@ -4,9 +4,9 @@ use async_trait::async_trait;
 use mercury_chain_traits::builders::PacketMessageBuilder;
 use mercury_core::error::Result;
 
-use crate::chain::EthereumChain;
+use crate::chain::EthereumChainInner;
 use crate::contracts::{ICS26Router, IICS02ClientMsgs, IICS26RouterMsgs};
-use crate::types::{EvmAcknowledgement, EvmHeight, EvmMessage, EvmPacket};
+use crate::types::{EvmAcknowledgement, EvmCommitmentProof, EvmHeight, EvmMessage, EvmPacket};
 
 #[derive(Clone, Debug)]
 pub struct CreateClientPayload {
@@ -19,24 +19,6 @@ pub struct CreateClientPayload {
 #[derive(Clone, Debug)]
 pub struct UpdateClientPayload {
     pub headers: Vec<Vec<u8>>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ReceivePacketPayload {
-    pub proof_commitment: Vec<u8>,
-    pub proof_height: EvmHeight,
-}
-
-#[derive(Clone, Debug)]
-pub struct AckPacketPayload {
-    pub proof_acked: Vec<u8>,
-    pub proof_height: EvmHeight,
-}
-
-#[derive(Clone, Debug)]
-pub struct TimeoutPacketPayload {
-    pub proof_timeout: Vec<u8>,
-    pub proof_height: EvmHeight,
 }
 
 fn evm_packet_to_sol(packet: &EvmPacket) -> IICS26RouterMsgs::Packet {
@@ -59,24 +41,34 @@ fn evm_packet_to_sol(packet: &EvmPacket) -> IICS26RouterMsgs::Packet {
     }
 }
 
-#[async_trait]
-impl PacketMessageBuilder<Self> for EthereumChain {
-    type ReceivePacketPayload = ReceivePacketPayload;
-    type AckPacketPayload = AckPacketPayload;
-    type TimeoutPacketPayload = TimeoutPacketPayload;
+fn encode_evm_proof(proof: EvmCommitmentProof) -> Vec<u8> {
+    use alloy::sol_types::SolValue;
+    (
+        proof.storage_root,
+        proof.account_proof,
+        proof.storage_key,
+        proof.storage_value,
+        proof.storage_proof,
+    )
+        .abi_encode()
+}
 
+#[async_trait]
+impl PacketMessageBuilder<Self> for EthereumChainInner {
     async fn build_receive_packet_message(
         &self,
         packet: &EvmPacket,
-        payload: ReceivePacketPayload,
+        proof: EvmCommitmentProof,
+        proof_height: EvmHeight,
+        revision: u64,
     ) -> Result<EvmMessage> {
         let call = ICS26Router::recvPacketCall {
             msg_: IICS26RouterMsgs::MsgRecvPacket {
                 packet: evm_packet_to_sol(packet),
-                proofCommitment: payload.proof_commitment.into(),
+                proofCommitment: encode_evm_proof(proof).into(),
                 proofHeight: IICS02ClientMsgs::Height {
-                    revisionNumber: 0,
-                    revisionHeight: payload.proof_height.0,
+                    revisionNumber: revision,
+                    revisionHeight: proof_height.0,
                 },
             },
         };
@@ -92,16 +84,18 @@ impl PacketMessageBuilder<Self> for EthereumChain {
         &self,
         packet: &EvmPacket,
         ack: &EvmAcknowledgement,
-        payload: AckPacketPayload,
+        proof: EvmCommitmentProof,
+        proof_height: EvmHeight,
+        revision: u64,
     ) -> Result<EvmMessage> {
         let call = ICS26Router::ackPacketCall {
             msg_: IICS26RouterMsgs::MsgAckPacket {
                 packet: evm_packet_to_sol(packet),
                 acknowledgement: ack.0.clone().into(),
-                proofAcked: payload.proof_acked.into(),
+                proofAcked: encode_evm_proof(proof).into(),
                 proofHeight: IICS02ClientMsgs::Height {
-                    revisionNumber: 0,
-                    revisionHeight: payload.proof_height.0,
+                    revisionNumber: revision,
+                    revisionHeight: proof_height.0,
                 },
             },
         };
@@ -116,15 +110,17 @@ impl PacketMessageBuilder<Self> for EthereumChain {
     async fn build_timeout_packet_message(
         &self,
         packet: &EvmPacket,
-        payload: TimeoutPacketPayload,
+        proof: EvmCommitmentProof,
+        proof_height: EvmHeight,
+        revision: u64,
     ) -> Result<EvmMessage> {
         let call = ICS26Router::timeoutPacketCall {
             msg_: IICS26RouterMsgs::MsgTimeoutPacket {
                 packet: evm_packet_to_sol(packet),
-                proofTimeout: payload.proof_timeout.into(),
+                proofTimeout: encode_evm_proof(proof).into(),
                 proofHeight: IICS02ClientMsgs::Height {
-                    revisionNumber: 0,
-                    revisionHeight: payload.proof_height.0,
+                    revisionNumber: revision,
+                    revisionHeight: proof_height.0,
                 },
             },
         };

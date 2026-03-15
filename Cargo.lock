@@ -4949,8 +4949,8 @@ dependencies = [
  "futures",
  "ibc",
  "mercury-core",
- "mercury-cosmos",
- "mercury-ethereum",
+ "mercury-cosmos-bridges",
+ "mercury-ethereum-bridges",
  "mercury-relay",
  "serde",
  "tokio",
@@ -5003,6 +5003,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mercury-cosmos-bridges"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "alloy",
+ "async-trait",
+ "eyre",
+ "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
+ "mercury-chain-traits",
+ "mercury-core",
+ "mercury-cosmos",
+ "mercury-ethereum",
+ "prost 0.13.5",
+ "tendermint",
+]
+
+[[package]]
 name = "mercury-e2e"
 version = "0.1.0-alpha.2"
 dependencies = [
@@ -5014,7 +5030,7 @@ dependencies = [
  "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
  "mercury-chain-traits",
  "mercury-core",
- "mercury-cosmos",
+ "mercury-cosmos-bridges",
  "mercury-relay",
  "prost 0.13.5",
  "secp256k1 0.31.1",
@@ -5067,6 +5083,31 @@ dependencies = [
  "tracing",
  "url",
  "zeroize",
+]
+
+[[package]]
+name = "mercury-ethereum-bridges"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "alloy",
+ "async-trait",
+ "eyre",
+ "hex",
+ "ibc-client-tendermint",
+ "ibc-eureka-solidity-types",
+ "ibc-proto 0.51.1",
+ "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
+ "mercury-chain-traits",
+ "mercury-core",
+ "mercury-cosmos",
+ "mercury-ethereum",
+ "prost 0.13.5",
+ "sha2 0.10.9",
+ "sp1-ics07-tendermint-prover",
+ "sp1-prover",
+ "sp1-sdk",
+ "tendermint",
+ "tracing",
 ]
 
 [[package]]

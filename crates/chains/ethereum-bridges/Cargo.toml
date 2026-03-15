@@ -1,0 +1,56 @@
+[package]
+name = "mercury-ethereum-bridges"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+mercury-core = { workspace = true }
+mercury-chain-traits = { workspace = true }
+mercury-ethereum = { workspace = true }
+
+async-trait = { workspace = true }
+eyre = { workspace = true }
+alloy = { workspace = true }
+tracing = { workspace = true }
+
+# Cross-chain (optional)
+mercury-cosmos = { workspace = true, optional = true }
+tendermint = { workspace = true, optional = true }
+
+# SP1 prover (optional, heavy deps)
+sp1-ics07-tendermint-prover = { workspace = true, optional = true }
+ibc-eureka-solidity-types = { workspace = true, optional = true }
+sp1-sdk = { workspace = true, optional = true }
+sp1-prover = { workspace = true, optional = true }
+ibc-proto = { workspace = true, optional = true }
+ibc-proto-eureka = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+ibc-client-tendermint = { workspace = true, optional = true }
+
+[features]
+cosmos-sp1 = [
+    "sp1",
+    "dep:mercury-cosmos",
+    "dep:tendermint",
+]
+sp1 = [
+    "mercury-ethereum/sp1",
+    "dep:sp1-ics07-tendermint-prover",
+    "dep:ibc-eureka-solidity-types",
+    "dep:sp1-sdk",
+    "dep:sp1-prover",
+    "dep:ibc-proto",
+    "dep:ibc-proto-eureka",
+    "dep:prost",
+    "dep:sha2",
+    "dep:hex",
+    "dep:ibc-client-tendermint",
+]

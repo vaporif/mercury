@@ -4,10 +4,10 @@ use eyre::{Context, Result, bail};
 use ibc::core::host::types::identifiers::ClientId;
 use ibc_proto::ibc::core::channel::v2::{MsgSendPacket, Payload};
 use mercury_chain_traits::prelude::*;
-use mercury_cosmos::chain::CosmosChain;
-use mercury_cosmos::config::{CosmosChainConfig, GasPrice};
-use mercury_cosmos::keys::Secp256k1KeyPair;
-use mercury_cosmos::types::{CosmosMessage, CosmosTxResponse};
+use mercury_cosmos_bridges::CosmosChain;
+use mercury_cosmos_bridges::config::{CosmosChainConfig, GasPrice};
+use mercury_cosmos_bridges::keys::Secp256k1KeyPair;
+use mercury_cosmos_bridges::types::{CosmosMessage, CosmosTxResponse};
 use prost::Message;
 use prost::Name as _;
 use sha2::{Digest, Sha256};
@@ -15,6 +15,8 @@ use tracing::info;
 
 use crate::bootstrap::cosmos_docker::CosmosDockerHandle;
 use crate::bootstrap::traits::ChainHandle;
+
+type Cosmos = CosmosChain<Secp256k1KeyPair>;
 
 pub struct TestContext {
     pub handle_a: CosmosDockerHandle,
@@ -32,8 +34,7 @@ impl TestContext {
 
         // Create client on chain B for chain A
         info!("creating IBC client on chain B for chain A");
-        let payload_a = cosmos_a
-            .build_create_client_payload()
+        let payload_a = ClientPayloadBuilder::<Cosmos>::build_create_client_payload(&cosmos_a)
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let msg_create_b = cosmos_b
@@ -49,8 +50,7 @@ impl TestContext {
 
         // Create client on chain A for chain B
         info!("creating IBC client on chain A for chain B");
-        let payload_b = cosmos_b
-            .build_create_client_payload()
+        let payload_b = ClientPayloadBuilder::<Cosmos>::build_create_client_payload(&cosmos_b)
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let msg_create_a = cosmos_a

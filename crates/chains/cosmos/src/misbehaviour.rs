@@ -17,7 +17,7 @@ use mercury_chain_traits::builders::{MisbehaviourDetector, MisbehaviourMessageBu
 use mercury_chain_traits::queries::MisbehaviourQuery;
 use mercury_core::error::Result;
 
-use crate::chain::CosmosChain;
+use crate::chain::CosmosChainInner;
 use crate::keys::CosmosSigner;
 use crate::queries::grpc_unary;
 use crate::types::{CosmosMessage, to_any};
@@ -30,16 +30,17 @@ pub struct CosmosMisbehaviourEvidence {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChainInner<S> {
     type UpdateHeader = TmIbcHeader;
     type MisbehaviourEvidence = CosmosMisbehaviourEvidence;
+    type CounterpartyClientState = TendermintClientState;
 
     #[instrument(skip_all, name = "check_for_misbehaviour")]
     async fn check_for_misbehaviour(
         &self,
-        client_id: &ClientId,
+        client_id: &Self::ClientId,
         update_header: &Self::UpdateHeader,
-        client_state: &TendermintClientState,
+        client_state: &Self::CounterpartyClientState,
     ) -> Result<Option<Self::MisbehaviourEvidence>> {
         if client_state.is_frozen() {
             tracing::info!("client is frozen, skipping misbehaviour check");
@@ -123,7 +124,9 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChainInner<S> {
+    type MisbehaviourEvidence = CosmosMisbehaviourEvidence;
+
     #[instrument(skip_all, name = "build_misbehaviour_message")]
     async fn build_misbehaviour_message(
         &self,
@@ -148,9 +151,14 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChain<S> {
 const CONSENSUS_HEIGHTS_LIMIT: u64 = 1000;
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChainInner<S> {
+    type CounterpartyUpdateHeader = TmIbcHeader;
+
     #[instrument(skip_all, name = "query_consensus_state_heights", fields(client_id = %client_id))]
-    async fn query_consensus_state_heights(&self, client_id: &ClientId) -> Result<Vec<TmHeight>> {
+    async fn query_consensus_state_heights(
+        &self,
+        client_id: &Self::ClientId,
+    ) -> Result<Vec<TmHeight>> {
         let pagination = Some(ibc_proto::cosmos::base::query::v1beta1::PageRequest {
             limit: CONSENSUS_HEIGHTS_LIMIT,
             reverse: true,

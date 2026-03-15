@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
-use mercury_cosmos::chain::CosmosChain;
-use mercury_cosmos::keys::{Secp256k1KeyPair, load_cosmos_signer};
-use mercury_ethereum::chain::EthereumChain;
+use mercury_cosmos_bridges::CosmosChain;
+use mercury_cosmos_bridges::keys::{Secp256k1KeyPair, load_cosmos_signer};
+use mercury_ethereum_bridges::EthereumChain;
 use mercury_relay::context::{RelayContext, RelayWorkerConfig};
 use mercury_relay::filter::PacketFilter;
 use tokio::task::JoinHandle;
@@ -85,7 +85,7 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
 
     match chain_config {
         ChainConfig::Cosmos(_) => {
-            match mercury_cosmos::queries::query_cosmos_status(rpc_addr).await {
+            match mercury_cosmos_bridges::queries::query_cosmos_status(rpc_addr).await {
                 Ok(status) => {
                     println!("Height:    {}", status.height);
                     println!("Timestamp: {}", status.timestamp);
@@ -240,7 +240,7 @@ async fn connect_chain(
                 }
             }
 
-            let signer = mercury_ethereum::keys::load_ethereum_signer(&key_path)
+            let signer = mercury_ethereum_bridges::keys::load_ethereum_signer(&key_path)
                 .map_err(|e| eyre::eyre!("loading signer for chain {}: {e}", eth_cfg.chain_id))?;
 
             let chain = EthereumChain::new(eth_cfg.clone(), signer)
