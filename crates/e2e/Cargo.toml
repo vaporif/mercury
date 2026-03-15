@@ -35,8 +35,11 @@ tendermint = { workspace = true }
 prost = { workspace = true }
 secp256k1 = { workspace = true }
 sha2 = { workspace = true }
-mercury-ethereum = { workspace = true }
+mercury-ethereum = { workspace = true, features = ["sp1"] }
 mercury-ethereum-bridges = { workspace = true, features = ["cosmos-sp1"] }
+sp1-ics07-tendermint-prover = { workspace = true }
+sp1-sdk = { workspace = true }
+ibc-eureka-solidity-types = { workspace = true }
 alloy = { workspace = true }
 reqwest = { workspace = true }
 flate2 = "1"

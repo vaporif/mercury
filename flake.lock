@@ -139,11 +139,11 @@
         "systems": "systems"
       },
       "locked": {
-        "lastModified": 1773609191,
-        "narHash": "sha256-r/BDboURGqrSFuKIrOyKHm4086qsT4nmAStfb9xXJ/4=",
+        "lastModified": 1773613057,
+        "narHash": "sha256-SOkdzGGQDESEBH+u3mA0kZh5a+u4S74sCIlkgk/k+Fo=",
         "owner": "vaporif",
         "repo": "sp1.nix",
-        "rev": "9dcba9db96ce7af0aeb8e4574a1f7e1722edc7ea",
+        "rev": "f456a214b16d6ae11b48aed451f3d0f33c38715b",
         "type": "github"
       },
       "original": {

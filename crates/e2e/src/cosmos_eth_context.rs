@@ -42,7 +42,7 @@ pub struct CosmosEthTestContext {
 }
 
 impl CosmosEthTestContext {
-    #[allow(clippy::future_not_send)]
+    #[allow(clippy::future_not_send, clippy::too_many_lines)]
     pub async fn setup() -> Result<Self> {
         // 1. Start Cosmos
         let cosmos_bootstrap = CosmosDockerBootstrap::new("mercury-cosmos");
@@ -56,6 +56,25 @@ impl CosmosEthTestContext {
 
         // 4. Build CosmosChain
         let cosmos_chain = build_cosmos_chain(&cosmos_handle, Some(&wasm_checksum)).await?;
+
+        // 4b. Build SP1 ELF programs and derive vkeys
+        info!("building SP1 programs and deriving vkeys");
+        let elf_dir = crate::bootstrap::anvil::build_sp1_programs()?;
+        let vkeys = crate::bootstrap::anvil::derive_sp1_vkeys(&elf_dir)?;
+
+        // 4c. Build Solidity client state from Cosmos
+        let (client_state_abi, consensus_state_hash) =
+            build_sp1_client_state(&cosmos_handle).await?;
+
+        // 4d. Deploy SP1ICS07Tendermint on Anvil
+        let sp1_light_client = crate::bootstrap::anvil::deploy_sp1_light_client(
+            &anvil_handle.rpc_endpoint,
+            &anvil_handle.relayer_wallet,
+            anvil_handle.mock_verifier,
+            &vkeys,
+            &client_state_abi,
+            consensus_state_hash,
+        )?;
 
         // 5. Build EthereumChain
         let eth_signer: alloy::signers::local::PrivateKeySigner = anvil_handle
@@ -71,9 +90,15 @@ impl CosmosEthTestContext {
             key_file: PathBuf::new(),
             block_time_secs: 1,
             deployment_block: 0,
-            light_client_address: Some(format!("{:#x}", anvil_handle.mock_verifier)),
+            light_client_address: Some(format!("{sp1_light_client:#x}")),
             client_payload_mode: ClientPayloadMode::Mock,
-            sp1_prover: None,
+            sp1_prover: Some(mercury_ethereum::config::Sp1ProverConfig {
+                elf_dir,
+                zk_algorithm: mercury_ethereum::config::ZkAlgorithm::Groth16,
+                prover_mode: mercury_ethereum::config::ProverMode::Mock,
+                proof_timeout_secs: 120,
+                max_concurrent_proofs: 4,
+            }),
         };
 
         let eth_chain = EthereumChain::new(eth_config, eth_signer)
@@ -321,6 +346,74 @@ impl CosmosEthTestContext {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
     }
+}
+
+/// Build the Solidity-encoded client state and consensus state hash for
+/// `SP1ICS07Tendermint` deployment, using real Cosmos chain state.
+async fn build_sp1_client_state(
+    cosmos_handle: &CosmosDockerHandle,
+) -> Result<(Vec<u8>, alloy::primitives::B256)> {
+    use alloy::primitives::{B256, keccak256};
+    use alloy::sol_types::SolValue;
+    use ibc_eureka_solidity_types::msgs::IICS02ClientMsgs::Height as SolHeight;
+    use ibc_eureka_solidity_types::msgs::IICS07TendermintMsgs::{
+        ClientState as SolClientState, ConsensusState as SolConsensusState, SupportedZkAlgorithm,
+        TrustThreshold,
+    };
+    use tendermint_rpc::{Client, HttpClient};
+
+    let client =
+        HttpClient::new(cosmos_handle.rpc_endpoint()).wrap_err("creating tendermint RPC client")?;
+
+    let latest_block = client
+        .latest_block()
+        .await
+        .wrap_err("querying latest Cosmos block")?;
+
+    let header = &latest_block.block.header;
+    let chain_id: ibc::core::host::types::identifiers::ChainId = header
+        .chain_id
+        .to_string()
+        .parse()
+        .map_err(|e| eyre::eyre!("parsing chain ID: {e}"))?;
+
+    let height = header.height.value();
+    let revision_number = chain_id.revision_number();
+
+    // Match eureka defaults: trust_threshold = 1/3, trusting_period = 2/3 * unbonding
+    // For e2e with short unbonding, use reasonable defaults.
+    let unbonding_period: u32 = 1_209_600; // 14 days in seconds
+    let trusting_period: u32 = 2 * (unbonding_period / 3);
+
+    let client_state = SolClientState {
+        chainId: chain_id.to_string(),
+        trustLevel: TrustThreshold {
+            numerator: 1,
+            denominator: 3,
+        },
+        latestHeight: SolHeight {
+            revisionNumber: revision_number,
+            revisionHeight: height,
+        },
+        isFrozen: false,
+        zkAlgorithm: SupportedZkAlgorithm::Groth16,
+        unbondingPeriod: unbonding_period,
+        trustingPeriod: trusting_period,
+    };
+
+    #[allow(clippy::cast_sign_loss)]
+    let ts_nanos = header.time.unix_timestamp_nanos() as u128;
+
+    let consensus_state = SolConsensusState {
+        timestamp: ts_nanos,
+        root: B256::from_slice(header.app_hash.as_bytes()),
+        nextValidatorsHash: B256::from_slice(header.next_validators_hash.as_bytes()),
+    };
+
+    let client_state_abi = client_state.abi_encode();
+    let consensus_state_hash = keccak256(consensus_state.abi_encode());
+
+    Ok((client_state_abi, consensus_state_hash))
 }
 
 fn extract_cosmos_client_id(responses: &[CosmosTxResponse]) -> Result<ClientId> {

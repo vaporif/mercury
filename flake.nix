@@ -130,7 +130,6 @@
         "rust-src"
         "rust-analyzer"
       ];
-      sp1Pkgs = sp1-nix.packages.${system};
     in {
       default = pkgs.mkShell {
         packages =
@@ -143,8 +142,7 @@
             pkgs.cargo-nextest
             pkgs.foundry
             pkgs.bun
-            sp1Pkgs.cargo-prove
-            sp1Pkgs.sp1-rust-toolchain
+            sp1-nix.packages.${system}.cargo-prove
           ]
           ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
