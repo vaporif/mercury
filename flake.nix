@@ -60,19 +60,36 @@
       };
       # Vendor deps with workarounds:
       # 1. solidity-ibc-eureka has relative readme paths that don't exist when crane extracts the git dep
-      # 2. sp1-core-machine ships a stale Cargo.lock pinning cfg-if 1.0.0; its build.rs uses cbindgen
-      #    which runs `cargo metadata` and picks up that lockfile, but the vendor dir has cfg-if 1.0.4
-      cargoVendorDir = craneLib.vendorCargoDeps {
+      # 2. sp1-core-machine: remove stale Cargo.lock (cbindgen runs `cargo metadata` which picks it up)
+      #    and strip dev-dependencies (cbindgen's `cargo metadata` tries to resolve them but they aren't vendored)
+      cargoVendorDirBase = craneLib.vendorCargoDeps {
         inherit src;
         outputHashes = {
           "git+https://github.com/srdtrk/ibc-proto-rs?rev=3613891e18478811216cce02dc867b7c6ff8811b#3613891e18478811216cce02dc867b7c6ff8811b" = "sha256-tzo5lOTVAAxNHXtP7+vZVsi41BvkYE8JrcBn54CIDaQ=";
         };
+        # sp1-core-machine and sp1-recursion-core use cbindgen which calls
+        # `cargo metadata --all-features`. This needs: (1) dev-deps stripped
+        # (not vendored), (2) stale Cargo.lock removed, (3) build.rs patched
+        # to copy crate to writable tmpdir (nix store is read-only).
+        # sp1-curves has optional `rug` dep resolved by --all-features but not vendored.
         overrideVendorCargoPackage = p: drv:
-          if p.name == "sp1-core-machine"
+          if builtins.elem p.name ["sp1-core-machine" "sp1-recursion-core"]
           then
             drv.overrideAttrs (_old: {
+              nativeBuildInputs = [pkgs.gnused];
               postPatch = ''
+                sed -i '/^\[dev-dependencies/,/^$/{d;}' Cargo.toml
                 rm -f Cargo.lock
+                sed -i '/let crate_dir = PathBuf/a\        let crate_dir = { let tmp = std::env::temp_dir().join("sp1-cbindgen-${p.name}"); fn cp(s: \&std::path::Path, d: \&std::path::Path) { let _ = std::fs::create_dir_all(d); for e in std::fs::read_dir(s).into_iter().flatten() { let e = e.unwrap(); let p = e.path(); let t = d.join(e.file_name()); if p.is_dir() { cp(\&p, \&t); } else { let _ = std::fs::copy(\&p, \&t); } } } cp(\&crate_dir, \&tmp); tmp };' build.rs
+              '';
+            })
+          else if p.name == "sp1-curves"
+          then
+            drv.overrideAttrs (_old: {
+              nativeBuildInputs = [pkgs.gnused];
+              postPatch = ''
+                sed -i '/^\[dependencies\.rug\]/,/^$/{d;}' Cargo.toml
+                sed -i 's/bigint-rug = \["rug"\]/bigint-rug = []/' Cargo.toml
               '';
             })
           else drv;
@@ -87,6 +104,30 @@
               '';
             })
           else drv;
+      };
+      # ibc-eureka-solidity-types uses sol!() and alloy_sol_macro with relative
+      # paths (../../contracts/, ../../abi/) from its src dir. These resolve to
+      # the vendor-cargo-deps root, outside the git checkout hash dir. Wrap the
+      # vendor dir to inject them at the top level.
+      # ibc-eureka-solidity-types uses sol!() and alloy_sol_macro with relative
+      # paths (../../contracts/, ../../abi/) from its src dir. These resolve to
+      # the git checkout hash dir inside vendor-cargo-deps. Inject the Solidity
+      # source files there so the proc macros can find them at build time.
+      cargoVendorDir = pkgs.stdenvNoCC.mkDerivation {
+        name = "vendor-cargo-deps";
+        src = cargoVendorDirBase;
+        dontUnpack = true;
+        installPhase = ''
+          mkdir -p $out
+          # tar -h dereferences symlinks, producing a fully materialized copy
+          tar -chf - -C ${cargoVendorDirBase} . | tar -xf - -C $out
+          chmod -R u+w $out
+          for d in $out/*/ibc-eureka-solidity-types-*/; do
+            parent=$(dirname "$d")
+            cp -r ${solidity-ibc-eureka}/contracts "$parent/contracts"
+            cp -r ${solidity-ibc-eureka}/abi "$parent/abi"
+          done
+        '';
       };
       commonArgs = {
         inherit src cargoVendorDir;
@@ -134,6 +175,7 @@
             pkgs.typos
             pkgs.actionlint
             pkgs.cargo-nextest
+            pkgs.foundry-bin
           ]
           ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
