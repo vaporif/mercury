@@ -4,6 +4,8 @@ use eyre::Result;
 
 #[path = "cosmos_ethereum/bootstrap.rs"]
 mod bootstrap;
+#[path = "cosmos_ethereum/context_setup.rs"]
+mod context_setup;
 
 static INIT_TRACING: Once = Once::new();
 

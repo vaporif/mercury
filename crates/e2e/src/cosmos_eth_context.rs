@@ -1,12 +1,19 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use eyre::{Context as _, Result};
+use alloy::sol_types::SolEvent;
+use eyre::{Context as _, Result, bail};
 use ibc::core::host::types::identifiers::ClientId;
+use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
+use mercury_chain_traits::types::MessageSender;
 use mercury_cosmos_bridges::CosmosChain;
+use mercury_cosmos_bridges::chain::CosmosChainInner;
 use mercury_cosmos_bridges::config::{CosmosChainConfig, GasPrice};
 use mercury_cosmos_bridges::keys::Secp256k1KeyPair;
+use mercury_cosmos_bridges::types::CosmosTxResponse;
 use mercury_ethereum::config::{ClientPayloadMode, EthereumChainConfig};
+use mercury_ethereum::contracts::ICS26Router;
+use mercury_ethereum::types::{EvmClientId, EvmTxResponse};
 use mercury_ethereum_bridges::EthereumChain;
 use tracing::info;
 
@@ -22,7 +29,7 @@ pub struct CosmosEthTestContext {
     pub cosmos_chain: CosmosChain<Secp256k1KeyPair>,
     pub eth_chain: EthereumChain,
     pub client_id_on_cosmos: ClientId,
-    pub client_id_on_eth: String,
+    pub client_id_on_eth: EvmClientId,
 }
 
 impl CosmosEthTestContext {
@@ -55,7 +62,7 @@ impl CosmosEthTestContext {
             key_file: PathBuf::new(),
             block_time_secs: 1,
             deployment_block: 0,
-            light_client_address: None,
+            light_client_address: Some(format!("{:#x}", anvil_handle.mock_verifier)),
             client_payload_mode: ClientPayloadMode::Mock,
             sp1_prover: None,
         };
@@ -64,12 +71,74 @@ impl CosmosEthTestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
 
-        info!("Cosmos-Ethereum test context initialized");
+        // 6. Create client on Cosmos for Ethereum (Wasm-wrapped beacon client)
+        info!("creating IBC client on Cosmos for Ethereum");
+        let eth_payload = ClientPayloadBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_create_client_payload(&eth_chain)
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        let msg_create_cosmos =
+            ClientMessageBuilder::<mercury_ethereum::chain::EthereumChainInner>::build_create_client_message(
+                &cosmos_chain, eth_payload,
+            )
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        let cosmos_responses = cosmos_chain
+            .send_messages(vec![msg_create_cosmos])
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        let client_id_on_cosmos = extract_cosmos_client_id(&cosmos_responses)?;
+        info!(client_id = %client_id_on_cosmos, "created client on Cosmos");
 
-        let client_id_on_cosmos = "08-wasm-0"
-            .parse()
-            .map_err(|e| eyre::eyre!("parsing client id: {e}"))?;
-        let client_id_on_eth = "07-tendermint-0".to_string();
+        // 7. Create client on Ethereum for Cosmos (register mock verifier on ICS26Router)
+        info!("creating IBC client on Ethereum for Cosmos");
+        let cosmos_payload =
+            ClientPayloadBuilder::<EthereumChain>::build_create_client_payload(&cosmos_chain)
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+        let msg_create_eth =
+            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_create_client_message(
+                &eth_chain, cosmos_payload,
+            )
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        let eth_responses = eth_chain
+            .send_messages(vec![msg_create_eth])
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        let client_id_on_eth = extract_evm_client_id(&eth_responses)?;
+        info!(client_id = %client_id_on_eth, "created client on Ethereum");
+
+        // 8. Register counterparties
+        info!("registering counterparties");
+        let msg_register_cosmos =
+            ClientMessageBuilder::<mercury_ethereum::chain::EthereumChainInner>::build_register_counterparty_message(
+                &cosmos_chain,
+                &client_id_on_cosmos,
+                &client_id_on_eth,
+                mercury_core::MerklePrefix::ibc_default(),
+            )
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        cosmos_chain
+            .send_messages(vec![msg_register_cosmos])
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+
+        let msg_register_eth =
+            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_register_counterparty_message(
+                &eth_chain,
+                &client_id_on_eth,
+                &client_id_on_cosmos,
+                mercury_core::MerklePrefix::ibc_default(),
+            )
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        eth_chain
+            .send_messages(vec![msg_register_eth])
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+
+        info!("Cosmos-Ethereum IBC v2 setup complete");
 
         Ok(Self {
             cosmos_handle,
@@ -80,6 +149,37 @@ impl CosmosEthTestContext {
             client_id_on_eth,
         })
     }
+}
+
+fn extract_cosmos_client_id(responses: &[CosmosTxResponse]) -> Result<ClientId> {
+    for response in responses {
+        for event in &response.events {
+            for (key, value) in &event.attributes {
+                if key == "client_id" {
+                    return value
+                        .parse()
+                        .map_err(|e| eyre::eyre!("parse client_id: {e}"));
+                }
+            }
+        }
+    }
+    bail!("client_id not found in Cosmos tx response events")
+}
+
+fn extract_evm_client_id(responses: &[EvmTxResponse]) -> Result<EvmClientId> {
+    for response in responses {
+        for log in &response.logs {
+            if let Ok(event) = ICS26Router::ICS02ClientAdded::decode_log_data(
+                &alloy::primitives::LogData::new_unchecked(
+                    log.topics.clone(),
+                    log.data.clone().into(),
+                ),
+            ) {
+                return Ok(EvmClientId(event.clientId));
+            }
+        }
+    }
+    bail!("ICS02ClientAdded event not found in EVM tx response logs")
 }
 
 fn make_cosmos_config(

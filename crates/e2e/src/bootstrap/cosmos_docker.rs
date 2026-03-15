@@ -84,17 +84,8 @@ $BINARY genesis collect-gentxs --home $HOME_DIR 2>/dev/null
 
 # Set 1-second governance voting period for fast Wasm light client deployment
 GENESIS_FILE="$HOME_DIR/config/genesis.json"
-TEMP_GENESIS=$(mktemp)
-python3 -c "
-import json, sys
-with open('$GENESIS_FILE') as f:
-    genesis = json.load(f)
-genesis['app_state']['gov']['params']['voting_period'] = '1s'
-genesis['app_state']['gov']['params']['max_deposit_period'] = '1s'
-genesis['app_state']['gov']['params']['min_deposit'] = [{{'denom': 'stake', 'amount': '1'}}]
-with open('$TEMP_GENESIS', 'w') as f:
-    json.dump(genesis, f)
-" && mv "$TEMP_GENESIS" "$GENESIS_FILE"
+sed -i 's/"voting_period": *"[^"]*"/"voting_period": "10s"/g' "$GENESIS_FILE"
+sed -i 's/"max_deposit_period": *"[^"]*"/"max_deposit_period": "1s"/g' "$GENESIS_FILE"
 
 # Fast block config
 sed -i 's/timeout_commit = ".*"/timeout_commit = "1s"/' $HOME_DIR/config/config.toml
@@ -282,12 +273,46 @@ async fn exec_in_container(container: &ContainerAsync<GenericImage>, cmd: &str) 
         .wrap_err("exec failed")?;
 
     let stdout = result.stdout_to_vec().await.wrap_err("reading stdout")?;
+    let stderr = result.stderr_to_vec().await.wrap_err("reading stderr")?;
     let exit_code = result.exit_code().await.wrap_err("waiting for exit code")?;
-    eyre::ensure!(
-        exit_code == Some(0),
-        "command exited with code {exit_code:?}"
-    );
+    if exit_code != Some(0) {
+        let stderr_str = String::from_utf8_lossy(&stderr);
+        let stdout_str = String::from_utf8_lossy(&stdout);
+        eyre::bail!(
+            "command exited with code {exit_code:?}\ncmd: {cmd}\nstdout: {stdout_str}\nstderr: {stderr_str}"
+        );
+    }
     String::from_utf8(stdout).wrap_err("stdout not utf8")
+}
+
+/// Poll a governance proposal until it reaches the expected status.
+#[allow(clippy::future_not_send)]
+async fn poll_proposal_status(
+    handle: &CosmosDockerHandle,
+    proposal_id: u64,
+    expected_status: &str,
+    timeout: Duration,
+) -> Result<()> {
+    let cmd = format!(
+        "simd query gov proposal {proposal_id} --home /root/.simapp --output text 2>&1 \
+         | {{ grep '{expected_status}' || true; }}"
+    );
+    let result = tokio::time::timeout(timeout, async {
+        loop {
+            let output = handle.exec_cmd(&cmd).await?;
+            if !output.trim().is_empty() {
+                return Ok::<(), eyre::Report>(());
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    })
+    .await;
+    match result {
+        Ok(inner) => inner,
+        Err(_) => {
+            bail!("proposal {proposal_id} did not reach {expected_status} within {timeout:?}")
+        }
+    }
 }
 
 /// Store the dummy Wasm light client on the Cosmos chain and return its SHA256 checksum.
@@ -331,31 +356,40 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
         .exec_cmd(&format!(
             "simd tx ibc-wasm store-code /tmp/dummy_lc.wasm.gz \
          --title 'Store dummy LC' --summary 'E2E test' \
-         --deposit 1stake \
+         --deposit 10000000stake \
          --from validator --keyring-backend test --home /root/.simapp \
          --chain-id {chain_id} --gas auto --gas-adjustment 1.5 \
-         --fees 0stake -y --output json 2>/dev/null"
+         --fees 0stake -y --output json"
         ))
         .await?;
 
-    // Wait for the proposal to appear
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // Wait for proposal to enter voting period
+    poll_proposal_status(
+        handle,
+        1,
+        "PROPOSAL_STATUS_VOTING_PERIOD",
+        Duration::from_secs(10),
+    )
+    .await
+    .wrap_err("waiting for proposal to enter voting period")?;
 
     // Vote yes
     handle
         .exec_cmd(&format!(
             "simd tx gov vote 1 yes \
          --from validator --keyring-backend test --home /root/.simapp \
-         --chain-id {chain_id} --fees 0stake -y --output json 2>/dev/null"
+         --chain-id {chain_id} --fees 0stake -y --output json"
         ))
         .await?;
 
-    // Wait for proposal to pass (voting period = 1s)
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    // Wait for proposal to pass
+    poll_proposal_status(handle, 1, "PROPOSAL_STATUS_PASSED", Duration::from_secs(30))
+        .await
+        .wrap_err("waiting for proposal to pass")?;
 
     // Verify the Wasm code was stored
     let result = handle
-        .exec_cmd("simd query ibc-wasm checksums --home /root/.simapp --output json 2>/dev/null")
+        .exec_cmd("simd query ibc-wasm checksums --home /root/.simapp --output json")
         .await?;
     info!(result = %result.trim(), "stored Wasm checksums");
 

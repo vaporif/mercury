@@ -45,6 +45,15 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - uses: actions/cache@v4
+        with:
+          path: external/solidity-ibc-eureka/node_modules
+          key: bun-${{ hashFiles('external/solidity-ibc-eureka/bun.lock') }}
+
+      - name: Install Solidity dependencies
+        run: bun install --frozen-lockfile
+        working-directory: external/solidity-ibc-eureka
+
       - name: E2E tests
         run: cargo nextest run -p mercury-e2e --run-ignored all
         timeout-minutes: 15

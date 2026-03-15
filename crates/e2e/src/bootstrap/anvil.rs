@@ -160,18 +160,17 @@ fn deploy_contracts(handle: &mut AnvilHandle) -> Result<()> {
         bail!("external/solidity-ibc-eureka not found — did you init submodules?");
     }
 
-    // Install Solidity dependencies (OpenZeppelin, etc.) if not already present.
-    if !eureka_dir.join("node_modules").exists() {
-        info!("installing solidity dependencies");
-        let install = Command::new("bun")
-            .args(["install", "--frozen-lockfile"])
-            .current_dir(&eureka_dir)
-            .output()
-            .wrap_err("running bun install — is bun installed?")?;
-        if !install.status.success() {
-            let stderr = String::from_utf8_lossy(&install.stderr);
-            bail!("bun install failed:\n{stderr}");
-        }
+    // Install Solidity dependencies (OpenZeppelin, etc.).
+    // Always run — bun is a no-op when node_modules is already up-to-date.
+    info!("installing solidity dependencies");
+    let install = Command::new("bun")
+        .args(["install", "--frozen-lockfile"])
+        .current_dir(&eureka_dir)
+        .output()
+        .wrap_err("running bun install — is bun installed?")?;
+    if !install.status.success() {
+        let stderr = String::from_utf8_lossy(&install.stderr);
+        bail!("bun install failed:\n{stderr}");
     }
 
     let deployer = &handle.relayer_wallet;
