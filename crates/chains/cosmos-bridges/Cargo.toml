@@ -1,0 +1,38 @@
+[package]
+name = "mercury-cosmos-bridges"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mercury-core = { workspace = true }
+mercury-chain-traits = { workspace = true }
+mercury-cosmos = { workspace = true }
+
+async-trait = { workspace = true }
+eyre = { workspace = true }
+
+# Cross-chain (optional)
+mercury-ethereum = { workspace = true, optional = true }
+ibc-proto = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+tendermint = { workspace = true, optional = true }
+alloy = { workspace = true, optional = true }
+
+[features]
+ethereum-beacon = [
+    "dep:mercury-ethereum",
+    "dep:ibc-proto",
+    "dep:prost",
+    "dep:tendermint",
+    "dep:alloy",
+]

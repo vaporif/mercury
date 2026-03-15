@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use mercury_chain_traits::builders::PacketMessageBuilder;
 use mercury_core::error::Result;
 
-use crate::chain::EthereumChain;
+use crate::chain::EthereumChainInner;
 use crate::contracts::{ICS26Router, IICS02ClientMsgs, IICS26RouterMsgs};
 use crate::types::{EvmAcknowledgement, EvmCommitmentProof, EvmHeight, EvmMessage, EvmPacket};
 
@@ -54,7 +54,7 @@ fn encode_evm_proof(proof: EvmCommitmentProof) -> Vec<u8> {
 }
 
 #[async_trait]
-impl PacketMessageBuilder<Self> for EthereumChain {
+impl PacketMessageBuilder<Self> for EthereumChainInner {
     async fn build_receive_packet_message(
         &self,
         packet: &EvmPacket,

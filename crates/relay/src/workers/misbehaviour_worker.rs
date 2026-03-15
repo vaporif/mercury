@@ -21,14 +21,21 @@ pub struct MisbehaviourWorker<R: Relay> {
 impl<R> Worker for MisbehaviourWorker<R>
 where
     R: Relay,
-    R::SrcChain: MisbehaviourDetector<R::DstChain,
-        CounterpartyClientState = <R::DstChain as IbcTypes>::ClientState,
-    >,
-    R::DstChain: MisbehaviourQuery<R::SrcChain,
-        CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<R::DstChain>>::UpdateHeader,
-    > + MisbehaviourMessageBuilder<R::SrcChain,
-        MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<R::DstChain>>::MisbehaviourEvidence,
-    >,
+    R::SrcChain: MisbehaviourDetector<
+            <R::DstChain as HasInner>::Inner,
+            CounterpartyClientState = <R::DstChain as IbcTypes>::ClientState,
+        >,
+    R::DstChain: MisbehaviourQuery<
+            <R::SrcChain as HasInner>::Inner,
+            CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<
+                <R::DstChain as HasInner>::Inner,
+            >>::UpdateHeader,
+        > + MisbehaviourMessageBuilder<
+            <R::SrcChain as HasInner>::Inner,
+            MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<
+                <R::DstChain as HasInner>::Inner,
+            >>::MisbehaviourEvidence,
+        >,
 {
     fn name(&self) -> &'static str {
         "misbehaviour_worker"
@@ -63,14 +70,21 @@ where
 impl<R> MisbehaviourWorker<R>
 where
     R: Relay,
-    R::SrcChain: MisbehaviourDetector<R::DstChain,
-        CounterpartyClientState = <R::DstChain as IbcTypes>::ClientState,
-    >,
-    R::DstChain: MisbehaviourQuery<R::SrcChain,
-        CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<R::DstChain>>::UpdateHeader,
-    > + MisbehaviourMessageBuilder<R::SrcChain,
-        MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<R::DstChain>>::MisbehaviourEvidence,
-    >,
+    R::SrcChain: MisbehaviourDetector<
+            <R::DstChain as HasInner>::Inner,
+            CounterpartyClientState = <R::DstChain as IbcTypes>::ClientState,
+        >,
+    R::DstChain: MisbehaviourQuery<
+            <R::SrcChain as HasInner>::Inner,
+            CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<
+                <R::DstChain as HasInner>::Inner,
+            >>::UpdateHeader,
+        > + MisbehaviourMessageBuilder<
+            <R::SrcChain as HasInner>::Inner,
+            MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<
+                <R::DstChain as HasInner>::Inner,
+            >>::MisbehaviourEvidence,
+        >,
 {
     /// Scan for misbehaviour. Returns `true` if misbehaviour was found and submitted.
     async fn scan(

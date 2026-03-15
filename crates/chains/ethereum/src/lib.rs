@@ -1,4 +1,4 @@
-//! Ethereum (EVM) chain implementation for the Mercury relayer.
+//! Core Ethereum chain implementation (chain-intrinsic impls only).
 
 pub mod aggregator;
 pub mod builders;
@@ -14,6 +14,3 @@ pub mod types;
 
 #[cfg(feature = "sp1")]
 pub mod sp1;
-
-#[cfg(feature = "cosmos-sp1")]
-pub mod cosmos_bridge;

@@ -6,11 +6,11 @@ use mercury_chain_traits::types::MessageSender;
 use mercury_core::error::Result;
 use tracing::info;
 
-use crate::chain::EthereumChain;
+use crate::chain::EthereumChainInner;
 use crate::types::{EvmEvent, EvmMessage, EvmTxResponse};
 
 #[async_trait]
-impl MessageSender for EthereumChain {
+impl MessageSender for EthereumChainInner {
     async fn send_messages(&self, messages: Vec<EvmMessage>) -> Result<Vec<EvmTxResponse>> {
         let mut responses = Vec::with_capacity(messages.len());
 

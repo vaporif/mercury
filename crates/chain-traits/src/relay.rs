@@ -4,32 +4,39 @@ use mercury_core::error::Result;
 
 use crate::builders::{ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder};
 use crate::events::PacketEvents;
+use crate::inner::HasInner;
 use crate::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use crate::types::{ChainTypes, IbcTypes, MessageSender};
 
 /// Common bounds shared by all chains participating in a relay.
 pub trait RelayChain:
-    ChainTypes + ChainStatusQuery + MessageSender + IbcTypes + PacketStateQuery
+    HasInner + ChainStatusQuery + MessageSender + PacketStateQuery + PacketEvents
 {
 }
 
-impl<T: ChainTypes + ChainStatusQuery + MessageSender + IbcTypes + PacketStateQuery> RelayChain
+impl<T: HasInner + ChainStatusQuery + MessageSender + PacketStateQuery + PacketEvents> RelayChain
     for T
 {
 }
 
 /// A unidirectional relay context between a source and destination chain.
 pub trait Relay: ThreadSafe {
-    type SrcChain: RelayChain + ClientPayloadBuilder<Self::DstChain> + PacketEvents;
+    type SrcChain: RelayChain
+        + ClientPayloadBuilder<
+            <Self::DstChain as HasInner>::Inner,
+            UpdateClientPayload = <Self::DstChain as ClientMessageBuilder<
+                <Self::SrcChain as HasInner>::Inner,
+            >>::UpdateClientPayload,
+            CreateClientPayload = <Self::DstChain as ClientMessageBuilder<
+                <Self::SrcChain as HasInner>::Inner,
+            >>::CreateClientPayload,
+        >;
+
     type DstChain: RelayChain
-        + ClientMessageBuilder<
-            Self::SrcChain,
-            CreateClientPayload = <Self::SrcChain as ClientPayloadBuilder<Self::DstChain>>::CreateClientPayload,
-            UpdateClientPayload = <Self::SrcChain as ClientPayloadBuilder<Self::DstChain>>::UpdateClientPayload,
-        >
-        + ClientQuery<Self::SrcChain>
-        + PacketMessageBuilder<Self::SrcChain>
-        + ClientPayloadBuilder<Self::SrcChain>;
+        + ClientQuery<<Self::SrcChain as HasInner>::Inner>
+        + ClientMessageBuilder<<Self::SrcChain as HasInner>::Inner>
+        + PacketMessageBuilder<<Self::SrcChain as HasInner>::Inner>
+        + ClientPayloadBuilder<<Self::SrcChain as HasInner>::Inner>;
 
     fn src_chain(&self) -> &Self::SrcChain;
     fn dst_chain(&self) -> &Self::DstChain;

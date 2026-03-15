@@ -11,17 +11,17 @@ use tracing::instrument;
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_core::error::Result;
 
-use crate::chain::EthereumChain;
+use crate::chain::EthereumChainInner;
 use crate::contracts::sp1_ics07;
 use crate::contracts::{ICS26Router, SP1ICS07Tendermint};
 use crate::ics24;
 use crate::types::{
-    EvmAcknowledgement, EvmChainStatus, EvmClientId, EvmCommitmentProof, EvmHeight,
-    EvmPacketCommitment, EvmPacketReceipt, EvmTimestamp,
+    EvmAcknowledgement, EvmChainStatus, EvmClientId, EvmClientState, EvmCommitmentProof,
+    EvmConsensusState, EvmHeight, EvmPacketCommitment, EvmPacketReceipt, EvmTimestamp,
 };
 
 #[async_trait]
-impl ChainStatusQuery for EthereumChain {
+impl ChainStatusQuery for EthereumChainInner {
     async fn query_chain_status(&self) -> Result<EvmChainStatus> {
         let block_number = self
             .provider
@@ -43,8 +43,8 @@ impl ChainStatusQuery for EthereumChain {
     }
 }
 
-pub(crate) async fn resolve_light_client(
-    chain: &EthereumChain,
+pub async fn resolve_light_client(
+    chain: &EthereumChainInner,
     client_id: &EvmClientId,
 ) -> Result<Address> {
     let router = ICS26Router::new(chain.router_address, &*chain.provider);
@@ -59,7 +59,8 @@ type ClientStateReturn = sp1_ics07::SP1ICS07Tendermint::clientStateReturn;
 
 // `getClientState()` returns `abi.encode(clientState())` — same ABI layout,
 // so we decode using `clientStateCall::abi_decode_returns`.
-pub(crate) fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
+#[must_use]
+pub fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
     use alloy::sol_types::SolCall;
     sp1_ics07::SP1ICS07Tendermint::clientStateCall::abi_decode_returns(bytes)
         .inspect_err(|e| tracing::warn!(error = %e, "failed to decode SP1 client state"))
@@ -67,13 +68,13 @@ pub(crate) fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
 }
 
 #[async_trait]
-impl ClientQuery<Self> for EthereumChain {
+impl ClientQuery<Self> for EthereumChainInner {
     #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
         client_id: &EvmClientId,
         _height: &EvmHeight,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<EvmClientState> {
         let lc_address = resolve_light_client(self, client_id).await?;
         let lc = SP1ICS07Tendermint::new(lc_address, &*self.provider);
         let result = lc
@@ -81,7 +82,7 @@ impl ClientQuery<Self> for EthereumChain {
             .call()
             .await
             .wrap_err("SP1ICS07Tendermint.getClientState() failed")?;
-        Ok(result.to_vec())
+        Ok(EvmClientState(result.to_vec()))
     }
 
     #[instrument(skip_all, name = "query_consensus_state", fields(client_id = %client_id, consensus_height = %consensus_height))]
@@ -90,7 +91,7 @@ impl ClientQuery<Self> for EthereumChain {
         client_id: &EvmClientId,
         consensus_height: &EvmHeight,
         _query_height: &EvmHeight,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<EvmConsensusState> {
         let lc_address = resolve_light_client(self, client_id).await?;
         let lc = SP1ICS07Tendermint::new(lc_address, &*self.provider);
         let result = lc
@@ -100,16 +101,16 @@ impl ClientQuery<Self> for EthereumChain {
             .wrap_err_with(|| {
                 format!("getConsensusStateHash({consensus_height}) failed for client {client_id}")
             })?;
-        Ok(result.to_vec())
+        Ok(EvmConsensusState(result.to_vec()))
     }
 
-    fn trusting_period(client_state: &Vec<u8>) -> Option<Duration> {
-        let cs = decode_client_state(client_state)?;
+    fn trusting_period(client_state: &EvmClientState) -> Option<Duration> {
+        let cs = decode_client_state(&client_state.0)?;
         Some(Duration::from_secs(u64::from(cs.trustingPeriod)))
     }
 
-    fn client_latest_height(client_state: &Vec<u8>) -> EvmHeight {
-        decode_client_state(client_state).map_or_else(
+    fn client_latest_height(client_state: &EvmClientState) -> EvmHeight {
+        decode_client_state(&client_state.0).map_or_else(
             || {
                 tracing::warn!("failed to decode client state, defaulting to height 0");
                 EvmHeight(0)
@@ -120,7 +121,7 @@ impl ClientQuery<Self> for EthereumChain {
 }
 
 async fn get_storage_proof(
-    chain: &EthereumChain,
+    chain: &EthereumChainInner,
     storage_slot: U256,
     height: &EvmHeight,
 ) -> Result<EvmCommitmentProof> {
@@ -148,7 +149,7 @@ async fn get_storage_proof(
 }
 
 async fn get_commitment_at_height(
-    chain: &EthereumChain,
+    chain: &EthereumChainInner,
     hashed_path: B256,
     height: &EvmHeight,
 ) -> Result<B256> {
@@ -164,7 +165,7 @@ async fn get_commitment_at_height(
 
 /// Fetch commitment value + storage proof for a given ICS24 path key.
 async fn query_commitment_with_proof(
-    chain: &EthereumChain,
+    chain: &EthereumChainInner,
     hashed_path: B256,
     height: &EvmHeight,
 ) -> Result<(B256, EvmCommitmentProof)> {
@@ -175,7 +176,7 @@ async fn query_commitment_with_proof(
 }
 
 #[async_trait]
-impl PacketStateQuery for EthereumChain {
+impl PacketStateQuery for EthereumChainInner {
     #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
     async fn query_packet_commitment(
         &self,

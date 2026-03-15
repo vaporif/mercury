@@ -7,6 +7,8 @@
 pub mod builders;
 /// Event extraction and block event queries.
 pub mod events;
+/// Wrapper-to-inner mapping and enrichment types.
+pub mod inner;
 /// Chain, client, and packet state queries.
 pub mod queries;
 /// Relay context traits for cross-chain relaying.

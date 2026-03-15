@@ -48,6 +48,3 @@ pub trait MessageSender: ChainTypes {
         messages: Vec<Self::Message>,
     ) -> Result<Vec<Self::MessageResponse>>;
 }
-
-// Re-export ClientPayloadBuilder from builders
-pub use crate::builders::ClientPayloadBuilder;

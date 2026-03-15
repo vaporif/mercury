@@ -89,6 +89,10 @@ impl fmt::Debug for MockChain {
     }
 }
 
+impl HasInner for MockChain {
+    type Inner = MockChain;
+}
+
 impl ChainTypes for MockChain {
     type Height = u64;
     type Timestamp = u64;

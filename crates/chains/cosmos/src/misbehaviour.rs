@@ -17,7 +17,7 @@ use mercury_chain_traits::builders::{MisbehaviourDetector, MisbehaviourMessageBu
 use mercury_chain_traits::queries::MisbehaviourQuery;
 use mercury_core::error::Result;
 
-use crate::chain::CosmosChain;
+use crate::chain::CosmosChainInner;
 use crate::keys::CosmosSigner;
 use crate::queries::grpc_unary;
 use crate::types::{CosmosMessage, to_any};
@@ -30,7 +30,7 @@ pub struct CosmosMisbehaviourEvidence {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChainInner<S> {
     type UpdateHeader = TmIbcHeader;
     type MisbehaviourEvidence = CosmosMisbehaviourEvidence;
     type CounterpartyClientState = TendermintClientState;
@@ -124,7 +124,7 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChainInner<S> {
     type MisbehaviourEvidence = CosmosMisbehaviourEvidence;
 
     #[instrument(skip_all, name = "build_misbehaviour_message")]
@@ -151,7 +151,7 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChain<S> {
 const CONSENSUS_HEIGHTS_LIMIT: u64 = 1000;
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChainInner<S> {
     type CounterpartyUpdateHeader = TmIbcHeader;
 
     #[instrument(skip_all, name = "query_consensus_state_heights", fields(client_id = %client_id))]

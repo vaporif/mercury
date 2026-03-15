@@ -6,6 +6,7 @@ use mercury_chain_traits::builders::{
     PacketMessageBuilder,
 };
 use mercury_chain_traits::events::PacketEvents;
+use mercury_chain_traits::inner::HasInner;
 use mercury_chain_traits::queries::{ClientQuery, MisbehaviourQuery};
 use mercury_chain_traits::relay::{Relay, RelayChain};
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
@@ -43,15 +44,15 @@ pub struct RelayContext<Src: ChainTypes, Dst: ChainTypes> {
 
 impl<Src, Dst> Relay for RelayContext<Src, Dst>
 where
-    Src: RelayChain + ClientPayloadBuilder<Dst> + PacketEvents,
+    Src: RelayChain + ClientPayloadBuilder<<Dst as HasInner>::Inner> + PacketEvents,
     Dst: RelayChain
         + ClientMessageBuilder<
-            Src,
-            CreateClientPayload = <Src as ClientPayloadBuilder<Dst>>::CreateClientPayload,
-            UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,
-        > + ClientQuery<Src>
-        + PacketMessageBuilder<Src>
-        + ClientPayloadBuilder<Src>,
+            <Src as HasInner>::Inner,
+            CreateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasInner>::Inner>>::CreateClientPayload,
+            UpdateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasInner>::Inner>>::UpdateClientPayload,
+        > + ClientQuery<<Src as HasInner>::Inner>
+        + PacketMessageBuilder<<Src as HasInner>::Inner>
+        + ClientPayloadBuilder<<Src as HasInner>::Inner>,
 {
     type SrcChain = Src;
     type DstChain = Dst;
@@ -76,30 +77,30 @@ where
 impl<Src, Dst> RelayContext<Src, Dst>
 where
     Src: RelayChain
-        + ClientPayloadBuilder<Dst>
+        + ClientPayloadBuilder<<Dst as HasInner>::Inner>
         + PacketEvents
-        + PacketMessageBuilder<Dst>
-        + ClientQuery<Dst>
+        + PacketMessageBuilder<<Dst as HasInner>::Inner>
+        + ClientQuery<<Dst as HasInner>::Inner>
         + ClientMessageBuilder<
-            Dst,
-            CreateClientPayload = <Dst as ClientPayloadBuilder<Src>>::CreateClientPayload,
-            UpdateClientPayload = <Dst as ClientPayloadBuilder<Src>>::UpdateClientPayload,
-        > + MisbehaviourDetector<Dst, CounterpartyClientState = <Dst as IbcTypes>::ClientState>,
+            <Dst as HasInner>::Inner,
+            CreateClientPayload = <Dst as ClientPayloadBuilder<<Src as HasInner>::Inner>>::CreateClientPayload,
+            UpdateClientPayload = <Dst as ClientPayloadBuilder<<Src as HasInner>::Inner>>::UpdateClientPayload,
+        > + MisbehaviourDetector<<Dst as HasInner>::Inner, CounterpartyClientState = <Dst as IbcTypes>::ClientState>,
     Dst: RelayChain
         + ClientMessageBuilder<
-            Src,
-            CreateClientPayload = <Src as ClientPayloadBuilder<Dst>>::CreateClientPayload,
-            UpdateClientPayload = <Src as ClientPayloadBuilder<Dst>>::UpdateClientPayload,
-        > + ClientQuery<Src>
+            <Src as HasInner>::Inner,
+            CreateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasInner>::Inner>>::CreateClientPayload,
+            UpdateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasInner>::Inner>>::UpdateClientPayload,
+        > + ClientQuery<<Src as HasInner>::Inner>
         + PacketEvents
-        + PacketMessageBuilder<Src>
-        + ClientPayloadBuilder<Src>
+        + PacketMessageBuilder<<Src as HasInner>::Inner>
+        + ClientPayloadBuilder<<Src as HasInner>::Inner>
         + MisbehaviourQuery<
-            Src,
-            CounterpartyUpdateHeader = <Src as MisbehaviourDetector<Dst>>::UpdateHeader,
+            <Src as HasInner>::Inner,
+            CounterpartyUpdateHeader = <Src as MisbehaviourDetector<<Dst as HasInner>::Inner>>::UpdateHeader,
         > + MisbehaviourMessageBuilder<
-            Src,
-            MisbehaviourEvidence = <Src as MisbehaviourDetector<Dst>>::MisbehaviourEvidence,
+            <Src as HasInner>::Inner,
+            MisbehaviourEvidence = <Src as MisbehaviourDetector<<Dst as HasInner>::Inner>>::MisbehaviourEvidence,
         >,
 {
     pub async fn run_with_token(

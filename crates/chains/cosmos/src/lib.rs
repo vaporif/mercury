@@ -1,4 +1,4 @@
-//! Cosmos SDK chain implementation for the Mercury relayer.
+//! Core Cosmos SDK chain implementation (chain-intrinsic impls only).
 
 /// IBC message and payload builders.
 pub mod builders;

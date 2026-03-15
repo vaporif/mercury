@@ -1,5 +1,5 @@
 [package]
-name = "mercury-ethereum"
+name = "mercury-ethereum-bridges"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,23 +12,16 @@ workspace = true
 [dependencies]
 mercury-core = { workspace = true }
 mercury-chain-traits = { workspace = true }
+mercury-ethereum = { workspace = true }
 
-alloy = { workspace = true }
-
-futures = { workspace = true }
 async-trait = { workspace = true }
 eyre = { workspace = true }
+alloy = { workspace = true }
 tracing = { workspace = true }
-serde = { workspace = true }
-url = { workspace = true }
-zeroize = { workspace = true }
-serde_json = { workspace = true }
-tokio = { workspace = true }
-reqwest = { workspace = true }
-base64 = { workspace = true }
-ethereum-types = { workspace = true }
-ethereum-apis = { workspace = true }
-ethereum-light-client = { workspace = true }
+
+# Cross-chain (optional)
+mercury-cosmos = { workspace = true, optional = true }
+tendermint = { workspace = true, optional = true }
 
 # SP1 prover (optional, heavy deps)
 sp1-ics07-tendermint-prover = { workspace = true, optional = true }
@@ -43,7 +36,13 @@ hex = { workspace = true, optional = true }
 ibc-client-tendermint = { workspace = true, optional = true }
 
 [features]
+cosmos-sp1 = [
+    "sp1",
+    "dep:mercury-cosmos",
+    "dep:tendermint",
+]
 sp1 = [
+    "mercury-ethereum/sp1",
     "dep:sp1-ics07-tendermint-prover",
     "dep:ibc-eureka-solidity-types",
     "dep:sp1-sdk",
@@ -55,7 +54,3 @@ sp1 = [
     "dep:hex",
     "dep:ibc-client-tendermint",
 ]
-
-[dev-dependencies]
-tempfile = "3"
-toml = { workspace = true }

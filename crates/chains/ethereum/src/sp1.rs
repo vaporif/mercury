@@ -25,7 +25,7 @@ use ibc_eureka_solidity_types::sp1_ics07::sp1_ics07_tendermint;
 // Renamed ibc-proto 0.51 to match the prover's expected Header type (Mercury uses 0.52 from git).
 use ibc_proto_eureka::ibc::lightclients::tendermint::v1::Header as EurekaHeader;
 
-use crate::chain::EthereumChain;
+use crate::chain::EthereumChainInner;
 use crate::config::{ProverMode, Sp1ProverConfig, ZkAlgorithm};
 use crate::contracts::ICS26Router;
 use crate::types::{EvmClientId, EvmMessage};
@@ -142,7 +142,7 @@ async fn generate_proof_with_timeout<C: SP1ProverComponents + 'static>(
     .wrap_err("sp1 proving task panicked")
 }
 
-impl EthereumChain {
+impl EthereumChainInner {
     pub async fn build_update_client_message_sp1<C: SP1ProverComponents + 'static>(
         &self,
         client_id: &EvmClientId,

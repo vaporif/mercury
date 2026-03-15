@@ -47,6 +47,17 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
         counterparty_client_id: &Counterparty::ClientId,
         counterparty_merkle_prefix: MerklePrefix,
     ) -> Result<Self::Message>;
+
+    /// Enriches the update client payload with packet proof data for batched proving.
+    /// Default is a no-op. Ethereum's SP1 impl fills membership KVs.
+    fn enrich_update_payload(
+        &self,
+        _payload: &mut Self::UpdateClientPayload,
+        _packet_proofs: &[crate::inner::PacketProofData<Counterparty>],
+    ) where
+        Counterparty: IbcTypes,
+    {
+    }
 }
 
 /// Checks update headers against the source chain for light client divergence.
