@@ -32,6 +32,7 @@ use ethereum_apis::beacon_api::client::BeaconApiClient;
 pub enum PayloadClient {
     Beacon(Arc<BeaconApiClient>),
     Attested(AggregatorClient),
+    Mock,
 }
 
 impl std::fmt::Debug for PayloadClient {
@@ -39,6 +40,7 @@ impl std::fmt::Debug for PayloadClient {
         match self {
             Self::Beacon(_) => f.debug_tuple("Beacon").finish(),
             Self::Attested(c) => f.debug_tuple("Attested").field(c).finish(),
+            Self::Mock => f.debug_tuple("Mock").finish(),
         }
     }
 }
@@ -102,6 +104,7 @@ impl EthereumChainInner {
                 attestor_endpoints.clone(),
                 *quorum_threshold,
             )),
+            ClientPayloadMode::Mock => PayloadClient::Mock,
         };
 
         #[cfg(feature = "sp1")]
@@ -201,6 +204,7 @@ impl ClientPayloadBuilder<Self> for EthereumChainInner {
                 self.build_create_client_payload_beacon(beacon_api).await
             }
             PayloadClient::Attested(_) => self.build_create_client_payload_attested().await,
+            PayloadClient::Mock => self.build_create_client_payload_mock(),
         }
     }
 
@@ -226,6 +230,7 @@ impl ClientPayloadBuilder<Self> for EthereumChainInner {
             PayloadClient::Attested(aggregator) => {
                 self.build_update_client_payload_attested(aggregator).await
             }
+            PayloadClient::Mock => Ok(Self::build_update_client_payload_mock()),
         }
     }
 }
@@ -437,6 +442,31 @@ impl EthereumChainInner {
         Ok(UpdateClientPayload {
             headers: vec![proof_bytes],
         })
+    }
+
+    fn build_create_client_payload_mock(&self) -> mercury_core::error::Result<CreateClientPayload> {
+        use ethereum_light_client::client_state::ClientState as EthClientState;
+
+        let state = EthClientState {
+            chain_id: self.chain_id.0,
+            ibc_contract_address: self.router_address,
+            ..EthClientState::default()
+        };
+
+        let client_state = serde_json::to_vec(&state).wrap_err("serializing mock client state")?;
+
+        Ok(CreateClientPayload {
+            client_state,
+            consensus_state: b"{}".to_vec(),
+            counterparty_client_id: None,
+            counterparty_merkle_prefix: None,
+        })
+    }
+
+    fn build_update_client_payload_mock() -> UpdateClientPayload {
+        UpdateClientPayload {
+            headers: vec![vec![]],
+        }
     }
 }
 

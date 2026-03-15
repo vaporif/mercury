@@ -1,4 +1,4 @@
-name: E2E
+name: Nix
 
 on:
   push:
@@ -18,33 +18,26 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
+  nix:
 
-env:
-  CARGO_TERM_COLOR: always
-
-jobs:
+nix:
   e2e:
-    name: E2E
+    name: Nix
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
+      - uses: cachix/install-nix-action@v31
         with:
-          key: e2e
+          nix_path: nixpkgs=channel:nixpkgs-unstable
 
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
+      - name: Nix fmt
+        run: nix fmt -- --check flake.nix
 
-      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Nix flake check
+        run: nix flake check
 
-      - uses: oven-sh/setup-bun@v2
-
-      - name: E2E tests
-        run: cargo nextest run -p mercury-e2e --run-ignored all
-        timeout-minutes: 15
+      - name: Nix build
+        run: nix build
