@@ -5,6 +5,8 @@ use alloy::primitives::Address;
 use eyre::{Context, Result, bail};
 use tracing::info;
 
+use super::install_solidity_deps;
+
 /// Wallet for Anvil accounts.
 #[derive(Clone, Debug)]
 pub struct AnvilWallet {
@@ -45,20 +47,19 @@ impl AnvilHandle {
     }
 }
 
-const ANVIL_CHAIN_ID: u64 = 31337;
-
 /// Start Anvil and deploy IBC contracts.
 pub async fn start_anvil() -> Result<AnvilHandle> {
     let port = find_free_port()?;
+    let chain_id = u64::from(port);
     let rpc_endpoint = format!("http://127.0.0.1:{port}");
 
-    info!(port, "starting Anvil");
+    info!(port, chain_id, "starting Anvil");
     let child = Command::new("anvil")
         .args([
             "--port",
             &port.to_string(),
             "--chain-id",
-            &ANVIL_CHAIN_ID.to_string(),
+            &chain_id.to_string(),
             "--block-time",
             "1",
             "--silent",
@@ -73,7 +74,7 @@ pub async fn start_anvil() -> Result<AnvilHandle> {
     let mut handle = AnvilHandle {
         child,
         rpc_endpoint: rpc_endpoint.clone(),
-        chain_id: ANVIL_CHAIN_ID,
+        chain_id,
         ics26_router: Address::ZERO,
         ics20_transfer: Address::ZERO,
         light_client: Address::ZERO,
@@ -87,6 +88,7 @@ pub async fn start_anvil() -> Result<AnvilHandle> {
 
     info!(
         rpc = %handle.rpc_endpoint,
+        chain_id = handle.chain_id,
         router = %handle.ics26_router,
         transfer = %handle.ics20_transfer,
         "Anvil ready with deployed contracts"
@@ -160,20 +162,12 @@ fn deploy_contracts(handle: &mut AnvilHandle) -> Result<()> {
         bail!("external/solidity-ibc-eureka not found — did you init submodules?");
     }
 
-    // Install Solidity dependencies (OpenZeppelin, etc.).
-    // Always run — bun is a no-op when node_modules is already up-to-date.
-    info!("installing solidity dependencies");
-    let install = Command::new("bun")
-        .args(["install", "--frozen-lockfile"])
-        .current_dir(&eureka_dir)
-        .output()
-        .wrap_err("running bun install — is bun installed?")?;
-    if !install.status.success() {
-        let stderr = String::from_utf8_lossy(&install.stderr);
-        bail!("bun install failed:\n{stderr}");
-    }
+    install_solidity_deps(&eureka_dir);
 
     let deployer = &handle.relayer_wallet;
+
+    // Use a per-instance cache path so parallel forge runs don't corrupt shared cache.
+    let cache_dir = tempfile::tempdir().wrap_err("creating forge cache dir")?;
 
     info!("deploying IBC contracts via forge script");
     let output = Command::new("forge")
@@ -189,6 +183,7 @@ fn deploy_contracts(handle: &mut AnvilHandle) -> Result<()> {
         ])
         .current_dir(&eureka_dir)
         .env("E2E_FAUCET_ADDRESS", format!("{:#x}", deployer.address))
+        .env("FOUNDRY_CACHE_PATH", cache_dir.path())
         .output()
         .wrap_err("running forge script")?;
 
@@ -201,7 +196,7 @@ fn deploy_contracts(handle: &mut AnvilHandle) -> Result<()> {
     let broadcast_path = eureka_dir
         .join("broadcast")
         .join("E2ETestDeploy.s.sol")
-        .join(ANVIL_CHAIN_ID.to_string())
+        .join(handle.chain_id.to_string())
         .join("run-latest.json");
 
     let broadcast_json: serde_json::Value =

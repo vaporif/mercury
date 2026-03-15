@@ -17,11 +17,17 @@ pub struct RelayHandle {
     pub join_ba: JoinHandle<mercury_core::error::Result<()>>,
 }
 
-impl RelayHandle {
-    pub async fn stop(self) -> Result<()> {
+impl Drop for RelayHandle {
+    fn drop(&mut self) {
         self.cancel.cancel();
-        let _ = self.join_ab.await;
-        let _ = self.join_ba.await;
+        self.join_ab.abort();
+        self.join_ba.abort();
+    }
+}
+
+impl RelayHandle {
+    pub fn stop(self) -> Result<()> {
+        // cancel + abort happens in Drop
         Ok(())
     }
 }
@@ -92,6 +98,13 @@ impl SubprocessHandle {
         self.child.kill().wrap_err("killing mercury-relayer")?;
         self.child.wait().wrap_err("waiting for mercury-relayer")?;
         Ok(())
+    }
+}
+
+impl Drop for SubprocessHandle {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 

@@ -30,7 +30,7 @@ async fn ibc_transfer() {
     .await
     .expect("balance on B");
 
-    relay.stop().await.expect("stop relay");
+    relay.stop().expect("stop relay");
 }
 
 #[tokio::test]
@@ -85,7 +85,7 @@ async fn bidirectional_transfer() {
     .await
     .expect("balance on A after B→A transfer");
 
-    relay.stop().await.expect("stop relay");
+    relay.stop().expect("stop relay");
 }
 
 #[tokio::test]
@@ -122,7 +122,7 @@ async fn packet_timeout() {
     .await
     .expect("balance refunded on A after timeout");
 
-    relay.stop().await.expect("stop relay");
+    relay.stop().expect("stop relay");
 }
 
 #[tokio::test]
@@ -166,7 +166,7 @@ async fn client_refresh_keeps_relay_alive() {
     .await
     .expect("balance on B after second transfer");
 
-    relay.stop().await.expect("stop relay");
+    relay.stop().expect("stop relay");
 }
 
 #[tokio::test]
@@ -196,5 +196,5 @@ async fn concurrent_transfers() {
     .await
     .expect("balance on B after concurrent transfers");
 
-    relay.stop().await.expect("stop relay");
+    relay.stop().expect("stop relay");
 }

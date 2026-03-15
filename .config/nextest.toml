@@ -1,4 +1,4 @@
 [[profile.default.overrides]]
 filter = "package(mercury-e2e)"
-threads-required = 4
+threads-required = 2
 slow-timeout = { period = "120s" }
