@@ -52,12 +52,29 @@
         "type": "github"
       }
     },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1744536153,
+        "narHash": "sha256-awS2zRgF4uTwrOKwwiJcByDzDOdo3Q1rPZbiHQg/N38=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "18dd725c29603f582cf1900e0d25f9f1063dbf11",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "crane": "crane",
         "fenix": "fenix",
         "nixpkgs": "nixpkgs",
-        "solidity-ibc-eureka": "solidity-ibc-eureka"
+        "solidity-ibc-eureka": "solidity-ibc-eureka",
+        "sp1-nix": "sp1-nix"
       }
     },
     "rust-analyzer-src": {
@@ -77,6 +94,24 @@
         "type": "github"
       }
     },
+    "rust-overlay": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_2"
+      },
+      "locked": {
+        "lastModified": 1773544328,
+        "narHash": "sha256-Iv+qez54LAz+isij4APBk31VWA//Go81hwFOXr5iWTw=",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "4f977d776793c8bfbfdd7eca7835847ccc48874e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
     "solidity-ibc-eureka": {
       "flake": false,
       "locked": {
@@ -91,6 +126,61 @@
         "owner": "cosmos",
         "repo": "solidity-ibc-eureka",
         "rev": "86505ac8c69be4e955f8b7d3baafbd0fddaeefee",
+        "type": "github"
+      }
+    },
+    "sp1-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "rust-overlay": "rust-overlay",
+        "sp1-src": "sp1-src",
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1773609191,
+        "narHash": "sha256-r/BDboURGqrSFuKIrOyKHm4086qsT4nmAStfb9xXJ/4=",
+        "owner": "vaporif",
+        "repo": "sp1.nix",
+        "rev": "9dcba9db96ce7af0aeb8e4574a1f7e1722edc7ea",
+        "type": "github"
+      },
+      "original": {
+        "owner": "vaporif",
+        "repo": "sp1.nix",
+        "type": "github"
+      }
+    },
+    "sp1-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1772117612,
+        "narHash": "sha256-DJ3/BlGJX9eLsBPMsmKtnoJYF9vgkxKn32dybQVggxA=",
+        "owner": "succinctlabs",
+        "repo": "sp1",
+        "rev": "7028cb0976aa8e0f5422c526a43eb25b8badd75b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "succinctlabs",
+        "ref": "v6.0.2",
+        "repo": "sp1",
+        "type": "github"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
         "type": "github"
       }
     }

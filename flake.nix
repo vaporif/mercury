@@ -12,6 +12,10 @@
       url = "github:cosmos/solidity-ibc-eureka/86505ac8c69be4e955f8b7d3baafbd0fddaeefee";
       flake = false;
     };
+    sp1-nix = {
+      url = "github:vaporif/sp1.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
@@ -20,6 +24,7 @@
     fenix,
     crane,
     solidity-ibc-eureka,
+    sp1-nix,
     ...
   }: let
     systems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
@@ -116,6 +121,7 @@
       fenixPkgs,
       ...
     }: let
+      system = pkgs.stdenv.hostPlatform.system;
       toolchain = fenixPkgs.stable.withComponents [
         "cargo"
         "clippy"
@@ -124,6 +130,7 @@
         "rust-src"
         "rust-analyzer"
       ];
+      sp1Pkgs = sp1-nix.packages.${system};
     in {
       default = pkgs.mkShell {
         packages =
@@ -136,6 +143,8 @@
             pkgs.cargo-nextest
             pkgs.foundry
             pkgs.bun
+            sp1Pkgs.cargo-prove
+            sp1Pkgs.sp1-rust-toolchain
           ]
           ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
