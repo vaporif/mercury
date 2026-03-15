@@ -182,10 +182,10 @@ mod tests {
 
     #[test]
     fn packet_sequence_extracts() {
-        use ibc::core::host::types::identifiers::ClientId;
+        use crate::types::RawClientId;
         let packet = CosmosPacket {
-            source_client_id: ClientId::new("07-tendermint", 0).unwrap(),
-            dest_client_id: ClientId::new("07-tendermint", 1).unwrap(),
+            source_client_id: RawClientId("07-tendermint-0".into()),
+            dest_client_id: RawClientId("07-tendermint-1".into()),
             sequence: 99,
             timeout_timestamp: 0,
             payloads: vec![],
@@ -217,10 +217,10 @@ mod tests {
 
     #[test]
     fn packet_timeout_timestamp_extracts() {
-        use ibc::core::host::types::identifiers::ClientId;
+        use crate::types::RawClientId;
         let packet = CosmosPacket {
-            source_client_id: ClientId::new("07-tendermint", 0).unwrap(),
-            dest_client_id: ClientId::new("07-tendermint", 1).unwrap(),
+            source_client_id: RawClientId("07-tendermint-0".into()),
+            dest_client_id: RawClientId("07-tendermint-1".into()),
             sequence: 1,
             timeout_timestamp: 1_700_000_000,
             payloads: vec![],

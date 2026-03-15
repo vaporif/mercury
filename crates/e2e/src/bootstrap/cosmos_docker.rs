@@ -297,7 +297,7 @@ async fn poll_proposal_status(
         "simd query gov proposal {proposal_id} --home /root/.simapp --output text 2>&1 \
          | {{ grep '{expected_status}' || true; }}"
     );
-    let result = tokio::time::timeout(timeout, async {
+    tokio::time::timeout(timeout, async {
         loop {
             let output = handle.exec_cmd(&cmd).await?;
             if !output.trim().is_empty() {
@@ -306,13 +306,11 @@ async fn poll_proposal_status(
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     })
-    .await;
-    match result {
-        Ok(inner) => inner,
-        Err(_) => {
-            bail!("proposal {proposal_id} did not reach {expected_status} within {timeout:?}")
-        }
-    }
+    .await
+    .map_err(|_| {
+        eyre::eyre!("proposal {proposal_id} did not reach {expected_status} within {timeout:?}")
+    })
+    .and_then(|r| r)
 }
 
 /// Store the dummy Wasm light client on the Cosmos chain and return its SHA256 checksum.

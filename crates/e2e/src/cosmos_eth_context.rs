@@ -1,20 +1,28 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use alloy::primitives::{Address, U256};
+use alloy::providers::{Provider as _, ProviderBuilder};
 use alloy::sol_types::SolEvent;
 use eyre::{Context as _, Result, bail};
 use ibc::core::host::types::identifiers::ClientId;
+use ibc_proto::ibc::core::channel::v2::{MsgSendPacket, Payload};
 use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
 use mercury_chain_traits::types::MessageSender;
 use mercury_cosmos_bridges::CosmosChain;
 use mercury_cosmos_bridges::chain::CosmosChainInner;
 use mercury_cosmos_bridges::config::{CosmosChainConfig, GasPrice};
 use mercury_cosmos_bridges::keys::Secp256k1KeyPair;
-use mercury_cosmos_bridges::types::CosmosTxResponse;
+use mercury_cosmos_bridges::types::{CosmosMessage, CosmosTxResponse};
 use mercury_ethereum::config::{ClientPayloadMode, EthereumChainConfig};
-use mercury_ethereum::contracts::ICS26Router;
+use mercury_ethereum::contracts::{IBCERC20, ICS20Transfer, ICS26Router};
 use mercury_ethereum::types::{EvmClientId, EvmTxResponse};
 use mercury_ethereum_bridges::EthereumChain;
+use mercury_relay::context::{RelayContext, RelayWorkerConfig};
+use prost::Message;
+use prost::Name as _;
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::bootstrap::anvil::{AnvilHandle, start_anvil};
@@ -22,6 +30,7 @@ use crate::bootstrap::cosmos_docker::{
     CosmosDockerBootstrap, CosmosDockerHandle, store_dummy_wasm_light_client,
 };
 use crate::bootstrap::traits::{ChainBootstrap, ChainHandle};
+use crate::relayer::RelayHandle;
 
 pub struct CosmosEthTestContext {
     pub cosmos_handle: CosmosDockerHandle,
@@ -149,6 +158,169 @@ impl CosmosEthTestContext {
             client_id_on_eth,
         })
     }
+
+    /// Start bidirectional Cosmos↔Ethereum relay workers in-process.
+    pub fn start_relay_library(&self) -> Result<RelayHandle> {
+        let token = CancellationToken::new();
+
+        let relay_ce = Arc::new(RelayContext {
+            src_chain: self.cosmos_chain.clone(),
+            dst_chain: self.eth_chain.clone(),
+            src_client_id: self.client_id_on_cosmos.clone(),
+            dst_client_id: self.client_id_on_eth.clone(),
+        });
+
+        let relay_ec = Arc::new(RelayContext {
+            src_chain: self.eth_chain.clone(),
+            dst_chain: self.cosmos_chain.clone(),
+            src_client_id: self.client_id_on_eth.clone(),
+            dst_client_id: self.client_id_on_cosmos.clone(),
+        });
+
+        let token_ce = token.clone();
+        let token_ec = token.clone();
+
+        let join_ab = tokio::spawn(async move {
+            relay_ce
+                .run_with_token(token_ce, RelayWorkerConfig::default())
+                .await
+        });
+        let join_ba = tokio::spawn(async move {
+            relay_ec
+                .run_with_token(token_ec, RelayWorkerConfig::default())
+                .await
+        });
+
+        Ok(RelayHandle {
+            cancel: token,
+            join_ab,
+            join_ba,
+        })
+    }
+
+    /// Send an IBC v2 transfer from Cosmos user1 to Ethereum user1.
+    #[allow(clippy::future_not_send, clippy::missing_panics_doc)]
+    pub async fn send_cosmos_to_eth_transfer(&self, amount: u64, denom: &str) -> Result<()> {
+        let cosmos_user = &self.cosmos_handle.user_wallets()[0];
+        let eth_user = &self.anvil_handle.user_wallets[0];
+
+        let user_chain =
+            build_cosmos_chain_with_user(&self.cosmos_handle, cosmos_user, None).await?;
+
+        let packet_data = serde_json::json!({
+            "denom": denom,
+            "amount": amount.to_string(),
+            "sender": cosmos_user.address,
+            "receiver": format!("{:#x}", eth_user.address),
+            "memo": "",
+        });
+
+        let timeout = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_secs()
+            + 600;
+
+        let msg = MsgSendPacket {
+            source_client: self.client_id_on_cosmos.to_string(),
+            timeout_timestamp: timeout,
+            payloads: vec![Payload {
+                source_port: "transfer".to_string(),
+                destination_port: "transfer".to_string(),
+                version: "ics20-1".to_string(),
+                encoding: "application/json".to_string(),
+                value: serde_json::to_vec(&packet_data)?,
+            }],
+            signer: cosmos_user.address.clone(),
+        };
+
+        let cosmos_msg = CosmosMessage {
+            type_url: MsgSendPacket::type_url(),
+            value: msg.encode_to_vec(),
+        };
+
+        let responses = user_chain
+            .send_messages(vec![cosmos_msg])
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+
+        info!(
+            tx_hash = %responses.first().map_or("?", |r| r.hash.as_str()),
+            %amount,
+            %denom,
+            "IBC v2 transfer submitted from Cosmos to Ethereum"
+        );
+
+        Ok(())
+    }
+
+    /// Query the IBCERC20 balance on Ethereum for a received IBC denom.
+    ///
+    /// `denom` is the full IBC denom path, e.g. `transfer/{client_id_on_eth}/stake`.
+    #[allow(clippy::future_not_send)]
+    pub async fn query_ibcerc20_balance(&self, denom: &str, holder: Address) -> Result<U256> {
+        let provider = ProviderBuilder::new()
+            .connect_http(self.anvil_handle.rpc_endpoint.parse()?)
+            .erased();
+
+        let ics20 = ICS20Transfer::new(self.anvil_handle.ics20_transfer, &provider);
+        let erc20_addr = Address::from(ics20.ibcERC20Contract(denom.to_string()).call().await?.0);
+
+        if erc20_addr == Address::ZERO {
+            return Ok(U256::ZERO);
+        }
+
+        let erc20 = IBCERC20::new(erc20_addr, &provider);
+        Ok(erc20.balanceOf(holder).call().await?)
+    }
+
+    /// Poll Ethereum for expected IBCERC20 balance, with timeout.
+    #[allow(clippy::future_not_send)]
+    pub async fn assert_eventual_eth_balance(
+        &self,
+        denom: &str,
+        holder: Address,
+        expected: u64,
+        timeout: Duration,
+    ) -> Result<()> {
+        let expected_u256 = U256::from(expected);
+        let start = std::time::Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                bail!(
+                    "timeout waiting for IBCERC20 balance: denom={denom}, \
+                     holder={holder:#x}, expected={expected}"
+                );
+            }
+
+            match self.query_ibcerc20_balance(denom, holder).await {
+                Ok(actual) if actual >= expected_u256 => {
+                    info!(
+                        %denom,
+                        holder = %format!("{holder:#x}"),
+                        actual = %actual,
+                        expected = %expected,
+                        "IBCERC20 balance assertion passed"
+                    );
+                    return Ok(());
+                }
+                Ok(actual) => {
+                    tracing::debug!(
+                        actual = %actual,
+                        expected = %expected,
+                        %denom,
+                        "IBCERC20 balance not yet sufficient, polling..."
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "IBCERC20 balance query failed, retrying...");
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    }
 }
 
 fn extract_cosmos_client_id(responses: &[CosmosTxResponse]) -> Result<ClientId> {
@@ -216,7 +388,14 @@ async fn build_cosmos_chain(
     handle: &CosmosDockerHandle,
     wasm_checksum: Option<&str>,
 ) -> Result<CosmosChain<Secp256k1KeyPair>> {
-    let wallet = handle.relayer_wallet();
+    build_cosmos_chain_with_user(handle, handle.relayer_wallet(), wasm_checksum).await
+}
+
+async fn build_cosmos_chain_with_user(
+    handle: &CosmosDockerHandle,
+    wallet: &crate::bootstrap::traits::Wallet,
+    wasm_checksum: Option<&str>,
+) -> Result<CosmosChain<Secp256k1KeyPair>> {
     let secret_bytes =
         hex::decode(&wallet.secret_key_hex).wrap_err("decoding wallet secret key hex")?;
     let secret_arr: [u8; 32] = secret_bytes

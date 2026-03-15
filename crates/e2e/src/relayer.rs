@@ -26,9 +26,8 @@ impl Drop for RelayHandle {
 }
 
 impl RelayHandle {
-    pub fn stop(self) -> Result<()> {
-        // cancel + abort happens in Drop
-        Ok(())
+    pub fn stop(self) {
+        drop(self);
     }
 }
 
@@ -94,10 +93,8 @@ impl SubprocessHandle {
         }
     }
 
-    pub fn stop(mut self) -> Result<()> {
-        self.child.kill().wrap_err("killing mercury-relayer")?;
-        self.child.wait().wrap_err("waiting for mercury-relayer")?;
-        Ok(())
+    pub fn stop(self) {
+        drop(self);
     }
 }
 

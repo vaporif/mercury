@@ -261,8 +261,8 @@ fn inject_membership_proof(msg: &mut EvmMessage, proof_bytes: &[u8]) {
 fn cosmos_packet_to_sol(packet: &CosmosPacket) -> IICS26RouterMsgs::Packet {
     IICS26RouterMsgs::Packet {
         sequence: packet.sequence,
-        sourceClient: packet.source_client_id.to_string(),
-        destClient: packet.dest_client_id.to_string(),
+        sourceClient: packet.source_client_id.0.clone(),
+        destClient: packet.dest_client_id.0.clone(),
         timeoutTimestamp: packet.timeout_timestamp,
         payloads: packet
             .payloads

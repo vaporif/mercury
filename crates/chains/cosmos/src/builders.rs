@@ -280,8 +280,8 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChainInner<S> {
 pub fn cosmos_packet_to_v2(packet: &CosmosPacket) -> V2Packet {
     V2Packet {
         sequence: packet.sequence,
-        source_client: packet.source_client_id.to_string(),
-        destination_client: packet.dest_client_id.to_string(),
+        source_client: packet.source_client_id.0.clone(),
+        destination_client: packet.dest_client_id.0.clone(),
         timeout_timestamp: packet.timeout_timestamp,
         payloads: packet
             .payloads
@@ -367,15 +367,13 @@ impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChainInner<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ibc::core::host::types::identifiers::ClientId;
-
-    use crate::types::PacketPayload;
+    use crate::types::{PacketPayload, RawClientId};
 
     #[test]
     fn cosmos_packet_to_v2_converts_fields() {
         let packet = CosmosPacket {
-            source_client_id: ClientId::new("07-tendermint", 0).unwrap(),
-            dest_client_id: ClientId::new("07-tendermint", 1).unwrap(),
+            source_client_id: RawClientId("07-tendermint-0".into()),
+            dest_client_id: RawClientId("07-tendermint-1".into()),
             sequence: 5,
             timeout_timestamp: 12345,
             payloads: vec![PacketPayload {
@@ -401,8 +399,8 @@ mod tests {
     #[test]
     fn cosmos_packet_to_v2_empty_payloads() {
         let packet = CosmosPacket {
-            source_client_id: ClientId::new("07-tendermint", 0).unwrap(),
-            dest_client_id: ClientId::new("07-tendermint", 1).unwrap(),
+            source_client_id: RawClientId("07-tendermint-0".into()),
+            dest_client_id: RawClientId("07-tendermint-1".into()),
             sequence: 1,
             timeout_timestamp: 0,
             payloads: vec![],

@@ -14,6 +14,7 @@ use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use tracing::warn;
 
 use crate::filter::PacketFilter;
 use crate::workers::clearing_worker::ClearingWorker;
@@ -24,6 +25,8 @@ use crate::workers::packet_worker::PacketWorker;
 use crate::workers::tx_worker::{SrcTxWorker, TxWorker};
 
 const CHANNEL_BUFFER: usize = 256;
+const MAX_RESTART_BACKOFF: Duration = Duration::from_secs(60);
+const INITIAL_RESTART_BACKOFF: Duration = Duration::from_secs(1);
 
 /// Configuration for optional relay workers.
 #[derive(Clone, Default)]
@@ -108,6 +111,44 @@ where
         token: CancellationToken,
         config: RelayWorkerConfig,
     ) -> Result<()> {
+        let mut backoff = INITIAL_RESTART_BACKOFF;
+
+        loop {
+            let result = self.run_pipeline(&token, &config).await;
+
+            if token.is_cancelled() {
+                return result;
+            }
+
+            match result {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    warn!(
+                        error = %e,
+                        backoff_secs = backoff.as_secs(),
+                        "relay pipeline failed, restarting"
+                    );
+
+                    tokio::select! {
+                        () = token.cancelled() => return Err(e),
+                        () = tokio::time::sleep(backoff) => {}
+                    }
+
+                    backoff = (backoff * 2).min(MAX_RESTART_BACKOFF);
+                }
+            }
+        }
+    }
+
+    async fn run_pipeline(
+        self: &Arc<Self>,
+        token: &CancellationToken,
+        config: &RelayWorkerConfig,
+    ) -> Result<()> {
+        // Child token so we can tear down this iteration's workers without
+        // cancelling the parent shutdown token.
+        let pipeline_token = token.child_token();
+
         let start_height = if let Some(lookback) = config.lookback {
             let latest = self.src_chain.query_latest_height().await?;
             let block_time = self.src_chain.block_time();
@@ -122,37 +163,37 @@ where
         let (src_tx_req_tx, src_tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
 
         let event_watcher = EventWatcher {
-            relay: Arc::clone(&self),
+            relay: Arc::clone(self),
             sender: event_tx.clone(),
-            token: token.clone(),
+            token: pipeline_token.clone(),
             start_height,
             packet_filter: config.packet_filter.clone(),
         };
 
         let client_refresh = ClientRefreshWorker {
-            relay: Arc::clone(&self),
+            relay: Arc::clone(self),
             sender: tx_req_tx.clone(),
-            token: token.clone(),
+            token: pipeline_token.clone(),
         };
 
         let packet_worker = PacketWorker {
-            relay: Arc::clone(&self),
+            relay: Arc::clone(self),
             receiver: event_rx,
             sender: tx_req_tx,
             src_sender: src_tx_req_tx,
-            token: token.clone(),
+            token: pipeline_token.clone(),
         };
 
         let tx_worker = TxWorker {
-            relay: Arc::clone(&self),
+            relay: Arc::clone(self),
             receiver: tx_req_rx,
-            token: token.clone(),
+            token: pipeline_token.clone(),
         };
 
         let src_tx_worker = SrcTxWorker {
-            relay: Arc::clone(&self),
+            relay: Arc::clone(self),
             receiver: src_tx_req_rx,
-            token: token.clone(),
+            token: pipeline_token.clone(),
         };
 
         let event_watcher_handle = spawn_worker(event_watcher);
@@ -165,9 +206,9 @@ where
             || tokio::spawn(futures::future::pending()),
             |interval| {
                 let clearing_worker = ClearingWorker {
-                    relay: Arc::clone(&self),
+                    relay: Arc::clone(self),
                     sender: event_tx,
-                    token: token.clone(),
+                    token: pipeline_token.clone(),
                     interval,
                     packet_filter: config.packet_filter.clone(),
                 };
@@ -179,8 +220,8 @@ where
             || tokio::spawn(futures::future::pending()),
             |interval| {
                 let misbehaviour_worker = MisbehaviourWorker {
-                    relay: Arc::clone(&self),
-                    token: token.clone(),
+                    relay: Arc::clone(self),
+                    token: pipeline_token.clone(),
                     scan_interval: interval,
                 };
                 spawn_worker(misbehaviour_worker)
@@ -197,7 +238,8 @@ where
             res = misbehaviour_handle => res,
         };
 
-        token.cancel();
+        // Tear down remaining workers from this pipeline iteration.
+        pipeline_token.cancel();
 
         match result {
             Ok(worker_result) => worker_result,
