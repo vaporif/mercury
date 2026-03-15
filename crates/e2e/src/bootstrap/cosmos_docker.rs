@@ -324,7 +324,6 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
     use sha2::{Digest, Sha256};
     use std::io::Read as _;
 
-    // Read and decompress the Wasm binary
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let wasm_gz_path = manifest_dir
         .join("../../external/solidity-ibc-eureka/e2e/interchaintestv8/wasm/cw_dummy_light_client.wasm.gz");
@@ -337,7 +336,6 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
         .read_to_end(&mut wasm_bytes)
         .wrap_err("decompressing wasm binary")?;
 
-    // Compute checksum of uncompressed Wasm
     let checksum = hex::encode(Sha256::digest(&wasm_bytes));
     info!(checksum = %checksum, "computed Wasm light client checksum");
 
@@ -351,7 +349,6 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
 
     let chain_id = handle.chain_id();
 
-    // Submit store-code via governance proposal
     handle
         .exec_cmd(&format!(
             "simd tx ibc-wasm store-code /tmp/dummy_lc.wasm.gz \
@@ -363,7 +360,6 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
         ))
         .await?;
 
-    // Wait for proposal to enter voting period
     poll_proposal_status(
         handle,
         1,
@@ -373,7 +369,6 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
     .await
     .wrap_err("waiting for proposal to enter voting period")?;
 
-    // Vote yes
     handle
         .exec_cmd(&format!(
             "simd tx gov vote 1 yes \
@@ -382,7 +377,6 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
         ))
         .await?;
 
-    // Wait for proposal to pass
     poll_proposal_status(handle, 1, "PROPOSAL_STATUS_PASSED", Duration::from_secs(30))
         .await
         .wrap_err("waiting for proposal to pass")?;
