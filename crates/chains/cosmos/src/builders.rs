@@ -270,6 +270,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChainInner<S> {
     }
 }
 
+#[must_use]
 pub fn cosmos_packet_to_v2(packet: &CosmosPacket) -> V2Packet {
     V2Packet {
         sequence: packet.sequence,
