@@ -53,6 +53,7 @@ pub enum ClientPayloadMode {
         #[serde(default = "default_quorum")]
         quorum_threshold: usize,
     },
+    Mock,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -129,6 +130,7 @@ impl EthereumChainConfig {
                     );
                 }
             }
+            ClientPayloadMode::Mock => {}
         }
         if let Some(ref sp1) = self.sp1_prover {
             #[cfg(not(feature = "sp1"))]
@@ -311,6 +313,28 @@ mod tests {
         );
         let config: EthereumChainConfig = toml::from_str(&toml_str).unwrap();
         assert!(config.light_client_address().is_err());
+    }
+
+    #[test]
+    fn deserialize_mock_payload_mode() {
+        let config: EthereumChainConfig = toml::from_str(
+            r#"
+        chain_id = 31337
+        rpc_addr = "http://localhost:8545"
+        ics26_router = "0x0000000000000000000000000000000000000001"
+        key_file = "key.hex"
+
+        [client_payload_mode]
+        type = "mock"
+        "#,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            config.client_payload_mode,
+            ClientPayloadMode::Mock
+        ));
+        assert!(config.validate().is_ok());
     }
 
     #[test]

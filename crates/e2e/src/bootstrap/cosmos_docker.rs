@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use eyre::{Context, Result};
+use base64::Engine as _;
+use eyre::{Context, Result, bail};
 use testcontainers::core::{ExecCommand, IntoContainerPort};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt};
@@ -80,6 +81,20 @@ $BINARY genesis add-genesis-account $USER2_ADDR 10000000000stake --home $HOME_DI
 # Validator gentx
 $BINARY genesis gentx validator 1000000000stake --chain-id $CHAIN_ID --keyring-backend test --home $HOME_DIR 2>/dev/null
 $BINARY genesis collect-gentxs --home $HOME_DIR 2>/dev/null
+
+# Set 1-second governance voting period for fast Wasm light client deployment
+GENESIS_FILE="$HOME_DIR/config/genesis.json"
+TEMP_GENESIS=$(mktemp)
+python3 -c "
+import json, sys
+with open('$GENESIS_FILE') as f:
+    genesis = json.load(f)
+genesis['app_state']['gov']['params']['voting_period'] = '1s'
+genesis['app_state']['gov']['params']['max_deposit_period'] = '1s'
+genesis['app_state']['gov']['params']['min_deposit'] = [{{'denom': 'stake', 'amount': '1'}}]
+with open('$TEMP_GENESIS', 'w') as f:
+    json.dump(genesis, f)
+" && mv "$TEMP_GENESIS" "$GENESIS_FILE"
 
 # Fast block config
 sed -i 's/timeout_commit = ".*"/timeout_commit = "1s"/' $HOME_DIR/config/config.toml
@@ -273,4 +288,80 @@ async fn exec_in_container(container: &ContainerAsync<GenericImage>, cmd: &str) 
         "command exited with code {exit_code:?}"
     );
     String::from_utf8(stdout).wrap_err("stdout not utf8")
+}
+
+/// Store the dummy Wasm light client on the Cosmos chain and return its SHA256 checksum.
+///
+/// Submits a governance proposal to store the Wasm binary, votes on it,
+/// and waits for it to pass (requires 1s voting period in genesis).
+#[allow(clippy::future_not_send)]
+pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read as _;
+
+    // Read and decompress the Wasm binary
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let wasm_gz_path = manifest_dir
+        .join("../../external/solidity-ibc-eureka/e2e/interchaintestv8/wasm/cw_dummy_light_client.wasm.gz");
+    let gz_bytes = std::fs::read(&wasm_gz_path)
+        .wrap_err_with(|| format!("reading {}", wasm_gz_path.display()))?;
+
+    let mut decoder = flate2::read::GzDecoder::new(&gz_bytes[..]);
+    let mut wasm_bytes = Vec::new();
+    decoder
+        .read_to_end(&mut wasm_bytes)
+        .wrap_err("decompressing wasm binary")?;
+
+    // Compute checksum of uncompressed Wasm
+    let checksum = hex::encode(Sha256::digest(&wasm_bytes));
+    info!(checksum = %checksum, "computed Wasm light client checksum");
+
+    // Copy gzipped Wasm into the container via base64
+    let wasm_b64 = base64::engine::general_purpose::STANDARD.encode(&gz_bytes);
+    handle
+        .exec_cmd(&format!(
+            "echo '{wasm_b64}' | base64 -d > /tmp/dummy_lc.wasm.gz"
+        ))
+        .await?;
+
+    let chain_id = handle.chain_id();
+
+    // Submit store-code via governance proposal
+    handle
+        .exec_cmd(&format!(
+            "simd tx ibc-wasm store-code /tmp/dummy_lc.wasm.gz \
+         --title 'Store dummy LC' --summary 'E2E test' \
+         --deposit 1stake \
+         --from validator --keyring-backend test --home /root/.simapp \
+         --chain-id {chain_id} --gas auto --gas-adjustment 1.5 \
+         --fees 0stake -y --output json 2>/dev/null"
+        ))
+        .await?;
+
+    // Wait for the proposal to appear
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Vote yes
+    handle
+        .exec_cmd(&format!(
+            "simd tx gov vote 1 yes \
+         --from validator --keyring-backend test --home /root/.simapp \
+         --chain-id {chain_id} --fees 0stake -y --output json 2>/dev/null"
+        ))
+        .await?;
+
+    // Wait for proposal to pass (voting period = 1s)
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Verify the Wasm code was stored
+    let result = handle
+        .exec_cmd("simd query ibc-wasm checksums --home /root/.simapp --output json 2>/dev/null")
+        .await?;
+    info!(result = %result.trim(), "stored Wasm checksums");
+
+    if !result.contains(&checksum) {
+        bail!("Wasm checksum {checksum} not found in stored checksums: {result}");
+    }
+
+    Ok(checksum)
 }

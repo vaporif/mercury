@@ -12,7 +12,7 @@ workspace = true
 [dependencies]
 mercury-core = { workspace = true }
 mercury-chain-traits = { workspace = true }
-mercury-cosmos-bridges = { workspace = true }
+mercury-cosmos-bridges = { workspace = true, features = ["ethereum-beacon"] }
 mercury-relay = { workspace = true }
 
 testcontainers = { workspace = true }
@@ -35,5 +35,11 @@ tendermint = { workspace = true }
 prost = { workspace = true }
 secp256k1 = { workspace = true }
 sha2 = { workspace = true }
+mercury-ethereum = { workspace = true }
+mercury-ethereum-bridges = { workspace = true, features = ["cosmos-sp1"] }
+alloy = { workspace = true }
+reqwest = { workspace = true }
+flate2 = "1"
+base64 = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 tempfile = "3"

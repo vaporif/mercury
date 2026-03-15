@@ -107,27 +107,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
-  nix:
-    name: Nix
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixpkgs-unstable
-
-      - name: Nix fmt
-        run: nix fmt -- --check flake.nix
-
-      - name: Nix flake check
-        run: nix flake check
-
-      - name: Nix build
-        run: nix build
-
   deny:
     name: Deny
     runs-on: ubuntu-latest
