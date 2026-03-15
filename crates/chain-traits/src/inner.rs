@@ -25,12 +25,3 @@ pub trait HasInner: ChainTypes + IbcTypes {
             Acknowledgement = Self::Acknowledgement,
         >;
 }
-
-/// Proof data for a single packet, used by the enrichment hook.
-/// Carries raw bytes so that `enrich_update_payload` impls don't need to
-/// resolve chain-specific associated types through generics.
-pub struct PacketProofData {
-    pub sequence: u64,
-    pub commitment: Vec<u8>,
-    pub proof: Vec<u8>,
-}

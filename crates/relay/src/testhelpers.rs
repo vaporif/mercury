@@ -311,8 +311,8 @@ impl ClientMessageBuilder<MockChain> for MockChain {
         &self,
         _client_id: &String,
         _payload: (),
-    ) -> Result<Vec<MockMsg>> {
-        Ok(vec![])
+    ) -> Result<UpdateClientOutput<MockMsg>> {
+        Ok(UpdateClientOutput::messages_only(vec![]))
     }
     async fn build_register_counterparty_message(
         &self,

@@ -7,7 +7,9 @@ use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::sol_types::SolCall;
 use async_trait::async_trait;
 use eyre::Context;
-use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
+use mercury_chain_traits::builders::{
+    ClientMessageBuilder, ClientPayloadBuilder, UpdateClientOutput,
+};
 use mercury_chain_traits::queries::ChainStatusQuery;
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 
@@ -20,6 +22,9 @@ use crate::types::{
     EvmCommitmentProof, EvmConsensusState, EvmEvent, EvmHeight, EvmMessage, EvmPacket,
     EvmPacketCommitment, EvmPacketReceipt, EvmTimestamp, EvmTxResponse,
 };
+
+#[cfg(feature = "sp1")]
+use mercury_core::MembershipProofs;
 
 use ethereum_apis::beacon_api::client::BeaconApiClient;
 
@@ -478,11 +483,17 @@ impl ClientMessageBuilder<Self> for EthereumChainInner {
         &self,
         client_id: &EvmClientId,
         payload: UpdateClientPayload,
-    ) -> mercury_core::error::Result<Vec<EvmMessage>> {
+    ) -> mercury_core::error::Result<UpdateClientOutput<EvmMessage>> {
         #[cfg(feature = "sp1")]
         if let Some(ref sp1) = self.sp1 {
             return self
-                .build_update_client_message_sp1(client_id, payload.headers, None, sp1)
+                .build_update_client_message_sp1(
+                    client_id,
+                    payload.headers,
+                    None,
+                    MembershipProofs::new(),
+                    sp1,
+                )
                 .await;
         }
 
@@ -502,7 +513,7 @@ impl ClientMessageBuilder<Self> for EthereumChainInner {
             })
             .collect();
 
-        Ok(messages)
+        Ok(UpdateClientOutput::messages_only(messages))
     }
 
     // Uses `migrateClient` (requires admin role) since EVM has no dedicated

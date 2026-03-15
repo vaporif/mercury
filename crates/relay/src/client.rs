@@ -42,12 +42,12 @@ where
             .build_update_client_payload(&trusted_height, &target_height, &client_state)
             .await?;
 
-        let messages = self
+        let output = self
             .dst_chain()
             .build_update_client_message(self.dst_client_id(), payload)
             .await?;
 
-        self.dst_chain().send_messages(messages).await?;
+        self.dst_chain().send_messages(output.messages).await?;
         Ok(())
     }
 }

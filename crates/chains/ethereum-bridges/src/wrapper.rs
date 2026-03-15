@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use mercury_chain_traits::builders::{
-    ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder,
+    ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder, UpdateClientOutput,
 };
 use mercury_chain_traits::events::PacketEvents;
 use mercury_chain_traits::inner::HasInner;
@@ -268,7 +268,7 @@ where
         &self,
         client_id: &Self::ClientId,
         payload: Self::UpdateClientPayload,
-    ) -> Result<Vec<Self::Message>> {
+    ) -> Result<UpdateClientOutput<Self::Message>> {
         self.0.build_update_client_message(client_id, payload).await
     }
 

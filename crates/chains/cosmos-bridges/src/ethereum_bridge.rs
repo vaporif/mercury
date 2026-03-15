@@ -5,7 +5,9 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mercury_chain_traits::builders::{ClientMessageBuilder, PacketMessageBuilder};
+use mercury_chain_traits::builders::{
+    ClientMessageBuilder, PacketMessageBuilder, UpdateClientOutput,
+};
 use mercury_chain_traits::queries::ClientQuery;
 use mercury_core::error::Result;
 
@@ -86,7 +88,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<EthereumChainInner> for CosmosChain<S
         &self,
         client_id: &Self::ClientId,
         payload: UpdateClientPayload,
-    ) -> Result<Vec<CosmosMessage>> {
+    ) -> Result<UpdateClientOutput<CosmosMessage>> {
         let signer = self.0.signer.account_address()?;
 
         let messages = payload
@@ -105,7 +107,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<EthereumChainInner> for CosmosChain<S
             })
             .collect();
 
-        Ok(messages)
+        Ok(UpdateClientOutput::messages_only(messages))
     }
 
     async fn build_register_counterparty_message(

@@ -7,7 +7,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, warn};
 
-use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
+use mercury_chain_traits::builders::{
+    ClientMessageBuilder, ClientPayloadBuilder, UpdateClientOutput,
+};
 use mercury_chain_traits::events::PacketEvents;
 use mercury_chain_traits::inner::HasInner;
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
@@ -19,6 +21,7 @@ use mercury_core::worker::Worker;
 use crate::workers::{DstTxRequest, SrcTxRequest};
 
 type UpdateClientResult<Height, Message> = Result<(Height, Vec<Message>)>;
+type DstUpdateClientResult<Height, Message> = Result<(Height, UpdateClientOutput<Message>)>;
 type BuildMessagesResult<Message, R> = (Vec<Message>, Vec<PendingSend<SendEvent<R>>>);
 
 const PROOF_FETCH_CONCURRENCY: usize = 8;
@@ -59,8 +62,10 @@ where
     #[instrument(skip_all, name = "build_dst_update_client")]
     async fn build_dst_update_client_messages(
         &self,
-    ) -> UpdateClientResult<<R::SrcChain as ChainTypes>::Height, <R::DstChain as ChainTypes>::Message>
-    {
+    ) -> DstUpdateClientResult<
+        <R::SrcChain as ChainTypes>::Height,
+        <R::DstChain as ChainTypes>::Message,
+    > {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
@@ -78,7 +83,7 @@ where
         let trusted_height = DstChain::<R>::client_latest_height(&client_state);
 
         if src_height <= trusted_height {
-            return Ok((src_height, vec![]));
+            return Ok((src_height, UpdateClientOutput::messages_only(vec![])));
         }
 
         let update_payload = self
@@ -86,13 +91,13 @@ where
             .src_chain()
             .build_update_client_payload(&trusted_height, &src_height, &client_state)
             .await?;
-        let update_msgs = self
+        let update_output = self
             .relay
             .dst_chain()
             .build_update_client_message(self.relay.dst_client_id(), update_payload)
             .await?;
 
-        Ok((src_height, update_msgs))
+        Ok((src_height, update_output))
     }
 
     #[instrument(skip_all, name = "build_src_update_client")]
@@ -125,13 +130,13 @@ where
             .dst_chain()
             .build_update_client_payload(&trusted_height, &dst_height, &client_state)
             .await?;
-        let update_msgs = self
+        let update_output = self
             .relay
             .src_chain()
             .build_update_client_message(self.relay.src_client_id(), update_payload)
             .await?;
 
-        Ok((dst_height, update_msgs))
+        Ok((dst_height, update_output.messages))
     }
 
     #[instrument(skip_all, name = "build_recv_tracked")]
@@ -473,8 +478,8 @@ where
 
             if !deliverable.is_empty() || !write_acks.is_empty() {
                 match self.build_dst_update_client_messages().await {
-                    Ok((src_height, update_msgs)) => {
-                        let update_msg_count = update_msgs.len();
+                    Ok((src_height, mut update_output)) => {
+                        let update_msg_count = update_output.messages.len();
 
                         let (recv_msgs, recv_pending) = self
                             .build_recv_messages_tracked(deliverable, &src_height)
@@ -486,9 +491,16 @@ where
                             .await;
                         pending_acks.extend(ack_failed);
 
-                        let mut messages = update_msgs;
-                        messages.extend(recv_msgs);
-                        messages.extend(ack_msgs);
+                        let mut packet_msgs: Vec<_> =
+                            recv_msgs.into_iter().chain(ack_msgs).collect();
+
+                        // Inject combined membership proof into first packet message if present.
+                        self.relay
+                            .dst_chain()
+                            .finalize_batch(&mut update_output, &mut packet_msgs);
+
+                        let mut messages = update_output.messages;
+                        messages.extend(packet_msgs);
 
                         if messages.len() > update_msg_count {
                             self.sender

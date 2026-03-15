@@ -41,6 +41,7 @@ prost = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 ibc-client-tendermint = { workspace = true, optional = true }
+ibc-core-commitment-types = { workspace = true, optional = true }
 
 [features]
 sp1 = [
@@ -54,6 +55,7 @@ sp1 = [
     "dep:sha2",
     "dep:hex",
     "dep:ibc-client-tendermint",
+    "dep:ibc-core-commitment-types",
 ]
 
 [dev-dependencies]

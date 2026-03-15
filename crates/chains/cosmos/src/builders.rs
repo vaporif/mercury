@@ -18,9 +18,10 @@ use tendermint_rpc::{Client, Paging};
 use tracing::instrument;
 
 use mercury_chain_traits::builders::{
-    ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder,
+    ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder, UpdateClientOutput,
 };
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
+use mercury_core::MembershipProofs;
 use mercury_core::error::Result;
 
 use ibc_proto::ibc::core::channel::v2::{
@@ -50,10 +51,10 @@ pub struct CosmosCreateClientPayload {
 pub struct CosmosUpdateClientPayload {
     pub headers: Vec<Any>,
     pub trusted_consensus_state: Option<TendermintConsensusState>,
-    /// Membership key-value pairs for batched SP1 proving.
+    /// Membership proof entries for batched proving.
     /// Populated by `enrich_update_payload` when packet proofs need to be
     /// bundled into the preceding `updateClient` call.
-    pub membership_kvs: Vec<(Vec<u8>, Vec<u8>)>,
+    pub membership_proofs: MembershipProofs,
 }
 
 #[async_trait]
@@ -198,7 +199,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChainInne
         Ok(CosmosUpdateClientPayload {
             headers,
             trusted_consensus_state,
-            membership_kvs: Vec::new(),
+            membership_proofs: MembershipProofs::new(),
         })
     }
 }
@@ -237,7 +238,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChainInner<S> {
         &self,
         client_id: &Self::ClientId,
         payload: CosmosUpdateClientPayload,
-    ) -> Result<Vec<CosmosMessage>> {
+    ) -> Result<UpdateClientOutput<CosmosMessage>> {
         let signer = self.signer.account_address()?;
 
         let messages = payload
@@ -253,7 +254,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChainInner<S> {
             })
             .collect();
 
-        Ok(messages)
+        Ok(UpdateClientOutput::messages_only(messages))
     }
 
     async fn build_register_counterparty_message(

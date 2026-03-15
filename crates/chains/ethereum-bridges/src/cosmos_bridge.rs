@@ -4,13 +4,15 @@
 use std::time::Duration;
 
 use alloy::primitives::U256;
-use alloy::sol_types::SolCall;
+use alloy::sol_types::{SolCall, SolValue};
 use async_trait::async_trait;
 use eyre::Context;
 use tendermint::block::Height as TmHeight;
 use tracing::instrument;
 
-use mercury_chain_traits::builders::{ClientMessageBuilder, PacketMessageBuilder};
+use mercury_chain_traits::builders::{
+    ClientMessageBuilder, PacketMessageBuilder, UpdateClientOutput,
+};
 use mercury_chain_traits::queries::ClientQuery;
 use mercury_core::MerklePrefix;
 use mercury_core::error::Result;
@@ -116,7 +118,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChainInner<S>> for EthereumChai
         &self,
         client_id: &EvmClientId,
         payload: CosmosUpdateClientPayload,
-    ) -> Result<Vec<EvmMessage>> {
+    ) -> Result<UpdateClientOutput<EvmMessage>> {
         let sp1 = self
             .sp1
             .as_ref()
@@ -133,6 +135,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChainInner<S>> for EthereumChai
                 client_id,
                 headers,
                 payload.trusted_consensus_state,
+                payload.membership_proofs,
                 sp1,
             )
             .await
@@ -163,13 +166,47 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChainInner<S>> for EthereumChai
     fn enrich_update_payload(
         &self,
         payload: &mut CosmosUpdateClientPayload,
-        packet_proofs: &[mercury_chain_traits::inner::PacketProofData],
+        proofs: &[mercury_core::MembershipProofEntry],
     ) {
-        for proof_data in packet_proofs {
-            payload
-                .membership_kvs
-                .push((proof_data.commitment.clone(), proof_data.proof.clone()));
+        for entry in proofs {
+            payload.membership_proofs.push(entry.clone());
         }
+    }
+
+    fn finalize_batch(
+        &self,
+        update_output: &mut UpdateClientOutput<EvmMessage>,
+        packet_messages: &mut [EvmMessage],
+    ) {
+        let Some(proof_bytes) = update_output.membership_proof.take() else {
+            return;
+        };
+
+        // Inject the combined membership proof into the first packet message's proof field.
+        let Some(first_msg) = packet_messages.first_mut() else {
+            return;
+        };
+
+        inject_membership_proof(first_msg, &proof_bytes);
+    }
+}
+
+/// Decode the calldata of a packet message, set its proof field to the
+/// combined membership proof, and re-encode.
+fn inject_membership_proof(msg: &mut EvmMessage, proof_bytes: &[u8]) {
+    if let Ok(mut call) = ICS26Router::recvPacketCall::abi_decode(&msg.calldata) {
+        call.msg_.proofCommitment = proof_bytes.to_vec().into();
+        msg.calldata = call.abi_encode();
+    } else if let Ok(mut call) = ICS26Router::ackPacketCall::abi_decode(&msg.calldata) {
+        call.msg_.proofAcked = proof_bytes.to_vec().into();
+        msg.calldata = call.abi_encode();
+    } else if let Ok(mut call) = ICS26Router::timeoutPacketCall::abi_decode(&msg.calldata) {
+        call.msg_.proofTimeout = proof_bytes.to_vec().into();
+        msg.calldata = call.abi_encode();
+    } else {
+        tracing::warn!(
+            "finalize_batch: first packet message has unrecognized calldata, skipping proof injection"
+        );
     }
 }
 

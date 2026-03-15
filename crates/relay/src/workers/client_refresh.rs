@@ -97,7 +97,8 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
             }
             .await
             {
-                Ok(messages) => {
+                Ok(output) => {
+                    let messages = output.messages;
                     info!("refreshing client");
                     if self.sender.send(DstTxRequest { messages }).await.is_err() {
                         warn!("tx_worker channel closed");

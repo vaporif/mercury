@@ -63,6 +63,7 @@ tendermint-light-client-verifier = "0.40"
 ibc = { version = "0.57", default-features = false, features = ["serde"] }
 ibc-proto = { git = "https://github.com/cosmos/ibc-proto-rs", branch = "main", default-features = false, features = ["serde"] }
 ibc-client-tendermint = { version = "0.57", default-features = false }
+ibc-core-commitment-types = { version = "0.57", default-features = false }
 prost = "0.13"
 prost-types = "0.13"
 tonic = { version = "0.14", features = [
