@@ -5,7 +5,7 @@ use prost::Message as _;
 use tendermint_rpc::Client;
 use tracing::warn;
 
-use crate::chain::CosmosChain;
+use crate::chain::CosmosChainInner;
 use crate::keys::CosmosSigner;
 use crate::types::{
     CosmosEvent, CosmosPacket, PacketAcknowledgement, PacketPayload, SendPacketEvent, WriteAckEvent,
@@ -75,7 +75,7 @@ fn abci_event_to_cosmos_event(event: &tendermint::abci::Event) -> CosmosEvent {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> PacketEvents<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> PacketEvents for CosmosChainInner<S> {
     type SendPacketEvent = SendPacketEvent;
     type WriteAckEvent = WriteAckEvent;
 
@@ -171,7 +171,7 @@ impl<S: CosmosSigner> PacketEvents<Self> for CosmosChain<S> {
             for event in &tx.tx_result.events {
                 let cosmos_event = abci_event_to_cosmos_event(event);
                 if let Some(send_event) =
-                    <Self as PacketEvents<Self>>::try_extract_send_packet_event(&cosmos_event)
+                    <Self as PacketEvents>::try_extract_send_packet_event(&cosmos_event)
                     && send_event.packet.source_client_id.as_str() == client_id.as_str()
                 {
                     return Ok(Some(send_event));
@@ -200,7 +200,7 @@ mod tests {
     use crate::keys::Secp256k1KeyPair;
     use ibc_proto::ibc::core::channel::v2::{Acknowledgement, Packet, Payload};
 
-    type TestChain = CosmosChain<Secp256k1KeyPair>;
+    type TestChain = CosmosChainInner<Secp256k1KeyPair>;
 
     #[test]
     fn get_attr_finds_existing_key() {

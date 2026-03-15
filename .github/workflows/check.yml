@@ -137,3 +137,5 @@ jobs:
           submodules: recursive
 
       - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          cargo-deny-version: "0.19.0"

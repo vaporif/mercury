@@ -1,9 +1,11 @@
-//! Cosmos SDK chain implementation for the Mercury relayer.
+//! Core Cosmos SDK chain implementation (chain-intrinsic impls only).
 
 /// IBC message and payload builders.
 pub mod builders;
 /// Cosmos chain definition and trait implementations.
 pub mod chain;
+/// Client state and consensus state enum types (Tendermint / Wasm).
+pub mod client_types;
 /// Chain configuration and gas price settings.
 pub mod config;
 /// Event parsing from transaction results.

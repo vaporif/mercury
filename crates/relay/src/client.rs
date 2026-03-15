@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 
-use mercury_chain_traits::prelude::*;
-use mercury_chain_traits::relay::{ClientUpdater, Relay};
+use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
+use mercury_chain_traits::inner::HasInner;
+use mercury_chain_traits::queries::ClientQuery;
+use mercury_chain_traits::relay::{ClientUpdater, Relay, RelayChain};
 use mercury_core::error::Result;
 
 use crate::context::RelayContext;
@@ -9,41 +11,14 @@ use crate::context::RelayContext;
 #[async_trait]
 impl<Src, Dst> ClientUpdater for RelayContext<Src, Dst>
 where
-    Src: Chain<Dst>,
-    Dst: Chain<Src>,
+    Src: RelayChain + ClientPayloadBuilder<<Dst as HasInner>::Inner>,
+    Dst: RelayChain
+        + ClientMessageBuilder<
+            <Src as HasInner>::Inner,
+            UpdateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasInner>::Inner>>::UpdateClientPayload,
+        > + ClientQuery<<Src as HasInner>::Inner>,
+    Self: Relay<SrcChain = Src, DstChain = Dst>,
 {
-    async fn update_src_client(&self) -> Result<()> {
-        let dst_status = self.dst_chain().query_chain_status().await?;
-        let target_height = Dst::chain_status_height(&dst_status).clone();
-
-        let src_status = self.src_chain().query_chain_status().await?;
-        let src_height = Src::chain_status_height(&src_status).clone();
-
-        let client_state = self
-            .src_chain()
-            .query_client_state(self.src_client_id(), &src_height)
-            .await?;
-
-        let trusted_height = Src::client_latest_height(&client_state);
-
-        if target_height <= trusted_height {
-            return Ok(());
-        }
-
-        let payload = self
-            .dst_chain()
-            .build_update_client_payload(&trusted_height, &target_height, &client_state)
-            .await?;
-
-        let messages = self
-            .src_chain()
-            .build_update_client_message(self.src_client_id(), payload)
-            .await?;
-
-        self.src_chain().send_messages(messages).await?;
-        Ok(())
-    }
-
     async fn update_dst_client(&self) -> Result<()> {
         let src_status = self.src_chain().query_chain_status().await?;
         let target_height = Src::chain_status_height(&src_status).clone();
@@ -67,12 +42,12 @@ where
             .build_update_client_payload(&trusted_height, &target_height, &client_state)
             .await?;
 
-        let messages = self
+        let output = self
             .dst_chain()
             .build_update_client_message(self.dst_client_id(), payload)
             .await?;
 
-        self.dst_chain().send_messages(messages).await?;
+        self.dst_chain().send_messages(output.messages).await?;
         Ok(())
     }
 }

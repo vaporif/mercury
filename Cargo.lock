@@ -4943,14 +4943,16 @@ dependencies = [
 name = "mercury-cli"
 version = "0.1.0-alpha.2"
 dependencies = [
+ "alloy",
  "clap",
  "color-eyre",
  "eyre",
  "futures",
  "ibc",
  "mercury-core",
- "mercury-cosmos",
+ "mercury-cosmos-bridges",
  "mercury-ethereum",
+ "mercury-ethereum-bridges",
  "mercury-relay",
  "serde",
  "tokio",
@@ -4958,6 +4960,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
@@ -5003,6 +5006,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "mercury-cosmos-bridges"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "alloy",
+ "async-trait",
+ "ethereum-light-client",
+ "eyre",
+ "hex",
+ "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
+ "mercury-chain-traits",
+ "mercury-core",
+ "mercury-cosmos",
+ "mercury-ethereum",
+ "prost 0.13.5",
+ "serde_json",
+ "tendermint",
+ "tracing",
+]
+
+[[package]]
 name = "mercury-e2e"
 version = "0.1.0-alpha.2"
 dependencies = [
@@ -5014,7 +5037,7 @@ dependencies = [
  "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
  "mercury-chain-traits",
  "mercury-core",
- "mercury-cosmos",
+ "mercury-cosmos-bridges",
  "mercury-relay",
  "prost 0.13.5",
  "secp256k1 0.31.1",
@@ -5048,6 +5071,7 @@ dependencies = [
  "futures",
  "hex",
  "ibc-client-tendermint",
+ "ibc-core-commitment-types",
  "ibc-eureka-solidity-types",
  "ibc-proto 0.51.1",
  "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
@@ -5070,6 +5094,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "mercury-ethereum-bridges"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "alloy",
+ "async-trait",
+ "eyre",
+ "hex",
+ "ibc-client-tendermint",
+ "ibc-eureka-solidity-types",
+ "ibc-proto 0.51.1",
+ "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
+ "mercury-chain-traits",
+ "mercury-core",
+ "mercury-cosmos",
+ "mercury-ethereum",
+ "prost 0.13.5",
+ "sha2 0.10.9",
+ "sp1-ics07-tendermint-prover",
+ "sp1-prover",
+ "sp1-sdk",
+ "tendermint",
+ "tracing",
+]
+
+[[package]]
 name = "mercury-relay"
 version = "0.1.0-alpha.2"
 dependencies = [
@@ -5079,6 +5128,8 @@ dependencies = [
  "globset",
  "mercury-chain-traits",
  "mercury-core",
+ "mercury-cosmos-bridges",
+ "mercury-ethereum-bridges",
  "serde",
  "tokio",
  "tokio-util",

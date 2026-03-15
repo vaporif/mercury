@@ -1,4 +1,4 @@
-//! Ethereum (EVM) chain implementation for the Mercury relayer.
+//! Core Ethereum chain implementation (chain-intrinsic impls only).
 
 pub mod aggregator;
 pub mod builders;
@@ -8,6 +8,7 @@ pub mod contracts;
 pub mod events;
 pub mod ics24;
 pub mod keys;
+pub mod misbehaviour;
 pub mod queries;
 pub mod tx;
 pub mod types;

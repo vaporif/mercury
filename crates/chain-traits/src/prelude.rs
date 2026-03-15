@@ -2,5 +2,7 @@
 
 pub use crate::builders::*;
 pub use crate::events::PacketEvents;
+pub use crate::inner::HasInner;
 pub use crate::queries::{ChainStatusQuery, ClientQuery, MisbehaviourQuery, PacketStateQuery};
+pub use crate::relay::RelayChain;
 pub use crate::types::*;

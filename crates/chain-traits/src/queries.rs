@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
-use crate::builders::MisbehaviourDetector;
 use crate::types::{ChainTypes, IbcTypes};
 
 /// Queries the current status (height and timestamp) of the chain.
@@ -19,7 +19,7 @@ pub trait ChainStatusQuery: ChainTypes {
 
 /// Queries and inspects IBC client and consensus state.
 #[async_trait]
-pub trait ClientQuery<Counterparty: ChainTypes + ?Sized>: IbcTypes<Counterparty> {
+pub trait ClientQuery<Counterparty: ChainTypes>: IbcTypes {
     async fn query_client_state(
         &self,
         client_id: &Self::ClientId,
@@ -40,9 +40,9 @@ pub trait ClientQuery<Counterparty: ChainTypes + ?Sized>: IbcTypes<Counterparty>
 
 /// Queries consensus state heights and update headers for misbehaviour detection.
 #[async_trait]
-pub trait MisbehaviourQuery<Counterparty: ChainTypes + MisbehaviourDetector<Self> + ?Sized>:
-    IbcTypes<Counterparty>
-{
+pub trait MisbehaviourQuery<Counterparty: ChainTypes>: IbcTypes {
+    type CounterpartyUpdateHeader: ThreadSafe;
+
     /// List all consensus state heights for a client, in descending order.
     async fn query_consensus_state_heights(
         &self,
@@ -55,12 +55,12 @@ pub trait MisbehaviourQuery<Counterparty: ChainTypes + MisbehaviourDetector<Self
         &self,
         client_id: &Self::ClientId,
         consensus_height: &Counterparty::Height,
-    ) -> Result<Option<Counterparty::UpdateHeader>>;
+    ) -> Result<Option<Self::CounterpartyUpdateHeader>>;
 }
 
 /// Queries packet commitments, receipts, and acknowledgements at a given height.
 #[async_trait]
-pub trait PacketStateQuery<Counterparty: ChainTypes + ?Sized>: IbcTypes<Counterparty> {
+pub trait PacketStateQuery: IbcTypes {
     async fn query_packet_commitment(
         &self,
         client_id: &Self::ClientId,

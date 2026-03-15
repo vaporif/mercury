@@ -3,9 +3,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
-use mercury_cosmos::chain::CosmosChain;
-use mercury_cosmos::keys::{Secp256k1KeyPair, load_cosmos_signer};
-use mercury_ethereum::chain::EthereumChain;
+use futures::FutureExt;
+use mercury_cosmos_bridges::CosmosChain;
+use mercury_cosmos_bridges::keys::{Secp256k1KeyPair, load_cosmos_signer};
+use mercury_ethereum::types::EvmClientId;
+use mercury_ethereum_bridges::EthereumChain;
 use mercury_relay::context::{RelayContext, RelayWorkerConfig};
 use mercury_relay::filter::PacketFilter;
 use tokio::task::JoinHandle;
@@ -85,7 +87,7 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
 
     match chain_config {
         ChainConfig::Cosmos(_) => {
-            match mercury_cosmos::queries::query_cosmos_status(rpc_addr).await {
+            match mercury_cosmos_bridges::queries::query_cosmos_status(rpc_addr).await {
                 Ok(status) => {
                     println!("Height:    {}", status.height);
                     println!("Timestamp: {}", status.timestamp);
@@ -96,8 +98,29 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
                 }
             }
         }
-        ChainConfig::Ethereum(_) => {
-            println!("Status:    ethereum status query not yet implemented");
+        ChainConfig::Ethereum(cfg) => {
+            use alloy::eips::BlockNumberOrTag;
+            use alloy::providers::{Provider, ProviderBuilder};
+
+            let url: url::Url = cfg
+                .rpc_addr
+                .parse()
+                .map_err(|e| eyre::eyre!("invalid Ethereum RPC URL: {e}"))?;
+            let provider = ProviderBuilder::new().connect_http(url);
+
+            match provider.get_block_by_number(BlockNumberOrTag::Latest).await {
+                Ok(Some(block)) => {
+                    println!("Height:    {}", block.header.number);
+                    println!("Timestamp: {}", block.header.timestamp);
+                    println!("Status:    reachable");
+                }
+                Ok(None) => {
+                    println!("Status:    unreachable (no block returned)");
+                }
+                Err(e) => {
+                    println!("Status:    unreachable ({e})");
+                }
+            }
         }
     }
 
@@ -105,10 +128,47 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)] // Ethereum variant not yet wired into relay pairs
 enum ConnectedChain {
     Cosmos(Box<CosmosChain<Secp256k1KeyPair>>),
     Ethereum(Box<EthereumChain>),
+}
+
+trait DynRelay: Send + Sync {
+    fn run(
+        self: Arc<Self>,
+        token: tokio_util::sync::CancellationToken,
+        config: RelayWorkerConfig,
+    ) -> futures::future::BoxFuture<'static, mercury_core::error::Result<()>>;
+}
+
+impl DynRelay for RelayContext<CosmosChain<Secp256k1KeyPair>, CosmosChain<Secp256k1KeyPair>> {
+    fn run(
+        self: Arc<Self>,
+        token: tokio_util::sync::CancellationToken,
+        config: RelayWorkerConfig,
+    ) -> futures::future::BoxFuture<'static, mercury_core::error::Result<()>> {
+        self.run_with_token(token, config).boxed()
+    }
+}
+
+impl DynRelay for RelayContext<CosmosChain<Secp256k1KeyPair>, EthereumChain> {
+    fn run(
+        self: Arc<Self>,
+        token: tokio_util::sync::CancellationToken,
+        config: RelayWorkerConfig,
+    ) -> futures::future::BoxFuture<'static, mercury_core::error::Result<()>> {
+        self.run_with_token(token, config).boxed()
+    }
+}
+
+impl DynRelay for RelayContext<EthereumChain, CosmosChain<Secp256k1KeyPair>> {
+    fn run(
+        self: Arc<Self>,
+        token: tokio_util::sync::CancellationToken,
+        config: RelayWorkerConfig,
+    ) -> futures::future::BoxFuture<'static, mercury_core::error::Result<()>> {
+        self.run_with_token(token, config).boxed()
+    }
 }
 
 #[instrument(skip_all, name = "run_start")]
@@ -144,7 +204,8 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
             .ok_or_else(|| eyre::eyre!("chain '{}' not in cache", relay.dst_chain))?
             .clone();
 
-        let handle = spawn_relay_pair(src, dst, relay)?;
+        let (fwd, rev) = build_relay_pair(src, dst, relay)?;
+        let handle = spawn_relay_pair(fwd, rev, relay)?;
         tracing::info!(
             src = %relay.src_chain,
             dst = %relay.dst_chain,
@@ -240,7 +301,7 @@ async fn connect_chain(
                 }
             }
 
-            let signer = mercury_ethereum::keys::load_ethereum_signer(&key_path)
+            let signer = mercury_ethereum_bridges::keys::load_ethereum_signer(&key_path)
                 .map_err(|e| eyre::eyre!("loading signer for chain {}: {e}", eth_cfg.chain_id))?;
 
             let chain = EthereumChain::new(eth_cfg.clone(), signer)
@@ -281,16 +342,12 @@ async fn serve_health(port: u16) {
     }
 }
 
-fn spawn_relay_pair(
+fn build_relay_pair(
     src: ConnectedChain,
     dst: ConnectedChain,
     relay: &RelayConfig,
-) -> eyre::Result<JoinHandle<mercury_core::error::Result<()>>> {
+) -> eyre::Result<(Arc<dyn DynRelay>, Arc<dyn DynRelay>)> {
     match (src, dst) {
-        #[allow(clippy::match_wildcard_for_single_variants)]
-        (ConnectedChain::Ethereum(_), _) | (_, ConnectedChain::Ethereum(_)) => {
-            eyre::bail!("Ethereum relay not yet supported (requires cross-chain IbcTypes)")
-        }
         (ConnectedChain::Cosmos(src_chain), ConnectedChain::Cosmos(dst_chain)) => {
             let src_chain = *src_chain;
             let dst_chain = *dst_chain;
@@ -303,71 +360,125 @@ fn spawn_relay_pair(
                 .parse()
                 .map_err(|e| eyre::eyre!("invalid dst_client_id '{}': {e}", relay.dst_client_id))?;
 
-            let fwd = Arc::new(RelayContext {
+            let fwd: Arc<dyn DynRelay> = Arc::new(RelayContext {
                 src_chain: src_chain.clone(),
                 dst_chain: dst_chain.clone(),
                 src_client_id: src_client_id.clone(),
                 dst_client_id: dst_client_id.clone(),
             });
-
-            let rev = Arc::new(RelayContext {
+            let rev: Arc<dyn DynRelay> = Arc::new(RelayContext {
                 src_chain: dst_chain,
                 dst_chain: src_chain,
                 src_client_id: dst_client_id,
                 dst_client_id: src_client_id,
             });
+            Ok((fwd, rev))
+        }
+        (ConnectedChain::Cosmos(src_chain), ConnectedChain::Ethereum(dst_chain)) => {
+            let src_chain = *src_chain;
+            let dst_chain = *dst_chain;
+            let src_client_id: ibc::core::host::types::identifiers::ClientId = relay
+                .src_client_id
+                .parse()
+                .map_err(|e| eyre::eyre!("invalid src_client_id '{}': {e}", relay.src_client_id))?;
+            let dst_client_id = EvmClientId(relay.dst_client_id.clone());
 
-            let src_name = relay.src_chain.clone();
-            let dst_name = relay.dst_chain.clone();
-            let packet_filter = relay
-                .packet_filter
-                .as_ref()
-                .map(PacketFilter::new)
-                .transpose()
-                .map_err(|e| eyre::eyre!("relay {}->{}: {e}", relay.src_chain, relay.dst_chain))?;
+            let fwd: Arc<dyn DynRelay> = Arc::new(RelayContext {
+                src_chain: src_chain.clone(),
+                dst_chain: dst_chain.clone(),
+                src_client_id: src_client_id.clone(),
+                dst_client_id: dst_client_id.clone(),
+            });
+            let rev: Arc<dyn DynRelay> = Arc::new(RelayContext {
+                src_chain: dst_chain,
+                dst_chain: src_chain,
+                src_client_id: dst_client_id,
+                dst_client_id: src_client_id,
+            });
+            Ok((fwd, rev))
+        }
+        (ConnectedChain::Ethereum(src_chain), ConnectedChain::Cosmos(dst_chain)) => {
+            let src_chain = *src_chain;
+            let dst_chain = *dst_chain;
+            let src_client_id = EvmClientId(relay.src_client_id.clone());
+            let dst_client_id: ibc::core::host::types::identifiers::ClientId = relay
+                .dst_client_id
+                .parse()
+                .map_err(|e| eyre::eyre!("invalid dst_client_id '{}': {e}", relay.dst_client_id))?;
 
-            if let Some(ref pf) = relay.packet_filter {
-                tracing::info!(
-                    policy = ?pf.policy,
-                    source_ports = ?pf.source_ports,
-                    "packet filter configured"
-                );
-            }
-
-            let worker_config = RelayWorkerConfig {
-                lookback: relay
-                    .lookback_window_secs
-                    .map(std::time::Duration::from_secs),
-                clearing_interval: relay
-                    .clearing_interval_secs
-                    .map(std::time::Duration::from_secs),
-                misbehaviour_scan_interval: relay
-                    .misbehaviour_scan_interval_secs
-                    .map(std::time::Duration::from_secs),
-                packet_filter,
-            };
-
-            // Shared token so misbehaviour detection can shut down both directions
-            let shared_token = tokio_util::sync::CancellationToken::new();
-
-            Ok(tokio::spawn(async move {
-                tracing::info!(
-                    src = %src_name,
-                    dst = %dst_name,
-                    "running bidirectional relay"
-                );
-                let (res_a, res_b) = tokio::join!(
-                    Arc::clone(&fwd).run_with_token(shared_token.clone(), worker_config.clone()),
-                    Arc::clone(&rev).run_with_token(shared_token, worker_config),
-                );
-                if let Err(ref e) = res_a {
-                    tracing::error!(direction = "a→b", error = %e, "relay direction failed");
-                }
-                if let Err(ref e) = res_b {
-                    tracing::error!(direction = "b→a", error = %e, "relay direction failed");
-                }
-                res_a.and(res_b)
-            }))
+            let fwd: Arc<dyn DynRelay> = Arc::new(RelayContext {
+                src_chain: src_chain.clone(),
+                dst_chain: dst_chain.clone(),
+                src_client_id: src_client_id.clone(),
+                dst_client_id: dst_client_id.clone(),
+            });
+            let rev: Arc<dyn DynRelay> = Arc::new(RelayContext {
+                src_chain: dst_chain,
+                dst_chain: src_chain,
+                src_client_id: dst_client_id,
+                dst_client_id: src_client_id,
+            });
+            Ok((fwd, rev))
+        }
+        (ConnectedChain::Ethereum(_), ConnectedChain::Ethereum(_)) => {
+            eyre::bail!("Ethereum-to-Ethereum relay is not supported")
         }
     }
+}
+
+fn spawn_relay_pair(
+    fwd: Arc<dyn DynRelay>,
+    rev: Arc<dyn DynRelay>,
+    relay: &RelayConfig,
+) -> eyre::Result<JoinHandle<mercury_core::error::Result<()>>> {
+    let src_name = relay.src_chain.clone();
+    let dst_name = relay.dst_chain.clone();
+    let packet_filter = relay
+        .packet_filter
+        .as_ref()
+        .map(PacketFilter::new)
+        .transpose()
+        .map_err(|e| eyre::eyre!("relay {}->{}: {e}", relay.src_chain, relay.dst_chain))?;
+
+    if let Some(ref pf) = relay.packet_filter {
+        tracing::info!(
+            policy = ?pf.policy,
+            source_ports = ?pf.source_ports,
+            "packet filter configured"
+        );
+    }
+
+    let worker_config = RelayWorkerConfig {
+        lookback: relay
+            .lookback_window_secs
+            .map(std::time::Duration::from_secs),
+        clearing_interval: relay
+            .clearing_interval_secs
+            .map(std::time::Duration::from_secs),
+        misbehaviour_scan_interval: relay
+            .misbehaviour_scan_interval_secs
+            .map(std::time::Duration::from_secs),
+        packet_filter,
+    };
+
+    let shared_token = tokio_util::sync::CancellationToken::new();
+
+    Ok(tokio::spawn(async move {
+        tracing::info!(
+            src = %src_name,
+            dst = %dst_name,
+            "running bidirectional relay"
+        );
+        let (res_a, res_b) = tokio::join!(
+            fwd.run(shared_token.clone(), worker_config.clone()),
+            rev.run(shared_token, worker_config),
+        );
+        if let Err(ref e) = res_a {
+            tracing::error!(direction = "a->b", error = %e, "relay direction failed");
+        }
+        if let Err(ref e) = res_b {
+            tracing::error!(direction = "b->a", error = %e, "relay direction failed");
+        }
+        res_a.and(res_b)
+    }))
 }

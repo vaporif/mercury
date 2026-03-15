@@ -18,9 +18,10 @@ use tendermint_rpc::{Client, Paging};
 use tracing::instrument;
 
 use mercury_chain_traits::builders::{
-    ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder,
+    ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder, UpdateClientOutput,
 };
-use mercury_chain_traits::types::IbcTypes;
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
+use mercury_core::MembershipProofs;
 use mercury_core::error::Result;
 
 use ibc_proto::ibc::core::channel::v2::{
@@ -28,7 +29,7 @@ use ibc_proto::ibc::core::channel::v2::{
 };
 use ibc_proto::ibc::core::client::v2::MsgRegisterCounterparty;
 
-use crate::chain::CosmosChain;
+use crate::chain::CosmosChainInner;
 use crate::keys::CosmosSigner;
 use crate::types::to_any;
 use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgement};
@@ -50,28 +51,14 @@ pub struct CosmosCreateClientPayload {
 pub struct CosmosUpdateClientPayload {
     pub headers: Vec<Any>,
     pub trusted_consensus_state: Option<TendermintConsensusState>,
-}
-
-/// Proof data needed to build packet relay messages.
-#[derive(Clone, Debug)]
-pub struct CosmosProofPayload {
-    pub proof: MerkleProof,
-    pub proof_height: TmHeight,
-    pub proof_revision_number: u64,
-}
-
-impl From<(MerkleProof, TmHeight, u64)> for CosmosProofPayload {
-    fn from((proof, proof_height, proof_revision_number): (MerkleProof, TmHeight, u64)) -> Self {
-        Self {
-            proof,
-            proof_height,
-            proof_revision_number,
-        }
-    }
+    /// Membership proof entries for batched proving.
+    /// Populated by `enrich_update_payload` when packet proofs need to be
+    /// bundled into the preceding `updateClient` call.
+    pub membership_proofs: MembershipProofs,
 }
 
 #[async_trait]
-impl<S: CosmosSigner> ClientPayloadBuilder<Self> for CosmosChain<S> {
+impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChainInner<S> {
     type CreateClientPayload = CosmosCreateClientPayload;
     type UpdateClientPayload = CosmosUpdateClientPayload;
 
@@ -126,8 +113,11 @@ impl<S: CosmosSigner> ClientPayloadBuilder<Self> for CosmosChain<S> {
         &self,
         trusted_height: &Self::Height,
         target_height: &Self::Height,
-        _counterparty_client_state: &<Self as IbcTypes<Self>>::ClientState,
-    ) -> Result<Self::UpdateClientPayload> {
+        _counterparty_client_state: &<C as IbcTypes>::ClientState,
+    ) -> Result<Self::UpdateClientPayload>
+    where
+        C: IbcTypes,
+    {
         let trusted_height_value = trusted_height.value();
         let target_height_value = target_height.value();
 
@@ -209,6 +199,7 @@ impl<S: CosmosSigner> ClientPayloadBuilder<Self> for CosmosChain<S> {
         Ok(CosmosUpdateClientPayload {
             headers,
             trusted_consensus_state,
+            membership_proofs: MembershipProofs::new(),
         })
     }
 }
@@ -224,7 +215,10 @@ fn find_proposer(
 }
 
 #[async_trait]
-impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
+impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChainInner<S> {
+    type CreateClientPayload = CosmosCreateClientPayload;
+    type UpdateClientPayload = CosmosUpdateClientPayload;
+
     async fn build_create_client_message(
         &self,
         payload: CosmosCreateClientPayload,
@@ -244,7 +238,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
         &self,
         client_id: &Self::ClientId,
         payload: CosmosUpdateClientPayload,
-    ) -> Result<Vec<CosmosMessage>> {
+    ) -> Result<UpdateClientOutput<CosmosMessage>> {
         let signer = self.signer.account_address()?;
 
         let messages = payload
@@ -260,7 +254,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
             })
             .collect();
 
-        Ok(messages)
+        Ok(UpdateClientOutput::messages_only(messages))
     }
 
     async fn build_register_counterparty_message(
@@ -282,7 +276,8 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
     }
 }
 
-fn cosmos_packet_to_v2(packet: &CosmosPacket) -> V2Packet {
+#[must_use]
+pub fn cosmos_packet_to_v2(packet: &CosmosPacket) -> V2Packet {
     V2Packet {
         sequence: packet.sequence,
         source_client: packet.source_client_id.to_string(),
@@ -310,23 +305,18 @@ fn to_proto_height(revision_number: u64, h: TmHeight) -> ProtoHeight {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChain<S> {
-    type ReceivePacketPayload = CosmosProofPayload;
-    type AckPacketPayload = CosmosProofPayload;
-    type TimeoutPacketPayload = CosmosProofPayload;
-
+impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChainInner<S> {
     async fn build_receive_packet_message(
         &self,
         packet: &CosmosPacket,
-        payload: Self::ReceivePacketPayload,
+        proof: MerkleProof,
+        proof_height: TmHeight,
+        revision: u64,
     ) -> Result<CosmosMessage> {
         let msg = MsgRecvPacket {
             packet: Some(cosmos_packet_to_v2(packet)),
-            proof_commitment: payload.proof.proof_bytes,
-            proof_height: Some(to_proto_height(
-                payload.proof_revision_number,
-                payload.proof_height,
-            )),
+            proof_commitment: proof.proof_bytes,
+            proof_height: Some(to_proto_height(revision, proof_height)),
             signer: self.signer.account_address()?,
         };
         Ok(to_any(&msg))
@@ -336,11 +326,13 @@ impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChain<S> {
         &self,
         packet: &CosmosPacket,
         ack: &PacketAcknowledgement,
-        payload: Self::AckPacketPayload,
+        proof: MerkleProof,
+        proof_height: TmHeight,
+        revision: u64,
     ) -> Result<CosmosMessage> {
-        // ack.0 stores full proto-encoded Acknowledgement bytes from write_ack event
         let acknowledgement =
-            channel::Acknowledgement::decode(ack.0.as_slice()).unwrap_or_else(|_| {
+            channel::Acknowledgement::decode(ack.0.as_slice()).unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "ack proto decode failed, treating raw bytes as single app-ack");
                 channel::Acknowledgement {
                     app_acknowledgements: vec![ack.0.clone()],
                 }
@@ -348,11 +340,8 @@ impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChain<S> {
         let msg = MsgAcknowledgement {
             packet: Some(cosmos_packet_to_v2(packet)),
             acknowledgement: Some(acknowledgement),
-            proof_acked: payload.proof.proof_bytes,
-            proof_height: Some(to_proto_height(
-                payload.proof_revision_number,
-                payload.proof_height,
-            )),
+            proof_acked: proof.proof_bytes,
+            proof_height: Some(to_proto_height(revision, proof_height)),
             signer: self.signer.account_address()?,
         };
         Ok(to_any(&msg))
@@ -361,15 +350,14 @@ impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChain<S> {
     async fn build_timeout_packet_message(
         &self,
         packet: &CosmosPacket,
-        payload: Self::TimeoutPacketPayload,
+        proof: MerkleProof,
+        proof_height: TmHeight,
+        revision: u64,
     ) -> Result<CosmosMessage> {
         let msg = MsgTimeout {
             packet: Some(cosmos_packet_to_v2(packet)),
-            proof_unreceived: payload.proof.proof_bytes,
-            proof_height: Some(to_proto_height(
-                payload.proof_revision_number,
-                payload.proof_height,
-            )),
+            proof_unreceived: proof.proof_bytes,
+            proof_height: Some(to_proto_height(revision, proof_height)),
             signer: self.signer.account_address()?,
         };
         Ok(to_any(&msg))

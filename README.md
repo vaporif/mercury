@@ -4,13 +4,13 @@
 [![E2E](https://github.com/vaporif/mercury/actions/workflows/e2e.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/e2e.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-An IBC v2 relayer in Rust. Plain traits, no frameworks.
+A cross-chain IBC v2 relayer in Rust. Plain traits, no frameworks.
 
-Mercury relays packets between IBC-connected blockchains. Unlike [hermes-sdk](https://github.com/informalsystems/hermes-sdk), which uses Context-Generic Programming (250+ component traits, macro-heavy abstractions, 20-minute compile times), Mercury uses plain Rust traits and generics — ~16 focused traits, readable error messages, and standard tooling that just works. If you've tried to contribute to an IBC relayer and bounced off the complexity, this is for you.
+Mercury relays packets between IBC-connected blockchains, including across fundamentally different chain types. Cosmos↔Cosmos works today; Cosmos→EVM is in progress. Unlike [hermes](https://github.com/informalsystems/hermes) (Cosmos-only, sync architecture) and [hermes-sdk](https://github.com/informalsystems/hermes-sdk) (correct cross-chain approach buried under 250+ component traits), Mercury shares all relay logic across chain pairs through ~21 plain Rust traits with a wrapper pattern for orphan rule avoidance.
 
 ## Status
 
-Early active development. Core IBC v2 relay pipeline and Docker base transfer E2E test for Cosmos-to-Cosmos relaying. Not yet tested against live chains — use at your own risk.
+Early active development. Core IBC v2 relay pipeline with Cosmos↔Cosmos packet relay working in E2E tests. Cosmos→EVM cross-chain relay in progress. Not yet tested against live chains — use at your own risk.
 
 ## How it works
 
@@ -30,17 +30,21 @@ Each relay direction (A→B, B→A) runs its own set of workers connected by `to
 
 | Crate | Description |
 |-------|-------------|
-| `mercury-relayer` | CLI binary — `mercury-relayer start`, `mercury-relayer status` |
-| `mercury-cosmos` | Cosmos chain implementation — RPC, protobuf, tx signing |
+| `mercury-cli` | CLI binary — `mercury-relayer start`, `mercury-relayer status` |
+| `mercury-cosmos` | Cosmos chain — RPC, protobuf, tx signing |
+| `mercury-ethereum` | EVM chain — alloy, SP1 proofs, ICS07 contract interaction |
+| `mercury-cosmos-bridges` | Cosmos wrapper — cross-chain impls (EVM→Cosmos via beacon) |
+| `mercury-ethereum-bridges` | Ethereum wrapper — cross-chain impls (Cosmos→EVM via SP1) |
 | `mercury-relay` | Worker pipeline, generic over chain traits |
 | `mercury-chain-traits` | Chain types, messaging, queries, relay traits |
-| `mercury-core` | Error types, encoding, worker trait |
+| `mercury-core` | Error types, encoding, worker trait, membership proofs |
 
 ## Docs
 
-- [Why rewrite?](./docs/why-rewrite.md)
-- [IBC v2](./docs/ibc-v2.md)
-- [Adding a new chain](./docs/adding-a-chain.md)
+- [Why rewrite?](./docs/why-rewrite.md) — Hermes limitations, what CGP gets right, how Mercury applies the same insight without the framework
+- [Architecture](./docs/architecture.md) — trait hierarchy, cross-chain design, crate layout, worker pipeline, SP1 combined proofs
+- [IBC v2](./docs/ibc-v2.md) — Eureka protocol changes vs v1
+- [Adding a new chain](./docs/adding-a-chain.md) — step-by-step guide
 
 ## Usage
 

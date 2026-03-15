@@ -22,3 +22,5 @@ target
 
 # Nix artifact
 result
+
+.envrc

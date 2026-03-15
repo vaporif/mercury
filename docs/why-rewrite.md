@@ -12,13 +12,13 @@ The chain abstractions are also tightly coupled to Cosmos SDK semantics, making 
 
 By the time async Rust matured, the sync model was load-bearing and too costly to retrofit. The existence of hermes-sdk as a separate ground-up effort suggests the team reached the same conclusion. Mercury benefits from starting in 2026, where stable async traits, a mature tokio, and battle-tested async patterns are the default.
 
-## Hermes SDK: CGP Complexity
+## Hermes SDK: Right Problem, Wrong Abstraction
 
 [Hermes SDK](https://github.com/informalsystems/hermes-sdk) was built on [Context-Generic Programming](https://github.com/contextgeneric/cgp) (CGP), a custom Rust framework that provides compile-time polymorphism without runtime dispatch.
 
-The problems CGP targets are real. Hermes v1's monolithic `ChainHandle` trait was hardcoded to Cosmos, and IBC is expanding to Starknet, Sovereign rollups, Substrate — chains with fundamentally different APIs, signing, and proof systems. CGP allows generic relay logic to declare only the capabilities it needs, abstracts away infrastructure (no deps on tokio, std, or Cosmos crates in core logic), and works around Rust's coherence and orphan rules that otherwise block composing chain adapters from independent crates.
+The problems CGP targets are real and important. Hermes v1's monolithic `ChainHandle` trait was hardcoded to Cosmos, and IBC is expanding to Ethereum, Solana, Starknet, Sovereign rollups, Substrate — chains with fundamentally different APIs, signing, and proof systems. More critically, cross-chain relaying hits a structural limitation in Rust's trait system: when `ClientMessageBuilder<Counterparty>` requires `Counterparty: ClientPayloadBuilder<Self>`, implementing a Cosmos→EVM bridge forces the Cosmos crate to depend on the EVM crate and vice versa — a circular dependency that Cargo prohibits, compounded by Rust's orphan rule which prevents third-party crates from providing the impls.
 
-The issue is that the complexity cost is disproportionate to the benefits. In practice, it made the codebase difficult to contribute to.
+CGP solves this through Inversion of Control — decoupling producer types from consumer types so that each chain can be implemented independently. This is the correct insight. The issue is that CGP wraps it in a custom macro framework that makes the codebase difficult to contribute to.
 
 ## What CGP Actually Is
 
@@ -86,7 +86,7 @@ pub trait MessageSender: ChainTypes {
 }
 
 #[async_trait]
-impl MessageSender for CosmosChain {
+impl MessageSender for CosmosChainInner {
     async fn send_messages(
         &self,
         messages: Vec<Self::Message>,
@@ -104,4 +104,80 @@ rust-analyzer works. Error messages point to your code. Go-to-definition goes to
 
 CGP takes decomposition to the extreme — every associated type gets its own trait (`HasHeightType`, `HasTimestampType`, `HasMessageType`, `HasChainIdType`, ...). This maximizes theoretical composability but in practice you never implement `HasHeightType` without also implementing `HasTimestampType`. They always appear together. The result is where clauses listing 10+ trait bounds that always co-occur, and hundreds of single-type traits that add indirection without adding flexibility.
 
-Mercury consolidates co-occurring types into two traits: `ChainTypes` (all chain-local types: height, timestamp, messages, chain status, revision number) and `IbcTypes<C>` (all counterparty-dependent types: client state, packets, proofs, acknowledgements). The split follows a real semantic boundary — chain status doesn't depend on a counterparty, but client state does. Within each group, the types are always needed together, so separating them adds complexity without enabling any real composition.
+Mercury consolidates co-occurring types into two traits: `ChainTypes` (all chain-local types: height, timestamp, client ID, messages, chain status) and `IbcTypes` (all IBC-specific types: client state, packets, proofs, acknowledgements). Within each group, the types are always needed together, so separating them adds complexity without enabling any real composition.
+
+## Eureka Relayer: Different Layer
+
+The [Eureka relayer](https://github.com/cosmos/solidity-ibc-eureka/tree/main/programs/relayer) is a stateless gRPC service that generates unsigned transactions for cross-chain IBC operations. It doesn't monitor chains, submit transactions, or manage state — a separate orchestrator handles that. Each chain pair is an independent module with no shared relay logic.
+
+Mercury is a full relayer with shared relay logic across all chain pairs. The architectures are complementary — Mercury could use the Eureka relayer's gRPC API as a transaction generation backend.
+
+## Cross-Chain Without the Abstraction Tax
+
+CGP's core insight — Inversion of Control to decouple cross-chain trait bounds — is correct. Mercury applies the same principle directly in Rust's trait system, without a macro framework. The solution combines three techniques:
+
+### Non-Generic IBC Types
+
+The original approach parameterized `IbcTypes` over a counterparty chain: `IbcTypes<Counterparty: ChainTypes>`. This meant implementing Cosmos→EVM relay forced `CosmosChain: IbcTypes<EthereumChain>`, which had to live in the Cosmos crate (orphan rule), creating a circular dependency.
+
+Mercury removes the generic entirely. `IbcTypes` is a plain supertrait of `ChainTypes`:
+
+```rust
+// Before: counterparty-parameterized
+pub trait IbcTypes<Counterparty: ChainTypes + ?Sized>: ChainTypes {
+    type ClientState: Clone + Debug + ThreadSafe;
+    // ...
+}
+
+// After: non-generic, counterparty-independent
+pub trait IbcTypes: ChainTypes {
+    type ClientState: Clone + Debug + ThreadSafe;
+    // ...
+}
+```
+
+This works because in practice a chain's IBC types don't change based on the counterparty. Cosmos uses the same `ClientState`, `Packet`, and `CommitmentProof` types regardless of whether the counterparty is another Cosmos chain or an EVM chain. The generic parameter added type-level precision that never manifested as real variation.
+
+### Wrapper Pattern for Orphan Rule
+
+Cross-chain trait impls need to be local to *some* crate. Mercury uses bridge crates with wrapper types:
+
+```
+mercury-cosmos         → CosmosChainInner<S>  (core impl)
+mercury-cosmos-bridges → CosmosChain<S>       (wrapper, cross-chain impls)
+mercury-ethereum       → EthereumChainInner   (core impl)
+mercury-ethereum-bridges → EthereumChain      (wrapper, cross-chain impls)
+```
+
+The wrapper type is local to its bridge crate, so it can implement traits for any counterparty type without violating the orphan rule. `HasInner` constrains all associated types to match, so relay code seamlessly passes values between wrapper and inner contexts.
+
+### Weakened Builder Bounds
+
+Builder traits require only `Counterparty: ChainTypes`, not `Counterparty: IbcTypes`. Types that cross the chain boundary become associated types on the consuming trait:
+
+```rust
+pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
+    type CreateClientPayload: ThreadSafe;
+    type UpdateClientPayload: ThreadSafe;
+    // ...
+}
+```
+
+The relay composition site enforces that producer and consumer types match:
+
+```rust
+pub trait Relay: ThreadSafe {
+    type SrcChain: RelayChain
+        + ClientPayloadBuilder<
+            <Self::DstChain as HasInner>::Inner,
+            UpdateClientPayload = <Self::DstChain as ClientMessageBuilder<
+                <Self::SrcChain as HasInner>::Inner,
+            >>::UpdateClientPayload,
+        >;
+    // ...
+}
+```
+
+Each chain declares its own types; the compiler verifies they match when wired together. No macros, no provider indirection, no delegation tables. The same IoC pattern, expressed through Rust's trait system directly.
+
+The source chain produces payloads (`ClientPayloadBuilder`), the destination chain consumes them and bridges the type systems (`ClientMessageBuilder`, `PacketMessageBuilder`, `ClientQuery`). The source never needs to know the destination's IBC types. Cross-chain impls live in the destination chain's bridge crate behind a feature flag, and the source chain crate remains independent.

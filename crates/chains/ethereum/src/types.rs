@@ -105,6 +105,12 @@ pub struct EvmCommitmentProof {
 }
 
 #[derive(Clone, Debug)]
+pub struct EvmClientState(pub Vec<u8>);
+
+#[derive(Clone, Debug)]
+pub struct EvmConsensusState(pub Vec<u8>);
+
+#[derive(Clone, Debug)]
 pub struct EvmPacketCommitment(pub Vec<u8>);
 
 #[derive(Clone, Debug)]

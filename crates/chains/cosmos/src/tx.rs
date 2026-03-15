@@ -8,7 +8,7 @@ use tracing::{debug, info, instrument, warn};
 use mercury_chain_traits::types::MessageSender;
 use mercury_core::error::Result;
 
-use crate::chain::CosmosChain;
+use crate::chain::CosmosChainInner;
 use crate::keys::CosmosSigner;
 use crate::queries::grpc_unary;
 use crate::types::{CosmosEvent, CosmosMessage, CosmosTxResponse};
@@ -202,7 +202,7 @@ async fn build_tx_bytes(
     Ok(tx_raw.encode_to_vec())
 }
 
-impl<S: CosmosSigner> CosmosChain<S> {
+impl<S: CosmosSigner> CosmosChainInner<S> {
     #[instrument(skip_all, name = "query_nonce")]
     pub async fn query_nonce(&self, signer: &S) -> Result<CosmosNonce> {
         use ibc_proto::cosmos::auth::v1beta1::{
@@ -442,7 +442,7 @@ fn is_sequence_mismatch(e: &eyre::Report) -> bool {
     msg.contains("account sequence mismatch")
 }
 
-impl<S: CosmosSigner> CosmosChain<S> {
+impl<S: CosmosSigner> CosmosChainInner<S> {
     async fn send_single_batch(
         &self,
         messages: Vec<CosmosMessage>,
@@ -562,7 +562,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
+impl<S: CosmosSigner> MessageSender for CosmosChainInner<S> {
     #[instrument(skip_all, name = "send_messages", fields(count = messages.len()))]
     async fn send_messages(
         &self,
@@ -584,9 +584,9 @@ impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
         }
 
         if batches.len() == 1 {
-            return self
-                .send_single_batch(batches.into_iter().next().unwrap())
-                .await;
+            // SAFETY: just checked len == 1
+            let batch = batches.into_iter().next().expect("checked len");
+            return self.send_single_batch(batch).await;
         }
 
         self.send_parallel_batches(batches).await

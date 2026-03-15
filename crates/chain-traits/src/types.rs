@@ -5,15 +5,12 @@ use async_trait::async_trait;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
-use crate::builders::{ClientMessageBuilder, PacketMessageBuilder};
-use crate::events::PacketEvents;
-use crate::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
-
 /// Core associated types for a chain: identity, messages, status, and revision.
 pub trait ChainTypes: ThreadSafe {
     type Height: Clone + Ord + Debug + Display + ThreadSafe;
     type Timestamp: Clone + Ord + Debug + ThreadSafe;
     type ChainId: Clone + Debug + Display + ThreadSafe;
+    type ClientId: Clone + Debug + Display + ThreadSafe;
     type Event: Clone + Debug + ThreadSafe;
     type Message: ThreadSafe;
     type MessageResponse: ThreadSafe;
@@ -29,8 +26,7 @@ pub trait ChainTypes: ThreadSafe {
 }
 
 /// IBC-specific types relative to a counterparty chain (client, proofs, packets).
-pub trait IbcTypes<Counterparty: ChainTypes + ?Sized>: ChainTypes {
-    type ClientId: Clone + Debug + Display + ThreadSafe;
+pub trait IbcTypes: ChainTypes {
     type ClientState: Clone + Debug + ThreadSafe;
     type ConsensusState: Clone + Debug + ThreadSafe;
     type CommitmentProof: Clone + ThreadSafe;
@@ -52,39 +48,3 @@ pub trait MessageSender: ChainTypes {
         messages: Vec<Self::Message>,
     ) -> Result<Vec<Self::MessageResponse>>;
 }
-
-/// Composite trait combining all capabilities needed for a fully functional IBC chain.
-pub trait Chain<Counterparty>:
-    ChainTypes
-    + IbcTypes<Counterparty>
-    + MessageSender
-    + PacketEvents<Counterparty>
-    + ChainStatusQuery
-    + ClientPayloadBuilder<Counterparty>
-    + ClientQuery<Counterparty>
-    + ClientMessageBuilder<Counterparty>
-    + PacketStateQuery<Counterparty>
-    + PacketMessageBuilder<Counterparty>
-where
-    Counterparty: ChainTypes + IbcTypes<Self> + ClientPayloadBuilder<Self>,
-{
-}
-
-impl<T, C> Chain<C> for T
-where
-    T: ChainTypes
-        + IbcTypes<C>
-        + MessageSender
-        + PacketEvents<C>
-        + ChainStatusQuery
-        + ClientPayloadBuilder<C>
-        + ClientQuery<C>
-        + ClientMessageBuilder<C>
-        + PacketStateQuery<C>
-        + PacketMessageBuilder<C>,
-    C: ChainTypes + IbcTypes<T> + ClientPayloadBuilder<T>,
-{
-}
-
-// Re-export ClientPayloadBuilder from builders so Chain bounds work
-pub use crate::builders::ClientPayloadBuilder;
