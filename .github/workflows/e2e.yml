@@ -23,8 +23,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  e2e:
-    name: E2E
+  e2e-cosmos:
+    name: E2E Cosmos
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -35,7 +35,29 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: e2e
+          key: e2e-cosmos
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: E2E Cosmos tests
+        run: cargo nextest run -p mercury-e2e --run-ignored all -E 'binary(cosmos_cosmos)'
+        timeout-minutes: 10
+
+  e2e-ethereum:
+    name: E2E Ethereum
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: e2e-ethereum
 
       - uses: taiki-e/install-action@v2
         with:
@@ -44,6 +66,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
 
       - uses: oven-sh/setup-bun@v2
+
+      - name: Install SP1 toolchain
+        run: |
+          curl -L https://sp1.succinct.xyz | bash
+          ~/.sp1/bin/sp1up
+          echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
 
       - uses: actions/cache@v4
         with:
@@ -54,6 +82,6 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: external/solidity-ibc-eureka
 
-      - name: E2E tests
-        run: cargo nextest run -p mercury-e2e --run-ignored all
-        timeout-minutes: 15
+      - name: E2E Ethereum tests (sequential)
+        run: cargo nextest run -p mercury-e2e --profile eth-e2e --run-ignored all -E 'binary(cosmos_ethereum)' -j1
+        timeout-minutes: 20
