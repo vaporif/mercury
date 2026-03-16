@@ -62,7 +62,8 @@ def main() -> None:
         skip_tests = set(binary_config.get("skip_tests", []))
 
         # Resolution order: binary > max across chain_types > defaults
-        timeout = binary_config.get("timeout") or max(
+        binary_timeout = binary_config.get("timeout")
+        timeout = binary_timeout if binary_timeout is not None else max(
             (chain_types.get(s, {}).get("timeout", default_timeout) for s in setup),
             default=default_timeout,
         )

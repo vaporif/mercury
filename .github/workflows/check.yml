@@ -15,6 +15,9 @@ on:
       - ".claude/**"
       - ".serena/**"
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
@@ -100,6 +103,9 @@ jobs:
 
       - name: TOML lint
         run: taplo check
+
+      - name: Python lint
+        run: python3 -m py_compile .github/scripts/generate-e2e-matrix.py
 
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
