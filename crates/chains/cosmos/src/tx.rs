@@ -205,8 +205,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
     #[instrument(skip_all, name = "query_nonce")]
     pub async fn query_nonce(&self, signer: &S) -> Result<CosmosNonce> {
         use ibc_proto::cosmos::auth::v1beta1::{
-            BaseAccount, QueryAccountRequest,
-            query_client::QueryClient as AuthQueryClient,
+            BaseAccount, QueryAccountRequest, query_client::QueryClient as AuthQueryClient,
         };
 
         let address = signer.account_address()?;
@@ -241,8 +240,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
         messages: &[CosmosMessage],
     ) -> Result<CosmosFee> {
         use ibc_proto::cosmos::tx::v1beta1::{
-            SimulateRequest,
-            service_client::ServiceClient as TxServiceClient,
+            SimulateRequest, service_client::ServiceClient as TxServiceClient,
         };
 
         let gas_multiplier = self.config.gas_multiplier.unwrap_or(DEFAULT_GAS_MULTIPLIER);
