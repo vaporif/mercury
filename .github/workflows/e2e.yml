@@ -55,7 +55,9 @@ jobs:
       - uses: actions/cache@v4
         id: sp1-cache
         with:
-          path: ~/.sp1
+          path: |
+              ~/.sp1
+              ~/.rustup/toolchains/succinct
           key: sp1-5.2.4
 
       - name: Install SP1 toolchain
