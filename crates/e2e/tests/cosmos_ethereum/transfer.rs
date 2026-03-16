@@ -19,7 +19,7 @@ async fn cosmos_to_eth_transfer() -> Result<()> {
     let eth_denom = format!("transfer/{}/stake", ctx.client_id_on_eth);
     let eth_user = ctx.anvil_handle.user_wallets[0].address;
 
-    ctx.assert_eventual_eth_balance(&eth_denom, eth_user, 1000, Duration::from_secs(120))
+    ctx.assert_eventual_eth_balance(&eth_denom, eth_user, 1000, Duration::from_secs(60))
         .await?;
 
     relay.stop();
