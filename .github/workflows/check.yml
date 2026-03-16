@@ -101,6 +101,9 @@ jobs:
       - name: TOML lint
         run: taplo check
 
+      - name: Python lint
+        run: python3 -m py_compile .github/scripts/generate-e2e-matrix.py
+
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
