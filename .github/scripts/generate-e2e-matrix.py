@@ -46,35 +46,21 @@ def main() -> None:
         print(f"Failed to list tests: {e.stderr}", file=sys.stderr)
         sys.exit(1)
 
+    data = json.loads(result.stdout)
+    suites = data.get("rust-suites", {})
+
     matrix = []
 
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        if entry.get("type") != "test":
-            continue
-
-        binary_id = entry.get("binary_id", "")
-        test_name = entry.get("name", "")
-
+    for binary_id, suite in suites.items():
         if not binary_id.startswith("mercury-e2e::"):
             continue
 
         binary_name = binary_id.removeprefix("mercury-e2e::")
+        testcases = suite.get("testcases", {})
 
         binary_config = binaries.get(binary_name, {})
         setup = binary_config.get("setup", default_setup)
         skip_tests = set(binary_config.get("skip_tests", []))
-
-        if test_name in skip_tests:
-            continue
 
         # Resolution order: binary > max across chain_types > defaults
         timeout = binary_config.get("timeout") or max(
@@ -87,13 +73,20 @@ def main() -> None:
             default_nextest_profile,
         )
 
-        matrix.append({
-            "binary": binary_name,
-            "test": test_name,
-            "setup": setup,
-            "timeout": timeout,
-            "nextest_profile": nextest_profile,
-        })
+        for test_name in testcases:
+            # test_name is module-qualified (e.g. "transfer::ibc_transfer")
+            bare_name = test_name.rsplit("::", 1)[-1]
+
+            if bare_name in skip_tests:
+                continue
+
+            matrix.append({
+                "binary": binary_name,
+                "test": test_name,
+                "setup": setup,
+                "timeout": timeout,
+                "nextest_profile": nextest_profile,
+            })
 
     print(json.dumps(matrix))
 
