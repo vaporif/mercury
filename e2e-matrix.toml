@@ -1,0 +1,11 @@
+[defaults]
+chain_type = "cosmos"
+timeout = 10
+nextest_profile = "default"
+
+[binary.cosmos_ethereum]
+chain_type = "ethereum"
+timeout = 20
+nextest_profile = "eth-e2e"
+# CI needs a beefier machine — SP1 proof generation fails due to resource constraints
+skip_tests = ["context_setup_smoke", "cosmos_to_eth_transfer"]

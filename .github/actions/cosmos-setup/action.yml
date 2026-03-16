@@ -1,0 +1,9 @@
+name: Cosmos Setup
+description: Set up toolchain for Cosmos E2E tests (no-op — Docker is available on GitHub runners by default)
+
+runs:
+  using: composite
+  steps:
+    - name: Cosmos setup (no-op)
+      shell: bash
+      run: echo "Cosmos tests require only Docker, which is pre-installed on GitHub runners."
