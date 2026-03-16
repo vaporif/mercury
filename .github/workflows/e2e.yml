@@ -70,7 +70,7 @@ jobs:
       - name: Install SP1 toolchain
         run: |
           curl -L https://sp1.succinct.xyz | bash
-          ~/.sp1/bin/sp1up
+          ~/.sp1/bin/sp1up --version 5.2.4
           echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
 
       - uses: actions/cache@v4
