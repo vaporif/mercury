@@ -38,12 +38,6 @@ use mercury_ethereum::types::{
     EvmClientId, EvmClientState, EvmConsensusState, EvmHeight, EvmMessage, EvmPacket,
 };
 
-// --- ClientPayloadBuilder<CosmosChainInner<S>> ---
-// Ethereum builds the same beacon/attested payloads regardless of counterparty.
-// The only difference is `build_update_client_payload`, which receives
-// `CosmosClientState` (a Wasm-wrapped beacon client state) instead of raw
-// `EvmClientState`. We unwrap the Wasm envelope and delegate to the inner impl.
-
 #[async_trait]
 impl<S: CosmosSigner> ClientPayloadBuilder<CosmosChainInner<S>> for EthereumChain {
     type CreateClientPayload = EvmCreateClientPayload;
@@ -127,23 +121,16 @@ impl<S: CosmosSigner> ClientQuery<CosmosChainInner<S>> for EthereumChain {
     }
 
     fn client_latest_height(client_state: &EvmClientState) -> TmHeight {
-        let height = decode_client_state(&client_state.0).map_or_else(
+        decode_client_state(&client_state.0).map_or_else(
             || {
                 tracing::warn!("failed to decode client state, defaulting to height 1");
                 TmHeight::try_from(1u64).expect("height 1 is valid")
             },
             |cs| {
-                tracing::debug!(
-                    revision_height = cs.latestHeight.revisionHeight,
-                    revision_number = cs.latestHeight.revisionNumber,
-                    "extracted height from SP1 client state"
-                );
                 TmHeight::try_from(cs.latestHeight.revisionHeight)
                     .unwrap_or_else(|_| TmHeight::try_from(1u64).expect("height 1 is valid"))
             },
-        );
-        tracing::debug!(trusted_height = %height, "client_latest_height for Cosmos counterparty");
-        height
+        )
     }
 }
 

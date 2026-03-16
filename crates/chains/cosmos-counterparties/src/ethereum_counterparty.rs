@@ -45,8 +45,6 @@ impl<S: CosmosSigner> ClientQuery<EthereumChainInner> for CosmosChain<S> {
         client_id: &Self::ClientId,
         height: &Self::Height,
     ) -> Result<Self::ClientState> {
-        // Query cosmos gRPC for the WASM-wrapped Beacon light client state.
-        // Delegates to the same-chain query since the on-chain storage is identical.
         self.0.query_client_state(client_id, height).await
     }
 
