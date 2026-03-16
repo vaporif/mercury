@@ -1,0 +1,27 @@
+name: Ethereum Setup
+description: Set up Foundry, Bun, and SP1 toolchain for Ethereum E2E tests
+
+runs:
+  using: composite
+  steps:
+    - uses: foundry-rs/foundry-toolchain@v1
+
+    - uses: oven-sh/setup-bun@v2
+
+    - name: Cache Bun node_modules
+      uses: actions/cache@v4
+      with:
+        path: external/solidity-ibc-eureka/node_modules
+        key: bun-${{ hashFiles('external/solidity-ibc-eureka/bun.lock') }}
+
+    - name: Install Solidity dependencies
+      shell: bash
+      run: bun install --frozen-lockfile
+      working-directory: external/solidity-ibc-eureka
+
+    - name: Install SP1 toolchain
+      shell: bash
+      run: |
+        curl -L https://sp1.succinct.xyz | bash
+        ~/.sp1/bin/sp1up --version 5.2.4
+        echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"

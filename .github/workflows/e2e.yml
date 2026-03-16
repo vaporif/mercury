@@ -26,9 +26,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  e2e-cosmos:
-    name: E2E Cosmos
+  build-and-generate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -38,29 +40,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: e2e-cosmos
-
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-
-      - name: E2E Cosmos tests
-        run: cargo nextest run -p mercury-e2e --run-ignored all -E 'binary(cosmos_cosmos)'
-        timeout-minutes: 10
-
-  e2e-ethereum:
-    name: E2E Ethereum
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: e2e-ethereum
+          key: e2e-build
 
       - uses: taiki-e/install-action@v2
         with:
@@ -85,7 +65,71 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: external/solidity-ibc-eureka
 
-      - name: E2E Ethereum tests (sequential)
-        # context_setup_smoke and cosmos_to_eth_transfer excluded — CI needs a beefier machine, SP1 proof generation fails due to resource constraints
-        run: cargo nextest run -p mercury-e2e --profile eth-e2e --run-ignored all -E 'binary(cosmos_ethereum) & !test(context_setup_smoke) & !test(cosmos_to_eth_transfer)' -j1
-        timeout-minutes: 20
+      - name: Build SP1 programs
+        run: cargo prove build
+        working-directory: external/solidity-ibc-eureka/programs/sp1-programs
+
+      - name: Build and archive tests
+        run: cargo nextest archive --archive-file mercury-e2e.tar.zst --package mercury-e2e
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-archive
+          path: mercury-e2e.tar.zst
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sp1-elfs
+          path: external/solidity-ibc-eureka/programs/sp1-programs/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/sp1-ics07-tendermint-*
+
+      - name: Generate matrix
+        id: matrix
+        run: |
+          matrix=$(python3 .github/scripts/generate-e2e-matrix.py mercury-e2e.tar.zst e2e-matrix.toml)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  e2e-test:
+    name: E2E / ${{ matrix.binary }} / ${{ matrix.test }}
+    needs: build-and-generate
+    if: needs.build-and-generate.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.build-and-generate.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-archive
+
+      - uses: ./.github/actions/cosmos-setup
+        if: contains(toJSON(matrix.setup), '"cosmos"')
+
+      - uses: ./.github/actions/ethereum-setup
+        if: contains(toJSON(matrix.setup), '"ethereum"')
+
+      - name: Download SP1 ELFs
+        if: contains(toJSON(matrix.setup), '"ethereum"')
+        uses: actions/download-artifact@v4
+        with:
+          name: sp1-elfs
+          path: external/solidity-ibc-eureka/programs/sp1-programs/target/elf-compilation/riscv32im-succinct-zkvm-elf/release
+
+      - name: Run test
+        env:
+          NEXTEST_PROFILE: ci
+        run: |
+          cargo nextest run \
+            --archive-file mercury-e2e.tar.zst \
+            --workspace-remap . \
+            --run-ignored all \
+            -E 'binary(=${{ matrix.binary }}) & test(=${{ matrix.test }})'
