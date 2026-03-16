@@ -10,7 +10,7 @@ use ibc_core_commitment_types::merkle::MerkleProof;
 use prost::Message;
 use sha2::Digest;
 use sp1_ics07_tendermint_prover::programs::{
-    SP1Program, UpdateClientAndMembershipProgram, UpdateClientProgram,
+    MisbehaviourProgram, SP1Program, UpdateClientAndMembershipProgram, UpdateClientProgram,
 };
 use sp1_ics07_tendermint_prover::prover::{
     SP1ICS07TendermintProver, Sp1Prover, SupportedZkAlgorithm,
@@ -31,6 +31,7 @@ use ibc_eureka_solidity_types::msgs::{
 use ibc_eureka_solidity_types::sp1_ics07::sp1_ics07_tendermint;
 // Renamed ibc-proto 0.51 to match the prover's expected Header type (Mercury uses 0.52 from git).
 use ibc_proto_eureka::ibc::lightclients::tendermint::v1::Header as EurekaHeader;
+use ibc_proto_eureka::ibc::lightclients::tendermint::v1::Misbehaviour as EurekaMisbehaviour;
 
 use tracing::{debug, info};
 
@@ -51,6 +52,9 @@ pub struct Sp1Instance<C: SP1ProverComponents> {
     uc_membership_program: UpdateClientAndMembershipProgram,
     uc_membership_pkey: SP1ProvingKey,
     uc_membership_vkey: SP1VerifyingKey,
+    misbehaviour_program: MisbehaviourProgram,
+    misbehaviour_pkey: SP1ProvingKey,
+    pub misbehaviour_vkey: SP1VerifyingKey,
     zk_algorithm: SupportedZkAlgorithm,
     pub proof_timeout: Duration,
     pub max_concurrent_proofs: usize,
@@ -83,6 +87,17 @@ impl<C: SP1ProverComponents> Sp1Instance<C> {
         let (uc_membership_pkey, uc_membership_vkey) = prover.setup(uc_membership_program.elf());
         tracing::info!(vkey = %uc_membership_vkey.bytes32(), "uc-and-membership SP1 prover setup complete");
 
+        let mis_elf_path = config.elf_dir.join("sp1-ics07-tendermint-misbehaviour");
+        let mis_elf_bytes = std::fs::read(&mis_elf_path)
+            .wrap_err_with(|| format!("reading SP1 ELF from {}", mis_elf_path.display()))?;
+
+        let mis_elf_hash: [u8; 32] = sha2::Sha256::digest(&mis_elf_bytes).into();
+        tracing::info!(elf_hash = %hex::encode(mis_elf_hash), path = %mis_elf_path.display(), "loaded misbehaviour SP1 ELF");
+
+        let misbehaviour_program = MisbehaviourProgram::new(mis_elf_bytes);
+        let (misbehaviour_pkey, misbehaviour_vkey) = prover.setup(misbehaviour_program.elf());
+        tracing::info!(vkey = %misbehaviour_vkey.bytes32(), "misbehaviour SP1 prover setup complete");
+
         let zk_algorithm = match config.zk_algorithm {
             ZkAlgorithm::Groth16 => SupportedZkAlgorithm::Groth16,
             ZkAlgorithm::Plonk => SupportedZkAlgorithm::Plonk,
@@ -96,6 +111,9 @@ impl<C: SP1ProverComponents> Sp1Instance<C> {
             uc_membership_program,
             uc_membership_pkey,
             uc_membership_vkey,
+            misbehaviour_program,
+            misbehaviour_pkey,
+            misbehaviour_vkey,
             zk_algorithm,
             proof_timeout: Duration::from_secs(config.proof_timeout_secs),
             max_concurrent_proofs: config.max_concurrent_proofs,
@@ -138,6 +156,31 @@ impl<C: SP1ProverComponents> Sp1Instance<C> {
         };
         prover.generate_proof(client_state, consensus_state, header, time, kv_proofs)
     }
+
+    #[must_use]
+    pub fn generate_misbehaviour_proof(
+        &self,
+        client_state: &SolClientState,
+        misbehaviour: &EurekaMisbehaviour,
+        trusted_consensus_state_1: &SolConsensusState,
+        trusted_consensus_state_2: &SolConsensusState,
+        time: u128,
+    ) -> SP1ProofWithPublicValues {
+        let prover = SP1ICS07TendermintProver {
+            prover_client: &self.prover,
+            pkey: self.misbehaviour_pkey.clone(),
+            vkey: self.misbehaviour_vkey.clone(),
+            proof_type: self.zk_algorithm,
+            program: &self.misbehaviour_program,
+        };
+        prover.generate_proof(
+            client_state,
+            misbehaviour,
+            trusted_consensus_state_1,
+            trusted_consensus_state_2,
+            time,
+        )
+    }
 }
 
 pub fn create_sp1_instance(
@@ -165,7 +208,7 @@ fn decode_header_for_prover(header_bytes: &[u8]) -> eyre::Result<EurekaHeader> {
     EurekaHeader::decode(header_bytes).wrap_err("decoding header for SP1 prover")
 }
 
-/// `tokio::time::timeout` around `spawn_blocking` cancels the *wait*
+/// TODO: `tokio::time::timeout` around `spawn_blocking` cancels the *wait*
 /// but does not abort the blocking thread.
 async fn generate_update_proof_with_timeout<C: SP1ProverComponents + 'static>(
     sp1: &Arc<Sp1Instance<C>>,
@@ -224,6 +267,39 @@ async fn generate_uc_and_membership_proof_with_timeout<C: SP1ProverComponents + 
         )
     })?
     .wrap_err("sp1 combined proving task panicked")
+}
+
+pub async fn generate_misbehaviour_proof_with_timeout<C: SP1ProverComponents + 'static>(
+    sp1: &Arc<Sp1Instance<C>>,
+    client_state: SolClientState,
+    misbehaviour: EurekaMisbehaviour,
+    trusted_consensus_state_1: SolConsensusState,
+    trusted_consensus_state_2: SolConsensusState,
+    time: u128,
+) -> eyre::Result<SP1ProofWithPublicValues> {
+    let timeout_duration = sp1.proof_timeout;
+    let sp1 = Arc::clone(sp1);
+
+    tokio::time::timeout(
+        timeout_duration,
+        tokio::task::spawn_blocking(move || {
+            sp1.generate_misbehaviour_proof(
+                &client_state,
+                &misbehaviour,
+                &trusted_consensus_state_1,
+                &trusted_consensus_state_2,
+                time,
+            )
+        }),
+    )
+    .await
+    .map_err(|_| {
+        eyre::eyre!(
+            "SP1 misbehaviour proof generation timed out after {}s",
+            timeout_duration.as_secs()
+        )
+    })?
+    .wrap_err("sp1 misbehaviour proving task panicked")
 }
 
 /// Convert membership proof entries into typed `(KVPair, MerkleProof)` pairs

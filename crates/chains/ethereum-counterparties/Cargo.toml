@@ -16,6 +16,7 @@ mercury-ethereum = { workspace = true }
 
 async-trait = { workspace = true }
 eyre = { workspace = true }
+futures = { workspace = true }
 alloy = { workspace = true }
 tracing = { workspace = true }
 

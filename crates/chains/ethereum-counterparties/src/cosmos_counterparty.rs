@@ -3,6 +3,7 @@
 
 use std::time::Duration;
 
+use alloy::consensus::Transaction as _;
 use alloy::primitives::U256;
 use alloy::sol_types::SolCall;
 use async_trait::async_trait;
@@ -253,6 +254,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChainInner<S>> for EthereumChai
     }
 }
 
+// TODO: refactor — use a macro to collapse the repetitive decode/inject/encode branches
 /// Decode the calldata of a packet message, set its proof field to the
 /// combined membership proof, and re-encode.
 fn inject_membership_proof(msg: &mut EvmMessage, proof_bytes: &[u8]) {
@@ -412,7 +414,8 @@ mod tests {
     }
 }
 
-// -- Misbehaviour stubs for EthereumChain as Src, CosmosChain as Dst --
+// -- Misbehaviour: EthereumChain as Src (beacon chain), CosmosChain as Dst --
+// Ethereum can't yet detect its own beacon chain misbehaviour.
 
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourDetector<CosmosChainInner<S>> for EthereumChain {
@@ -430,35 +433,211 @@ impl<S: CosmosSigner> MisbehaviourDetector<CosmosChainInner<S>> for EthereumChai
     }
 }
 
+// -- Misbehaviour: EthereumChain as Dst, CosmosChain as Src --
+// Ethereum queries its SP1 light client for Tendermint consensus state heights
+// and builds SP1 misbehaviour proofs for submission to the contract.
+
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourQuery<CosmosChainInner<S>> for EthereumChain {
-    type CounterpartyUpdateHeader = ();
+    type CounterpartyUpdateHeader = ibc_client_tendermint::types::Header;
 
+    #[instrument(skip_all, name = "eth_query_consensus_heights", fields(client_id = %client_id))]
     async fn query_consensus_state_heights(
         &self,
-        _client_id: &Self::ClientId,
+        client_id: &Self::ClientId,
     ) -> Result<Vec<TmHeight>> {
-        Ok(vec![])
+        use alloy::providers::Provider;
+        use alloy::rpc::types::Filter;
+        use alloy::sol_types::SolEvent;
+        use futures::stream::{self, StreamExt, TryStreamExt};
+        use ibc_eureka_solidity_types::msgs::IUpdateClientMsgs;
+
+        let filter = Filter::new()
+            .address(self.router_address)
+            .event_signature(ICS26Router::ICS02ClientUpdated::SIGNATURE_HASH)
+            .from_block(self.config.deployment_block);
+
+        let logs = self
+            .provider
+            .get_logs(&filter)
+            .await
+            .wrap_err("querying ICS02ClientUpdated events")?;
+
+        let tx_hashes: Vec<_> = logs
+            .iter()
+            .filter_map(|log| {
+                let decoded = ICS26Router::ICS02ClientUpdated::decode_log(log.as_ref()).ok()?;
+                if decoded.data.clientId != client_id.0 {
+                    return None;
+                }
+                log.transaction_hash
+            })
+            .collect();
+
+        // TODO: use JSON-RPC batch requests once alloy exposes `new_batch()` through the Provider trait.
+        let txs: Vec<_> = stream::iter(tx_hashes)
+            .map(|tx_hash| async move {
+                self.provider
+                    .get_transaction_by_hash(tx_hash)
+                    .await
+                    .map_err(eyre::Report::from)
+            })
+            .buffer_unordered(16)
+            .try_collect()
+            .await
+            .wrap_err("fetching updateClient transactions")?;
+
+        let mut heights = Vec::new();
+        for tx in txs.into_iter().flatten() {
+            let Ok(call) = ICS26Router::updateClientCall::abi_decode(tx.inner.input()) else {
+                continue;
+            };
+            let Ok(msg) =
+                <IUpdateClientMsgs::MsgUpdateClient as alloy::sol_types::SolType>::abi_decode(
+                    &call.updateMsg,
+                )
+            else {
+                continue;
+            };
+            let Ok(output) =
+                <IUpdateClientMsgs::UpdateClientOutput as alloy::sol_types::SolType>::abi_decode(
+                    &msg.sp1Proof.publicValues,
+                )
+            else {
+                continue;
+            };
+
+            if let Ok(h) = TmHeight::try_from(output.newHeight.revisionHeight) {
+                heights.push(h);
+            }
+        }
+
+        heights.sort_unstable();
+        heights.dedup();
+        heights.reverse();
+
+        tracing::debug!(count = heights.len(), "found consensus state heights");
+        Ok(heights)
     }
 
     async fn query_update_client_header(
         &self,
         _client_id: &Self::ClientId,
         _consensus_height: &TmHeight,
-    ) -> Result<Option<()>> {
+    ) -> Result<Option<ibc_client_tendermint::types::Header>> {
+        // SP1 proofs are zero-knowledge — the original Tendermint header used as private input
+        // cannot be extracted from on-chain data. The misbehaviour worker will skip heights
+        // where the header is unavailable. Misbehaviour evidence must be provided externally
+        // (e.g., from CometBFT's evidence module or an off-chain monitor).
+        tracing::debug!("Tendermint headers hidden in SP1 ZK proofs — returning None");
         Ok(None)
     }
 }
 
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChainInner<S>> for EthereumChain {
-    type MisbehaviourEvidence = ();
+    type MisbehaviourEvidence = mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence;
 
+    #[instrument(skip_all, name = "eth_build_misbehaviour_msg", fields(client_id = %client_id))]
     async fn build_misbehaviour_message(
         &self,
-        _client_id: &Self::ClientId,
-        _evidence: (),
+        client_id: &Self::ClientId,
+        evidence: mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence,
     ) -> Result<EvmMessage> {
-        eyre::bail!("Cosmos misbehaviour message building not yet implemented")
+        use alloy::sol_types::SolValue;
+        use ibc_eureka_solidity_types::msgs::IICS07TendermintMsgs::{
+            ClientState as SolClientState, ConsensusState as SolConsensusState,
+        };
+        use ibc_eureka_solidity_types::msgs::{
+            IMisbehaviourMsgs::MsgSubmitMisbehaviour, ISP1Msgs::SP1Proof,
+        };
+        use ibc_eureka_solidity_types::sp1_ics07::sp1_ics07_tendermint;
+        use ibc_proto::Protobuf;
+        use mercury_ethereum::queries::resolve_light_client;
+        use sp1_prover::types::HashableKey;
+
+        type RawMisbehaviour = ibc_client_tendermint::types::proto::v1::Misbehaviour;
+
+        let sp1 = self.sp1.as_ref().ok_or_else(|| {
+            eyre::eyre!("SP1 prover not configured — required for misbehaviour proof")
+        })?;
+
+        let lc_address = resolve_light_client(&self.0, client_id).await?;
+        let lc = sp1_ics07_tendermint::new(lc_address, &*self.provider);
+        let client_state: SolClientState = lc.clientState().call().await?.into();
+
+        let trusted_height_1 = evidence
+            .misbehaviour
+            .header1()
+            .trusted_height
+            .revision_height();
+        let trusted_height_2 = evidence
+            .misbehaviour
+            .header2()
+            .trusted_height
+            .revision_height();
+
+        // Reconstruct trusted consensus states from the headers' data (contract only stores hashes).
+        let h1 = evidence.misbehaviour.header1();
+        let trusted_cs_1 = SolConsensusState::from(
+            ibc_client_tendermint::types::ConsensusState::from(h1.signed_header.header.clone()),
+        );
+
+        let h2 = evidence.misbehaviour.header2();
+        let trusted_cs_2 = if trusted_height_1 == trusted_height_2 {
+            trusted_cs_1.clone()
+        } else {
+            SolConsensusState::from(ibc_client_tendermint::types::ConsensusState::from(
+                h2.signed_header.header.clone(),
+            ))
+        };
+
+        // Convert TmMisbehaviour to the eureka proto Misbehaviour for the SP1 prover.
+        // Disambiguate via the re-exported proto type from ibc-client-tendermint (which
+        // uses ibc-proto 0.51.x internally), avoiding version mismatch with the workspace's ibc-proto.
+        let proto_bytes = <ibc_client_tendermint::types::Misbehaviour as Protobuf<
+            RawMisbehaviour,
+        >>::encode_vec(evidence.misbehaviour);
+        let eureka_misbehaviour: ibc_proto_eureka::ibc::lightclients::tendermint::v1::Misbehaviour =
+            prost::Message::decode(proto_bytes.as_slice())
+                .wrap_err("re-encoding misbehaviour for SP1 prover")?;
+
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .wrap_err("system time before UNIX epoch")?
+            .as_nanos();
+
+        tracing::info!(
+            trusted_height_1,
+            trusted_height_2,
+            "generating SP1 misbehaviour proof"
+        );
+
+        let proof = mercury_ethereum::sp1::generate_misbehaviour_proof_with_timeout(
+            sp1,
+            client_state,
+            eureka_misbehaviour,
+            trusted_cs_1,
+            trusted_cs_2,
+            time,
+        )
+        .await?;
+
+        tracing::info!("SP1 misbehaviour proof generated");
+
+        let vkey_hex = sp1.misbehaviour_vkey.bytes32();
+        let submit_msg = MsgSubmitMisbehaviour {
+            sp1Proof: SP1Proof::new(&vkey_hex, proof.bytes(), proof.public_values.to_vec()),
+        };
+
+        let call = SP1ICS07Tendermint::misbehaviourCall {
+            misbehaviourMsg: submit_msg.abi_encode().into(),
+        };
+
+        Ok(EvmMessage {
+            to: lc_address,
+            calldata: alloy::sol_types::SolCall::abi_encode(&call),
+            value: alloy::primitives::U256::ZERO,
+        })
     }
 }

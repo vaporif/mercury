@@ -5033,6 +5033,8 @@ dependencies = [
  "ethereum-light-client",
  "eyre",
  "hex",
+ "ibc",
+ "ibc-client-tendermint",
  "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
  "mercury-chain-traits",
  "mercury-core",
@@ -5041,6 +5043,8 @@ dependencies = [
  "prost 0.13.5",
  "serde_json",
  "tendermint",
+ "tendermint-rpc",
+ "tokio",
  "tracing",
 ]
 
@@ -5128,6 +5132,7 @@ dependencies = [
  "alloy",
  "async-trait",
  "eyre",
+ "futures",
  "hex",
  "ibc-client-tendermint",
  "ibc-eureka-solidity-types",
