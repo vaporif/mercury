@@ -140,16 +140,16 @@ This works because in practice a chain's IBC types don't change based on the cou
 
 ### Wrapper Pattern for Orphan Rule
 
-Cross-chain trait impls need to be local to *some* crate. Mercury uses bridge crates with wrapper types:
+Cross-chain trait impls need to be local to *some* crate. Mercury uses counterparty crates with wrapper types:
 
 ```
 mercury-cosmos         → CosmosChainInner<S>  (core impl)
-mercury-cosmos-bridges → CosmosChain<S>       (wrapper, cross-chain impls)
+mercury-cosmos-counterparties → CosmosChain<S>       (wrapper, cross-chain impls)
 mercury-ethereum       → EthereumChainInner   (core impl)
-mercury-ethereum-bridges → EthereumChain      (wrapper, cross-chain impls)
+mercury-ethereum-counterparties → EthereumChain      (wrapper, cross-chain impls)
 ```
 
-The wrapper type is local to its bridge crate, so it can implement traits for any counterparty type without violating the orphan rule. `HasInner` constrains all associated types to match, so relay code seamlessly passes values between wrapper and inner contexts.
+The wrapper type is local to its counterparty crate, so it can implement traits for any counterparty type without violating the orphan rule. `HasInner` constrains all associated types to match, so relay code seamlessly passes values between wrapper and inner contexts.
 
 ### Weakened Builder Bounds
 
@@ -180,4 +180,4 @@ pub trait Relay: ThreadSafe {
 
 Each chain declares its own types; the compiler verifies they match when wired together. No macros, no provider indirection, no delegation tables. The same IoC pattern, expressed through Rust's trait system directly.
 
-The source chain produces payloads (`ClientPayloadBuilder`), the destination chain consumes them and bridges the type systems (`ClientMessageBuilder`, `PacketMessageBuilder`, `ClientQuery`). The source never needs to know the destination's IBC types. Cross-chain impls live in the destination chain's bridge crate behind a feature flag, and the source chain crate remains independent.
+The source chain produces payloads (`ClientPayloadBuilder`), the destination chain consumes them and bridges the type systems (`ClientMessageBuilder`, `PacketMessageBuilder`, `ClientQuery`). The source never needs to know the destination's IBC types. Cross-chain impls live in the destination chain's counterparty crate behind a feature flag, and the source chain crate remains independent.

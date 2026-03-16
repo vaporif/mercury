@@ -7,9 +7,9 @@
 //! exhaustive bound checking once all cross-chain impls are complete.
 
 mod cross_chain {
-    use mercury_cosmos_bridges::CosmosChain;
-    use mercury_cosmos_bridges::keys::Secp256k1KeyPair;
-    use mercury_ethereum_bridges::EthereumChain;
+    use mercury_cosmos_counterparties::CosmosChain;
+    use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
+    use mercury_ethereum_counterparties::EthereumChain;
     use mercury_relay::context::RelayContext;
 
     type _CosmosToEth = RelayContext<CosmosChain<Secp256k1KeyPair>, EthereumChain>;

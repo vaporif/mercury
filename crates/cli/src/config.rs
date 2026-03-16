@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use eyre::Context;
-use mercury_cosmos_bridges::config::CosmosChainConfig;
-use mercury_ethereum_bridges::config::EthereumChainConfig;
+use mercury_cosmos_counterparties::config::CosmosChainConfig;
+use mercury_ethereum_counterparties::config::EthereumChainConfig;
 use mercury_relay::filter::PacketFilterConfig;
 use serde::Deserialize;
 

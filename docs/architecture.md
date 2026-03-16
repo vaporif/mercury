@@ -60,11 +60,11 @@ Making `IbcTypes` non-generic is a deliberate choice. In the generic approach (`
 
 ### Wrapper Pattern: HasInner
 
-Cross-chain relaying between different chain types (Cosmos↔EVM) hits Rust's orphan rule: the EVM bridge crate can't implement Cosmos traits for the Cosmos type, and vice versa. Mercury solves this with a wrapper pattern.
+Cross-chain relaying between different chain types (Cosmos↔EVM) hits Rust's orphan rule: the EVM counterparty crate can't implement Cosmos traits for the Cosmos type, and vice versa. Mercury solves this with a wrapper pattern.
 
 Each chain has two types:
 - **Inner type** (e.g., `CosmosChainInner<S>`) — lives in the chain's core crate, implements `ChainTypes` + `IbcTypes` + operational traits
-- **Wrapper type** (e.g., `CosmosChain<S>`) — lives in the bridge crate, wraps the inner type, and adds cross-chain trait impls
+- **Wrapper type** (e.g., `CosmosChain<S>`) — lives in the counterparty crate, wraps the inner type, and adds cross-chain trait impls
 
 ```rust
 pub trait HasInner: ChainTypes + IbcTypes {
@@ -82,7 +82,7 @@ pub trait HasInner: ChainTypes + IbcTypes {
 
 `HasInner` guarantees that the wrapper and inner types share identical associated types. Relay code works with wrappers but can pass values through to inner types seamlessly. The wrapper forwards operational traits (queries, message sending) to the inner type via blanket-style impls, while cross-chain traits (`ClientMessageBuilder<CosmosChainInner>`, `PacketMessageBuilder<CosmosChainInner>`) are implemented directly on the wrapper.
 
-**Why wrappers exist.** The wrapper layer is the cost of splitting chain implementations into separate crates. Rust's orphan rule forbids implementing a foreign trait on a foreign type — so `mercury-ethereum-bridges` can't implement `ClientMessageBuilder<CosmosChainInner<S>>` directly on `EthereumChainInner` (defined in `mercury-ethereum`). The wrapper (`EthereumChain`, local to the bridge crate) exists solely to satisfy the orphan rule. A single-crate design wouldn't need wrappers, but would lose independent compilation, feature gating, and the ability to add new chain pairs without touching existing chain crates.
+**Why wrappers exist.** The wrapper layer is the cost of splitting chain implementations into separate crates. Rust's orphan rule forbids implementing a foreign trait on a foreign type — so `mercury-ethereum-counterparties` can't implement `ClientMessageBuilder<CosmosChainInner<S>>` directly on `EthereumChainInner` (defined in `mercury-ethereum`). The wrapper (`EthereumChain`, local to the counterparty crate) exists solely to satisfy the orphan rule. A single-crate design wouldn't need wrappers, but would lose independent compilation, feature gating, and the ability to add new chain pairs without touching existing chain crates.
 
 ### RelayChain Supertrait
 
@@ -126,7 +126,7 @@ When implementing Cosmos→EVM relay, the EVM crate needs to know about Cosmos t
 
 **Non-generic IbcTypes.** By removing the counterparty generic from `IbcTypes`, each chain declares its IBC types once. The Cosmos crate doesn't need to know about Ethereum at all — its `IbcTypes` impl is the same regardless of counterparty.
 
-**Wrapper pattern with HasInner.** Bridge crates define local wrapper types that can implement cross-chain traits without violating the orphan rule. `EthereumChain` (in `mercury-ethereum-bridges`) wraps `EthereumChainInner` and implements `ClientMessageBuilder<CosmosChainInner<S>>`. The wrapper is local to the bridge crate, so the orphan rule is satisfied.
+**Wrapper pattern with HasInner.** Counterparty crates define local wrapper types that can implement cross-chain traits without violating the orphan rule. `EthereumChain` (in `mercury-ethereum-counterparties`) wraps `EthereumChainInner` and implements `ClientMessageBuilder<CosmosChainInner<S>>`. The wrapper is local to the counterparty crate, so the orphan rule is satisfied.
 
 **Weakened counterparty bounds on most builders.** `ClientPayloadBuilder` and `ClientMessageBuilder` require only `Counterparty: ChainTypes`, not `Counterparty: IbcTypes`. `PacketMessageBuilder` requires `Counterparty: IbcTypes` since it needs the counterparty's packet and proof types. Types that cross the chain boundary (payload types, counterparty client IDs) become associated types on the consuming trait:
 
@@ -162,9 +162,9 @@ pub trait Relay: ThreadSafe {
 }
 ```
 
-The source chain produces payloads (`ClientPayloadBuilder`), the destination chain consumes them and builds messages (`ClientMessageBuilder`, `PacketMessageBuilder`). The source never needs to know the destination's IBC types. Cross-chain impls live in the destination chain's bridge crate behind a feature flag, and the source chain crate remains independent.
+The source chain produces payloads (`ClientPayloadBuilder`), the destination chain consumes them and builds messages (`ClientMessageBuilder`, `PacketMessageBuilder`). The source never needs to know the destination's IBC types. Cross-chain impls live in the destination chain's counterparty crate behind a feature flag, and the source chain crate remains independent.
 
-**Feature-gated cross-chain impls.** Cross-chain trait impls (e.g., `ClientMessageBuilder<CosmosChainInner<S>> for EthereumChain`) live in the bridge crate (`mercury-ethereum-bridges`) behind the `cosmos-sp1` feature flag. The core chain crate (`mercury-ethereum`) remains independent of Cosmos.
+**Feature-gated cross-chain impls.** Cross-chain trait impls (e.g., `ClientMessageBuilder<CosmosChainInner<S>> for EthereumChain`) live in the counterparty crate (`mercury-ethereum-counterparties`) behind the `cosmos-sp1` feature flag. The core chain crate (`mercury-ethereum`) remains independent of Cosmos.
 
 ## Builder Extensibility
 
@@ -191,8 +191,8 @@ graph TD
     CLI[mercury-cli<br/><i>CLI binary</i>]
     COSMOS[mercury-cosmos<br/><i>chains/cosmos — RPC, protobuf, tx signing</i>]
     ETH[mercury-ethereum<br/><i>chains/ethereum — alloy, EVM contracts</i>]
-    COSMOS_BR[mercury-cosmos-bridges<br/><i>chains/cosmos-bridges — wrapper + cross-chain impls</i>]
-    ETH_BR[mercury-ethereum-bridges<br/><i>chains/ethereum-bridges — wrapper + cross-chain impls</i>]
+    COSMOS_BR[mercury-cosmos-counterparties<br/><i>chains/cosmos-counterparties — wrapper + cross-chain impls</i>]
+    ETH_BR[mercury-ethereum-counterparties<br/><i>chains/ethereum-counterparties — wrapper + cross-chain impls</i>]
     RELAY[mercury-relay<br/><i>Worker pipeline, generic over chain traits</i>]
     TRAITS[mercury-chain-traits<br/><i>Chain types, messaging, queries, relay traits</i>]
     CORE[mercury-core<br/><i>Error types, encoding, worker trait, membership proofs</i>]
@@ -212,7 +212,7 @@ graph TD
     TRAITS --> CORE
 ```
 
-Default builds: core chain crates (`mercury-cosmos`, `mercury-ethereum`) are independent. Bridge crates add the cross-chain dependency behind feature flags. The `cosmos-sp1` feature on `mercury-ethereum-bridges` activates Cosmos→EVM impls. The `ethereum-beacon` feature on `mercury-cosmos-bridges` activates EVM→Cosmos impls. The relay binary enables features as needed.
+Default builds: core chain crates (`mercury-cosmos`, `mercury-ethereum`) are independent. Counterparty crates add the cross-chain dependency behind feature flags. The `cosmos-sp1` feature on `mercury-ethereum-counterparties` activates Cosmos→EVM impls. The `ethereum-beacon` feature on `mercury-cosmos-counterparties` activates EVM→Cosmos impls. The relay binary enables features as needed.
 
 ## Data Flow: Relaying a Packet
 

@@ -4969,9 +4969,9 @@ dependencies = [
  "futures",
  "ibc",
  "mercury-core",
- "mercury-cosmos-bridges",
+ "mercury-cosmos-counterparties",
  "mercury-ethereum",
- "mercury-ethereum-bridges",
+ "mercury-ethereum-counterparties",
  "mercury-relay",
  "serde",
  "tokio",
@@ -5025,7 +5025,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mercury-cosmos-bridges"
+name = "mercury-cosmos-counterparties"
 version = "0.1.0-alpha.2"
 dependencies = [
  "alloy",
@@ -5060,9 +5060,9 @@ dependencies = [
  "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
  "mercury-chain-traits",
  "mercury-core",
- "mercury-cosmos-bridges",
+ "mercury-cosmos-counterparties",
  "mercury-ethereum",
- "mercury-ethereum-bridges",
+ "mercury-ethereum-counterparties",
  "mercury-relay",
  "prost 0.13.5",
  "reqwest 0.12.28",
@@ -5122,7 +5122,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mercury-ethereum-bridges"
+name = "mercury-ethereum-counterparties"
 version = "0.1.0-alpha.2"
 dependencies = [
  "alloy",
@@ -5156,8 +5156,8 @@ dependencies = [
  "globset",
  "mercury-chain-traits",
  "mercury-core",
- "mercury-cosmos-bridges",
- "mercury-ethereum-bridges",
+ "mercury-cosmos-counterparties",
+ "mercury-ethereum-counterparties",
  "serde",
  "tokio",
  "tokio-util",
