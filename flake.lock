@@ -58,7 +58,7 @@
         "fenix": "fenix",
         "nixpkgs": "nixpkgs",
         "solidity-ibc-eureka": "solidity-ibc-eureka",
-        "sp1-overlay": "sp1-overlay"
+        "sp1": "sp1"
       }
     },
     "rust-analyzer-src": {
@@ -95,7 +95,7 @@
         "type": "github"
       }
     },
-    "sp1-overlay": {
+    "sp1": {
       "inputs": {
         "nixpkgs": [
           "nixpkgs"
@@ -103,11 +103,11 @@
         "systems": "systems"
       },
       "locked": {
-        "lastModified": 1773631711,
-        "narHash": "sha256-1SexnIDFBXP9Q13sudHnG++VgznnSNqH/FebtzY+0/M=",
+        "lastModified": 1773636852,
+        "narHash": "sha256-S9jG2AwLDt5Q6O2+BX9gMHN1km+32TPP3wjfWR78Hsw=",
         "owner": "vaporif",
         "repo": "sp1-overlay",
-        "rev": "082a12953f14bb25a47f7c4d6a25f581b173840c",
+        "rev": "eababab3063a58810df99f7315b4a3625961a169",
         "type": "github"
       },
       "original": {
