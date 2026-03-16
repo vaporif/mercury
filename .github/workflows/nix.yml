@@ -18,10 +18,9 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
-  nix:
 
-nix:
-  e2e:
+jobs:
+  nix:
     name: Nix
     runs-on: ubuntu-latest
     steps:
