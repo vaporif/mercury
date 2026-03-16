@@ -65,6 +65,10 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: external/solidity-ibc-eureka
 
+      - name: Build SP1 programs
+        run: cargo prove build
+        working-directory: external/solidity-ibc-eureka/programs/sp1-programs
+
       - name: Build and archive tests
         run: cargo nextest archive --archive-file mercury-e2e.tar.zst --package mercury-e2e
 
@@ -72,6 +76,11 @@ jobs:
         with:
           name: e2e-archive
           path: mercury-e2e.tar.zst
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sp1-elfs
+          path: external/solidity-ibc-eureka/programs/sp1-programs/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/sp1-ics07-tendermint-*
 
       - name: Generate matrix
         id: matrix
@@ -108,11 +117,19 @@ jobs:
       - uses: ./.github/actions/ethereum-setup
         if: contains(toJSON(matrix.setup), '"ethereum"')
 
+      - name: Download SP1 ELFs
+        if: contains(toJSON(matrix.setup), '"ethereum"')
+        uses: actions/download-artifact@v4
+        with:
+          name: sp1-elfs
+          path: external/solidity-ibc-eureka/programs/sp1-programs/target/elf-compilation/riscv32im-succinct-zkvm-elf/release
+
       - name: Run test
         env:
           NEXTEST_PROFILE: ci
         run: |
           cargo nextest run \
             --archive-file mercury-e2e.tar.zst \
+            --workspace-remap . \
             --run-ignored all \
             -E 'binary(=${{ matrix.binary }}) & test(=${{ matrix.test }})'
