@@ -4,7 +4,9 @@ use std::time::Duration;
 use ibc::core::host::types::identifiers::ChainId;
 use tendermint::Time as TmTime;
 use tendermint::block::Height as TmHeight;
+use tendermint::node::info::TxIndexStatus;
 use tendermint_rpc::HttpClient;
+use tracing::warn;
 
 use crate::client_types::{CosmosClientState, CosmosConsensusState};
 use crate::config::CosmosChainConfig;
@@ -42,6 +44,20 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
         let chain_id = ChainId::new(status.node_info.network.as_str())
             .map_err(|e| eyre::eyre!("parsing chain ID: {e}"))?;
 
+        if status.node_info.other.tx_index == TxIndexStatus::Off {
+            eyre::bail!(
+                "chain '{}': node has tx indexing disabled — mercury requires tx indexing for event queries",
+                config.chain_id,
+            );
+        }
+
+        if status.sync_info.catching_up {
+            eyre::bail!(
+                "chain '{}': node is still syncing — wait for it to catch up before starting the relayer",
+                config.chain_id,
+            );
+        }
+
         let grpc_endpoint = tonic::transport::Channel::from_shared(config.grpc_addr.clone())
             .wrap_err("parsing gRPC address")?;
         let grpc_endpoint = if config.grpc_addr.starts_with("https") {
@@ -55,6 +71,8 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
             .connect()
             .await
             .wrap_err("connecting to gRPC")?;
+
+        check_min_gas_price(grpc_channel.clone(), &config).await;
 
         Ok(Self {
             block_time: config.block_time,
@@ -134,6 +152,46 @@ impl<S: CosmosSigner> IbcTypes for CosmosChainInner<S> {
             .iter()
             .map(|p| p.source_port.clone())
             .collect()
+    }
+}
+
+/// Parses a Cosmos SDK `DecCoin` string like `"0.025uatom"` into (amount, denom).
+fn parse_dec_coin(s: &str) -> Option<(f64, &str)> {
+    let pos = s.find(|c: char| c.is_alphabetic())?;
+    let (amount, denom) = s.split_at(pos);
+    Some((amount.parse().ok()?, denom))
+}
+
+/// Non-fatal: some nodes don't expose this endpoint.
+async fn check_min_gas_price(channel: tonic::transport::Channel, config: &CosmosChainConfig) {
+    use ibc_proto::cosmos::base::node::v1beta1::{
+        ConfigRequest, service_client::ServiceClient as NodeServiceClient,
+    };
+
+    let Ok(response) = NodeServiceClient::new(channel)
+        .config(ConfigRequest {})
+        .await
+    else {
+        return;
+    };
+
+    // minimum_gas_price is comma-separated, e.g. "0.025uatom,0.001uosmo"
+    let min_gas_prices = response.into_inner().minimum_gas_price;
+    let node_min = min_gas_prices
+        .split(',')
+        .filter_map(|e| parse_dec_coin(e.trim()))
+        .find(|(_, denom)| *denom == config.gas_price.denom);
+
+    if let Some((node_min, denom)) = node_min
+        && config.gas_price.amount < node_min
+    {
+        warn!(
+            chain_id = %config.chain_id,
+            configured = config.gas_price.amount,
+            node_minimum = node_min,
+            denom,
+            "configured gas price is below node's minimum — transactions may be rejected",
+        );
     }
 }
 

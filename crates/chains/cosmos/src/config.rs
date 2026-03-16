@@ -131,6 +131,14 @@ impl CosmosChainConfig {
         {
             eyre::bail!("chain '{}': max_tx_size must be > 0", self.chain_id);
         }
+        if let (Some(trusting), Some(unbonding)) = (self.trusting_period, self.unbonding_period)
+            && trusting >= unbonding
+        {
+            eyre::bail!(
+                "chain '{}': trusting_period ({trusting:?}) must be less than unbonding_period ({unbonding:?})",
+                self.chain_id
+            );
+        }
         if let Some(ref checksum) = self.wasm_checksum {
             let bytes = hex::decode(checksum).map_err(|e| {
                 eyre::eyre!(
@@ -303,6 +311,37 @@ mod tests {
         let mut cfg = valid_config();
         cfg.wasm_checksum = Some("aabb".to_string());
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn trusting_period_exceeds_unbonding_fails() {
+        let mut cfg = valid_config();
+        cfg.trusting_period = Some(Duration::from_secs(86400 * 21));
+        cfg.unbonding_period = Some(Duration::from_secs(86400 * 14));
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn trusting_period_equals_unbonding_fails() {
+        let mut cfg = valid_config();
+        cfg.trusting_period = Some(Duration::from_secs(86400 * 14));
+        cfg.unbonding_period = Some(Duration::from_secs(86400 * 14));
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn trusting_period_less_than_unbonding_passes() {
+        let mut cfg = valid_config();
+        cfg.trusting_period = Some(Duration::from_secs(86400 * 14));
+        cfg.unbonding_period = Some(Duration::from_secs(86400 * 21));
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn trusting_period_without_unbonding_passes() {
+        let mut cfg = valid_config();
+        cfg.trusting_period = Some(Duration::from_secs(86400 * 14));
+        assert!(cfg.validate().is_ok());
     }
 
     #[test]

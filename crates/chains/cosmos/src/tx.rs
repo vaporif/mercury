@@ -10,7 +10,6 @@ use mercury_core::error::Result;
 
 use crate::chain::CosmosChainInner;
 use crate::keys::CosmosSigner;
-use crate::queries::grpc_unary;
 use crate::types::{CosmosEvent, CosmosMessage, CosmosTxResponse};
 
 const DEFAULT_GAS_MULTIPLIER: f64 = 1.3;
@@ -206,7 +205,8 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
     #[instrument(skip_all, name = "query_nonce")]
     pub async fn query_nonce(&self, signer: &S) -> Result<CosmosNonce> {
         use ibc_proto::cosmos::auth::v1beta1::{
-            BaseAccount, QueryAccountRequest, QueryAccountResponse,
+            BaseAccount, QueryAccountRequest,
+            query_client::QueryClient as AuthQueryClient,
         };
 
         let address = signer.account_address()?;
@@ -216,13 +216,10 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
             address: address.clone(),
         });
 
-        let response = grpc_unary::<QueryAccountRequest, QueryAccountResponse>(
-            self.grpc_channel.clone(),
-            "/cosmos.auth.v1beta1.Query/Account",
-            request,
-        )
-        .await?
-        .into_inner();
+        let response = AuthQueryClient::new(self.grpc_channel.clone())
+            .account(request)
+            .await?
+            .into_inner();
 
         let account_any = response
             .account
@@ -243,7 +240,10 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
         nonce: &CosmosNonce,
         messages: &[CosmosMessage],
     ) -> Result<CosmosFee> {
-        use ibc_proto::cosmos::tx::v1beta1::{SimulateRequest, SimulateResponse};
+        use ibc_proto::cosmos::tx::v1beta1::{
+            SimulateRequest,
+            service_client::ServiceClient as TxServiceClient,
+        };
 
         let gas_multiplier = self.config.gas_multiplier.unwrap_or(DEFAULT_GAS_MULTIPLIER);
         let default_gas = self.config.default_gas.unwrap_or(DEFAULT_GAS);
@@ -266,12 +266,9 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
         #[allow(deprecated)]
         let request = tonic::Request::new(SimulateRequest { tx: None, tx_bytes });
 
-        let gas_used = match grpc_unary::<SimulateRequest, SimulateResponse>(
-            self.grpc_channel.clone(),
-            "/cosmos.tx.v1beta1.Service/Simulate",
-            request,
-        )
-        .await
+        let gas_used = match TxServiceClient::new(self.grpc_channel.clone())
+            .simulate(request)
+            .await
         {
             Ok(response) => {
                 response
