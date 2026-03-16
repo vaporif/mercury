@@ -38,6 +38,12 @@ use prost::Message as _;
 
 use crate::wrapper::CosmosChain;
 
+impl<S: CosmosSigner> CosmosChain<S> {
+    const fn effective_proof_height(&self, proof_height: &EvmHeight) -> u64 {
+        if self.0.config.mock_proofs { 0 } else { proof_height.0 }
+    }
+}
+
 #[async_trait]
 impl<S: CosmosSigner> ClientQuery<EthereumChainInner> for CosmosChain<S> {
     async fn query_client_state(
@@ -215,12 +221,13 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChainInner> for CosmosChain<S
         proof_height: EvmHeight,
         revision: u64,
     ) -> Result<CosmosMessage> {
+        let height = self.effective_proof_height(&proof_height);
         let msg = MsgRecvPacket {
             packet: Some(evm_packet_to_v2(packet)),
             proof_commitment: encode_evm_proof(&proof),
             proof_height: Some(ProtoHeight {
                 revision_number: revision,
-                revision_height: proof_height.0,
+                revision_height: height,
             }),
             signer: self.0.signer.account_address()?,
         };
@@ -235,6 +242,7 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChainInner> for CosmosChain<S
         proof_height: EvmHeight,
         revision: u64,
     ) -> Result<CosmosMessage> {
+        let height = self.effective_proof_height(&proof_height);
         let acknowledgement =
             channel::Acknowledgement::decode(ack.0.as_slice()).unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "ack proto decode failed, treating raw bytes as single app-ack");
@@ -248,7 +256,7 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChainInner> for CosmosChain<S
             proof_acked: encode_evm_proof(&proof),
             proof_height: Some(ProtoHeight {
                 revision_number: revision,
-                revision_height: proof_height.0,
+                revision_height: height,
             }),
             signer: self.0.signer.account_address()?,
         };
@@ -263,12 +271,13 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChainInner> for CosmosChain<S
         revision: u64,
     ) -> Result<CosmosMessage> {
         use mercury_cosmos::builders::cosmos_packet_to_v2;
+        let height = self.effective_proof_height(&proof_height);
         let msg = MsgTimeout {
             packet: Some(cosmos_packet_to_v2(packet)),
             proof_unreceived: encode_evm_proof(&proof),
             proof_height: Some(ProtoHeight {
                 revision_number: revision,
-                revision_height: proof_height.0,
+                revision_height: height,
             }),
             signer: self.0.signer.account_address()?,
         };

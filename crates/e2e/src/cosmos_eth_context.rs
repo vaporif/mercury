@@ -596,6 +596,7 @@ fn make_cosmos_config(
         dynamic_gas_price: None,
         max_tx_size: None,
         wasm_checksum: wasm_checksum.map(String::from),
+        mock_proofs: true,
     }
 }
 

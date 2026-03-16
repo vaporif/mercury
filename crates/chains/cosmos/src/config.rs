@@ -51,6 +51,11 @@ pub struct CosmosChainConfig {
     /// Required when this chain hosts WASM light clients (e.g., Ethereum Beacon).
     #[serde(default)]
     pub wasm_checksum: Option<String>,
+    /// When true, packet message builders use `proof_height` (0, 0) instead of the
+    /// real source-chain height. This lets the dummy WASM light client's static
+    /// `LatestHeight` pass the Go-level height gate in `08-wasm`.
+    #[serde(default)]
+    pub mock_proofs: bool,
 }
 
 /// Gas price amount and denomination for fee calculation.
@@ -188,6 +193,7 @@ mod tests {
             dynamic_gas_price: None,
             max_tx_size: None,
             wasm_checksum: None,
+            mock_proofs: false,
         }
     }
 
