@@ -143,8 +143,8 @@
             pkgs.cargo-nextest
             pkgs.foundry
             pkgs.bun
-            sp1Pkgs.cargo-prove
-            sp1Pkgs.sp1-rust-toolchain
+            sp1Pkgs.cargo-prove-v5
+            sp1Pkgs.sp1-rust-toolchain-v5
           ]
           ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
