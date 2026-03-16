@@ -36,8 +36,8 @@ Each relay direction (A→B, B→A) runs its own set of workers connected by `to
 | `mercury-cli` | CLI binary — `mercury-relayer start`, `mercury-relayer status` |
 | `mercury-cosmos` | Cosmos chain — RPC, protobuf, tx signing |
 | `mercury-ethereum` | EVM chain — alloy, ICS07 contract interaction |
-| `mercury-cosmos-counterparties` | Cosmos wrapper — cross-chain impls (EVM→Cosmos via beacon) |
-| `mercury-ethereum-counterparties` | Ethereum wrapper — cross-chain impls (Cosmos→EVM) |
+| `mercury-cosmos-counterparties` | Cosmos — supported counterparties (currently: Ethereum) |
+| `mercury-ethereum-counterparties` | Ethereum — supported counterparties (currently: Cosmos) |
 | `mercury-relay` | Worker pipeline, generic over chain traits |
 | `mercury-chain-traits` | Chain types, messaging, queries, relay traits |
 | `mercury-core` | Error types, encoding, worker trait, membership proofs |
