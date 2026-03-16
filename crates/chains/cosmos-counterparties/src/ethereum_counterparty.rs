@@ -40,7 +40,11 @@ use crate::wrapper::CosmosChain;
 
 impl<S: CosmosSigner> CosmosChain<S> {
     const fn effective_proof_height(&self, proof_height: &EvmHeight) -> u64 {
-        if self.0.config.mock_proofs { 0 } else { proof_height.0 }
+        if self.0.config.mock_proofs {
+            0
+        } else {
+            proof_height.0
+        }
     }
 }
 
