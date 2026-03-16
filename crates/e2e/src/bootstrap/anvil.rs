@@ -375,7 +375,7 @@ pub fn deploy_sp1_light_client(
             rpc_endpoint,
             "--private-key",
             &deployer.private_key,
-            "--json",
+            "--broadcast",
             "--constructor-args",
             &format!("{:#x}", vkeys.update_client),
             &format!("{:#x}", vkeys.membership),
@@ -390,23 +390,52 @@ pub fn deploy_sp1_light_client(
         .output()
         .wrap_err("running forge create for SP1ICS07Tendermint")?;
 
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("forge create SP1ICS07Tendermint failed:\n{stderr}");
+        bail!("forge create SP1ICS07Tendermint failed:\nstdout: {stdout}\nstderr: {stderr}");
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).wrap_err("parsing forge create JSON output")?;
-    let deployed_to = json
-        .get("deployedTo")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| eyre::eyre!("deployedTo not found in forge create output"))?;
-
-    let address: Address = deployed_to
-        .parse()
-        .wrap_err("parsing deployed SP1ICS07Tendermint address")?;
+    // forge create --json outputs JSON lines to stderr (log messages),
+    // with the deployment result as the last JSON object.
+    let address = parse_forge_create_address(&stdout, &stderr)?;
 
     info!(address = %format!("{address:#x}"), "SP1ICS07Tendermint deployed");
     Ok(address)
+}
+
+/// Parse the deployed contract address from `forge create` output.
+///
+/// Forge may output the deployment JSON to stdout or stderr depending on version.
+/// The JSON object contains a `deployedTo` field with the contract address.
+fn parse_forge_create_address(stdout: &str, stderr: &str) -> Result<Address> {
+    // Try parsing each line as JSON, looking for the deployedTo field
+    for source in [stdout, stderr] {
+        for line in source.lines() {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(addr_str) = json.get("deployedTo").and_then(|v| v.as_str()) {
+                    return addr_str
+                        .parse()
+                        .wrap_err("parsing deployed SP1ICS07Tendermint address");
+                }
+            }
+        }
+    }
+
+    // Fallback: look for address pattern in "Deployed to: 0x..." text output
+    for source in [stdout, stderr] {
+        for line in source.lines() {
+            if let Some(rest) = line.strip_prefix("Deployed to: ") {
+                let addr_str = rest.trim();
+                return addr_str
+                    .parse()
+                    .wrap_err("parsing deployed SP1ICS07Tendermint address");
+            }
+        }
+    }
+
+    bail!(
+        "could not find deployed address in forge create output\nstdout: {stdout}\nstderr: {stderr}"
+    );
 }
