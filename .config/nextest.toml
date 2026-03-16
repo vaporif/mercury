@@ -10,3 +10,14 @@ slow-timeout = { period = "120s", terminate-after = 3 }
 [[profile.eth-e2e.overrides]]
 filter = "package(mercury-e2e)"
 threads-required = 2
+
+# CI profile — activated via NEXTEST_PROFILE=ci in GitHub Actions
+[profile.ci]
+
+[[profile.ci.overrides]]
+filter = "package(mercury-e2e)"
+threads-required = 2
+
+[[profile.ci.overrides]]
+filter = "binary(cosmos_ethereum)"
+slow-timeout = { period = "1200s" }
