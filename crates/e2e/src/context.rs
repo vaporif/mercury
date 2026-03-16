@@ -371,6 +371,7 @@ fn make_test_cosmos_config(handle: &CosmosDockerHandle, key_name: &str) -> Cosmo
         dynamic_gas_price: None,
         max_tx_size: None,
         wasm_checksum: None,
+        mock_proofs: false,
     }
 }
 
