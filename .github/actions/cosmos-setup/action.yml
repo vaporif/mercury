@@ -6,4 +6,4 @@ runs:
   steps:
     - name: Cosmos setup (no-op)
       shell: bash
-      run: echo "Cosmos tests require only Docker, which is pre-installed on GitHub runners."
+      run: true

@@ -103,10 +103,10 @@ jobs:
           name: e2e-archive
 
       - uses: ./.github/actions/cosmos-setup
-        if: matrix.chain_type == 'cosmos'
+        if: contains(toJSON(matrix.setup), '"cosmos"')
 
       - uses: ./.github/actions/ethereum-setup
-        if: matrix.chain_type == 'ethereum'
+        if: contains(toJSON(matrix.setup), '"ethereum"')
 
       - name: Run test
         run: |
