@@ -18,14 +18,14 @@ By the time async Rust matured, the sync model was load-bearing and too costly t
 
 The problems CGP targets are real and important. Hermes v1's monolithic `ChainHandle` trait was hardcoded to Cosmos, and IBC is expanding to Ethereum, Solana, Starknet, Sovereign rollups, Substrate — chains with fundamentally different APIs, signing, and proof systems. More critically, cross-chain relaying hits a structural limitation in Rust's trait system: when `ClientMessageBuilder<Counterparty>` requires `Counterparty: ClientPayloadBuilder<Self>`, implementing a Cosmos→EVM bridge forces the Cosmos crate to depend on the EVM crate and vice versa — a circular dependency that Cargo prohibits, compounded by Rust's orphan rule which prevents third-party crates from providing the impls.
 
-CGP solves this through Inversion of Control — decoupling producer types from consumer types so that each chain can be implemented independently. This is the correct insight. The issue is that CGP wraps it in a custom macro framework that makes the codebase difficult to contribute to.
+CGP solves this through Inversion of Control — decoupling producer types from consumer types so that each chain can be implemented independently. This is the correct insight. The issue is that CGP wraps it in a custom macro framework that makes the codebase difficult to contribute to. When a framework requires bumping `#![recursion_limit]` past the compiler default, it's a signal that the abstraction is fighting the language rather than working with it.
 
 ## Where CGP Breaks Down
 
 CGP is essentially an Inversion of Control container (like Java's Spring) implemented through Rust proc macros. For every operation it introduces three layers: a component trait, a provider type, and a macro-generated delegation table. The result is 367 component traits, 666 provider impls, and 25 context types — all wired through macro-generated code.
 
 The practical costs:
-- **Compile times** — dominated by macro expansion across hundreds of components
+- **Compile times** — dominated by macro expansion across hundreds of components; requires `#![recursion_limit]` bumps beyond the default
 - **Error messages** — report through layers of generated types (`DelegateComponent`, `UseDelegate`, `WithProvider`) instead of pointing to your code
 - **Cognitive overhead** — understanding a single operation requires tracing through four files: component trait → delegation table → provider → impl
 - **Tooling** — rust-analyzer can't resolve through the macro layers; go-to-definition, autocomplete, and rename don't work
