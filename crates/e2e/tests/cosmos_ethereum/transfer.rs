@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use mercury_e2e::bootstrap::traits::ChainHandle;
 use mercury_e2e::cosmos_eth_context::CosmosEthTestContext;
 
 use super::*;
