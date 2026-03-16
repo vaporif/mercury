@@ -25,8 +25,6 @@ def main() -> None:
     defaults = manifest.get("defaults", {})
     default_setup = defaults.get("setup", ["cosmos"])
     default_timeout = defaults.get("timeout", 10)
-    default_nextest_profile = defaults.get("nextest_profile", "default")
-    default_test_timeout = defaults.get("test_timeout", "")
 
     chain_types = manifest.get("chain_types", {})
     binaries = manifest.get("binary", {})
@@ -68,17 +66,6 @@ def main() -> None:
             (chain_types.get(s, {}).get("timeout", default_timeout) for s in setup),
             default=default_timeout,
         )
-        nextest_profile = binary_config.get("nextest_profile") or next(
-            (chain_types.get(s, {}).get("nextest_profile") for s in setup
-             if chain_types.get(s, {}).get("nextest_profile")),
-            default_nextest_profile,
-        )
-        test_timeout = binary_config.get("test_timeout") or next(
-            (chain_types.get(s, {}).get("test_timeout") for s in setup
-             if chain_types.get(s, {}).get("test_timeout")),
-            default_test_timeout,
-        )
-
         for test_name in testcases:
             # test_name is module-qualified (e.g. "transfer::ibc_transfer")
             bare_name = test_name.rsplit("::", 1)[-1]
@@ -86,16 +73,12 @@ def main() -> None:
             if bare_name in skip_tests:
                 continue
 
-            entry = {
+            matrix.append({
                 "binary": binary_name,
                 "test": test_name,
                 "setup": setup,
                 "timeout": timeout,
-                "nextest_profile": nextest_profile,
-            }
-            if test_timeout:
-                entry["test_timeout"] = test_timeout
-            matrix.append(entry)
+            })
 
     print(json.dumps(matrix))
 

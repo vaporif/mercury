@@ -109,10 +109,10 @@ jobs:
         if: contains(toJSON(matrix.setup), '"ethereum"')
 
       - name: Run test
+        env:
+          NEXTEST_PROFILE: ci
         run: |
           cargo nextest run \
             --archive-file mercury-e2e.tar.zst \
             --run-ignored all \
-            -E 'binary(=${{ matrix.binary }}) & test(=${{ matrix.test }})' \
-            --profile ${{ matrix.nextest_profile }} \
-            ${{ matrix.test_timeout && format('--test-timeout {0}', matrix.test_timeout) || '' }}
+            -E 'binary(=${{ matrix.binary }}) & test(=${{ matrix.test }})'

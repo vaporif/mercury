@@ -1,12 +1,9 @@
 [defaults]
 setup = ["cosmos"]
 timeout = 10
-nextest_profile = "default"
 
 [chain_types.ethereum]
 timeout = 20
-test_timeout = "20m"
 
 [binary.cosmos_ethereum]
 setup = ["cosmos", "ethereum"]
-nextest_profile = "eth-e2e"
