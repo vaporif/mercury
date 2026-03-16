@@ -25,7 +25,7 @@ CGP solves this through Inversion of Control — decoupling producer types from 
 CGP is essentially an Inversion of Control container (like Java's Spring) implemented through Rust proc macros. For every operation it introduces three layers: a component trait, a provider type, and a macro-generated delegation table. The result is 367 component traits, 666 provider impls, and 25 context types — all wired through macro-generated code.
 
 The practical costs:
-- **Compile times** — dominated by macro expansion across hundreds of components; requires `#![recursion_limit]` bumps beyond the default
+- **Compile times** — dominated by macro expansion across hundreds of components
 - **Error messages** — report through layers of generated types (`DelegateComponent`, `UseDelegate`, `WithProvider`) instead of pointing to your code
 - **Cognitive overhead** — understanding a single operation requires tracing through four files: component trait → delegation table → provider → impl
 - **Tooling** — rust-analyzer can't resolve through the macro layers; go-to-definition, autocomplete, and rename don't work
