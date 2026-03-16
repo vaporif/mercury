@@ -91,6 +91,14 @@ impl EthereumChainInner {
             );
         }
 
+        let sync_status = provider.syncing().await.wrap_err("querying sync status")?;
+        if !matches!(sync_status, alloy::rpc::types::SyncStatus::None) {
+            eyre::bail!(
+                "chain '{}': node is still syncing — wait for it to catch up before starting the relayer",
+                config.chain_id,
+            );
+        }
+
         let router_address = config.router_address()?;
 
         let payload_client = match &config.client_payload_mode {

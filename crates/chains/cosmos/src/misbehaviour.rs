@@ -3,7 +3,8 @@ use ibc::core::host::types::identifiers::ClientId;
 use ibc_client_tendermint::types::{Header as TmIbcHeader, Misbehaviour as TmMisbehaviour};
 use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::core::client::v1::{
-    MsgUpdateClient, QueryConsensusStateHeightsRequest, QueryConsensusStateHeightsResponse,
+    MsgUpdateClient, QueryConsensusStateHeightsRequest,
+    query_client::QueryClient as IbcClientQueryClient,
 };
 use prost::Message as _;
 use tendermint::block::Height as TmHeight;
@@ -18,7 +19,6 @@ use mercury_core::error::Result;
 use crate::chain::CosmosChainInner;
 use crate::client_types::CosmosClientState;
 use crate::keys::CosmosSigner;
-use crate::queries::grpc_unary;
 use crate::types::{CosmosMessage, to_any};
 
 /// Evidence of light client misbehaviour on a Cosmos chain.
@@ -173,12 +173,8 @@ impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChainInner<S> {
             pagination,
         });
 
-        let response =
-            grpc_unary::<QueryConsensusStateHeightsRequest, QueryConsensusStateHeightsResponse>(
-                self.grpc_channel.clone(),
-                "/ibc.core.client.v1.Query/ConsensusStateHeights",
-                request,
-            )
+        let response = IbcClientQueryClient::new(self.grpc_channel.clone())
+            .consensus_state_heights(request)
             .await?
             .into_inner();
 

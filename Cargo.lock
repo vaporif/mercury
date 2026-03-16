@@ -2411,6 +2411,7 @@ dependencies = [
  "prost 0.13.5",
  "serde",
  "tendermint-proto",
+ "tonic 0.13.1",
 ]
 
 [[package]]
@@ -4398,6 +4399,7 @@ dependencies = [
  "serde",
  "subtle-encoding",
  "tendermint-proto",
+ "tonic 0.13.1",
 ]
 
 [[package]]
@@ -5019,7 +5021,7 @@ dependencies = [
  "tendermint-rpc",
  "tokio",
  "toml",
- "tonic 0.14.5",
+ "tonic 0.13.1",
  "tracing",
  "zeroize",
 ]
@@ -5083,7 +5085,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml",
- "tonic 0.14.5",
+ "tonic 0.13.1",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -8714,6 +8716,37 @@ dependencies = [
 
 [[package]]
 name = "tonic"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e581ba15a835f4d9ea06c55ab1bd4dce26fc53752c69a04aac00703bfb49ba9"
+dependencies = [
+ "async-trait",
+ "axum 0.8.8",
+ "base64 0.22.1",
+ "bytes",
+ "h2 0.4.13",
+ "http 1.4.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.8.1",
+ "hyper-timeout",
+ "hyper-util",
+ "percent-encoding",
+ "pin-project",
+ "prost 0.13.5",
+ "rustls-native-certs 0.8.3",
+ "socket2 0.5.10",
+ "tokio",
+ "tokio-rustls 0.26.4",
+ "tokio-stream",
+ "tower 0.5.3",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "tonic"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fec7c61a0695dc1887c1b53952990f3ad2e3a31453e1f49f10e75424943a93ec"
@@ -8731,11 +8764,9 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
- "rustls-native-certs 0.8.3",
  "socket2 0.6.3",
  "sync_wrapper 1.0.2",
  "tokio",
- "tokio-rustls 0.26.4",
  "tokio-stream",
  "tower 0.5.3",
  "tower-layer",

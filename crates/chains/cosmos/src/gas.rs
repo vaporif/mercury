@@ -1,10 +1,93 @@
 use std::sync::OnceLock;
 
 use prost::Message;
+use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use tracing::{debug, warn};
 
-use crate::queries::grpc_unary;
 use mercury_core::error::Result;
+
+#[derive(Debug, Clone)]
+struct ProstMessageCodec<T, U>(std::marker::PhantomData<(T, U)>);
+
+impl<T, U> Default for ProstMessageCodec<T, U> {
+    fn default() -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ProstMessageEncoder<T>(std::marker::PhantomData<T>);
+
+#[derive(Debug, Clone)]
+struct ProstMessageDecoder<U>(std::marker::PhantomData<U>);
+
+impl<T: Message + Send + 'static> Encoder for ProstMessageEncoder<T> {
+    type Item = T;
+    type Error = tonic::Status;
+
+    fn encode(
+        &mut self,
+        item: Self::Item,
+        dst: &mut EncodeBuf<'_>,
+    ) -> core::result::Result<(), Self::Error> {
+        item.encode(dst)
+            .map_err(|e| tonic::Status::internal(format!("encode error: {e}")))
+    }
+}
+
+impl<U: Message + Default + Send + 'static> Decoder for ProstMessageDecoder<U> {
+    type Item = U;
+    type Error = tonic::Status;
+
+    fn decode(
+        &mut self,
+        src: &mut DecodeBuf<'_>,
+    ) -> core::result::Result<Option<Self::Item>, Self::Error> {
+        let item =
+            U::decode(src).map_err(|e| tonic::Status::internal(format!("decode error: {e}")))?;
+        Ok(Some(item))
+    }
+}
+
+impl<T, U> Codec for ProstMessageCodec<T, U>
+where
+    T: Message + Send + 'static,
+    U: Message + Default + Send + 'static,
+{
+    type Encode = T;
+    type Decode = U;
+    type Encoder = ProstMessageEncoder<T>;
+    type Decoder = ProstMessageDecoder<U>;
+
+    fn encoder(&mut self) -> Self::Encoder {
+        ProstMessageEncoder(std::marker::PhantomData)
+    }
+
+    fn decoder(&mut self) -> Self::Decoder {
+        ProstMessageDecoder(std::marker::PhantomData)
+    }
+}
+
+async fn grpc_unary<Req, Resp>(
+    channel: tonic::transport::Channel,
+    path: &str,
+    request: tonic::Request<Req>,
+) -> core::result::Result<tonic::Response<Resp>, tonic::Status>
+where
+    Req: Message + Send + Sync + 'static,
+    Resp: Message + Default + Send + Sync + 'static,
+{
+    let mut client = tonic::client::Grpc::new(channel);
+    client
+        .ready()
+        .await
+        .map_err(|e| tonic::Status::unknown(format!("service not ready: {e}")))?;
+    let path: tonic::codegen::http::uri::PathAndQuery = path
+        .parse()
+        .map_err(|e| tonic::Status::internal(format!("invalid path: {e}")))?;
+    let codec = ProstMessageCodec::<Req, Resp>::default();
+    client.unary(request, path, codec).await
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum DynamicGasBackend {
