@@ -19,20 +19,10 @@ fn get_attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
-fn v2_packet_to_cosmos(pkt: channel::Packet) -> Option<CosmosPacket> {
-    let source_client_id = pkt
-        .source_client
-        .parse()
-        .inspect_err(|e| warn!(client = %pkt.source_client, error = %e, "invalid source_client"))
-        .ok()?;
-    let dest_client_id = pkt
-        .destination_client
-        .parse()
-        .inspect_err(|e| warn!(client = %pkt.destination_client, error = %e, "invalid dest_client"))
-        .ok()?;
-    Some(CosmosPacket {
-        source_client_id,
-        dest_client_id,
+fn v2_packet_to_cosmos(pkt: channel::Packet) -> CosmosPacket {
+    CosmosPacket {
+        source_client_id: pkt.source_client.into(),
+        dest_client_id: pkt.destination_client.into(),
         sequence: pkt.sequence,
         timeout_timestamp: pkt.timeout_timestamp,
         payloads: pkt
@@ -46,7 +36,7 @@ fn v2_packet_to_cosmos(pkt: channel::Packet) -> Option<CosmosPacket> {
                 data: p.value,
             })
             .collect(),
-    })
+    }
 }
 
 fn abci_event_to_cosmos_event(event: &tendermint::abci::Event) -> CosmosEvent {
@@ -91,7 +81,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChainInner<S> {
             .inspect_err(|e| warn!(error = %e, "failed to proto-decode send_packet"))
             .ok()?;
         Some(SendPacketEvent {
-            packet: v2_packet_to_cosmos(pkt)?,
+            packet: v2_packet_to_cosmos(pkt),
         })
     }
 
@@ -111,7 +101,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChainInner<S> {
             .inspect_err(|e| warn!(error = %e, "failed to proto-decode write_ack packet"))
             .ok()?;
         Some(WriteAckEvent {
-            packet: v2_packet_to_cosmos(pkt)?,
+            packet: v2_packet_to_cosmos(pkt),
             ack: PacketAcknowledgement(ack_bytes),
         })
     }
@@ -172,7 +162,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChainInner<S> {
                 let cosmos_event = abci_event_to_cosmos_event(event);
                 if let Some(send_event) =
                     <Self as PacketEvents>::try_extract_send_packet_event(&cosmos_event)
-                    && send_event.packet.source_client_id.as_str() == client_id.as_str()
+                    && send_event.packet.source_client_id.as_ref() == client_id.as_str()
                 {
                     return Ok(Some(send_event));
                 }
@@ -240,27 +230,14 @@ mod tests {
             }],
         };
 
-        let result = v2_packet_to_cosmos(pkt).unwrap();
+        let result = v2_packet_to_cosmos(pkt);
         assert_eq!(result.sequence, 42);
-        assert_eq!(result.source_client_id.as_str(), "07-tendermint-0");
-        assert_eq!(result.dest_client_id.as_str(), "07-tendermint-1");
+        assert_eq!(result.source_client_id.as_ref(), "07-tendermint-0");
+        assert_eq!(result.dest_client_id.as_ref(), "07-tendermint-1");
         assert_eq!(result.timeout_timestamp, 1_700_000_000);
         assert_eq!(result.payloads.len(), 1);
         assert_eq!(result.payloads[0].source_port, "transfer");
         assert_eq!(result.payloads[0].data, b"hello");
-    }
-
-    #[test]
-    fn v2_packet_to_cosmos_invalid_client_id() {
-        let pkt = Packet {
-            sequence: 1,
-            source_client: "not a valid client id!!!".to_string(),
-            destination_client: "07-tendermint-1".to_string(),
-            timeout_timestamp: 0,
-            payloads: vec![],
-        };
-
-        assert!(v2_packet_to_cosmos(pkt).is_none());
     }
 
     #[test]

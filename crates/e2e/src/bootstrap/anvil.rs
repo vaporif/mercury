@@ -1,9 +1,12 @@
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, B256};
 use eyre::{Context, Result, bail};
 use tracing::info;
+
+use super::install_solidity_deps;
 
 /// Wallet for Anvil accounts.
 #[derive(Clone, Debug)]
@@ -45,20 +48,19 @@ impl AnvilHandle {
     }
 }
 
-const ANVIL_CHAIN_ID: u64 = 31337;
-
 /// Start Anvil and deploy IBC contracts.
 pub async fn start_anvil() -> Result<AnvilHandle> {
     let port = find_free_port()?;
+    let chain_id = u64::from(port);
     let rpc_endpoint = format!("http://127.0.0.1:{port}");
 
-    info!(port, "starting Anvil");
+    info!(port, chain_id, "starting Anvil");
     let child = Command::new("anvil")
         .args([
             "--port",
             &port.to_string(),
             "--chain-id",
-            &ANVIL_CHAIN_ID.to_string(),
+            &chain_id.to_string(),
             "--block-time",
             "1",
             "--silent",
@@ -73,7 +75,7 @@ pub async fn start_anvil() -> Result<AnvilHandle> {
     let mut handle = AnvilHandle {
         child,
         rpc_endpoint: rpc_endpoint.clone(),
-        chain_id: ANVIL_CHAIN_ID,
+        chain_id,
         ics26_router: Address::ZERO,
         ics20_transfer: Address::ZERO,
         light_client: Address::ZERO,
@@ -87,6 +89,7 @@ pub async fn start_anvil() -> Result<AnvilHandle> {
 
     info!(
         rpc = %handle.rpc_endpoint,
+        chain_id = handle.chain_id,
         router = %handle.ics26_router,
         transfer = %handle.ics20_transfer,
         "Anvil ready with deployed contracts"
@@ -160,21 +163,12 @@ fn deploy_contracts(handle: &mut AnvilHandle) -> Result<()> {
         bail!("external/solidity-ibc-eureka not found — did you init submodules?");
     }
 
-    // Install Solidity dependencies (OpenZeppelin, etc.) if not already present.
-    if !eureka_dir.join("node_modules").exists() {
-        info!("installing solidity dependencies");
-        let install = Command::new("bun")
-            .args(["install", "--frozen-lockfile"])
-            .current_dir(&eureka_dir)
-            .output()
-            .wrap_err("running bun install — is bun installed?")?;
-        if !install.status.success() {
-            let stderr = String::from_utf8_lossy(&install.stderr);
-            bail!("bun install failed:\n{stderr}");
-        }
-    }
+    install_solidity_deps(&eureka_dir);
 
     let deployer = &handle.relayer_wallet;
+
+    // Use a per-instance cache path so parallel forge runs don't corrupt shared cache.
+    let cache_dir = tempfile::tempdir().wrap_err("creating forge cache dir")?;
 
     info!("deploying IBC contracts via forge script");
     let output = Command::new("forge")
@@ -190,6 +184,7 @@ fn deploy_contracts(handle: &mut AnvilHandle) -> Result<()> {
         ])
         .current_dir(&eureka_dir)
         .env("E2E_FAUCET_ADDRESS", format!("{:#x}", deployer.address))
+        .env("FOUNDRY_CACHE_PATH", cache_dir.path())
         .output()
         .wrap_err("running forge script")?;
 
@@ -202,7 +197,7 @@ fn deploy_contracts(handle: &mut AnvilHandle) -> Result<()> {
     let broadcast_path = eureka_dir
         .join("broadcast")
         .join("E2ETestDeploy.s.sol")
-        .join(ANVIL_CHAIN_ID.to_string())
+        .join(handle.chain_id.to_string())
         .join("run-latest.json");
 
     let broadcast_json: serde_json::Value =
@@ -263,4 +258,184 @@ fn parse_broadcast_returns(broadcast: &serde_json::Value) -> Result<DeployedAddr
         mock_verifier: extract_addr(&addrs, "verifierMock")?,
         erc20: extract_addr(&addrs, "erc20")?,
     })
+}
+
+/// Vkeys derived from SP1 program ELF files.
+pub struct Sp1Vkeys {
+    pub update_client: B256,
+    pub membership: B256,
+    pub uc_and_membership: B256,
+    pub misbehaviour: B256,
+}
+
+/// Build SP1 program ELF files if not already present.
+/// Returns the path to the ELF output directory.
+pub fn build_sp1_programs() -> Result<PathBuf> {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let sp1_programs_dir =
+        manifest_dir.join("../../external/solidity-ibc-eureka/programs/sp1-programs");
+    let elf_dir =
+        sp1_programs_dir.join("target/elf-compilation/riscv32im-succinct-zkvm-elf/release");
+
+    let required_elfs = [
+        "sp1-ics07-tendermint-update-client",
+        "sp1-ics07-tendermint-membership",
+        "sp1-ics07-tendermint-uc-and-membership",
+        "sp1-ics07-tendermint-misbehaviour",
+    ];
+
+    let all_exist = required_elfs.iter().all(|name| elf_dir.join(name).exists());
+    if all_exist {
+        info!("SP1 ELF programs already built, skipping");
+        return Ok(elf_dir);
+    }
+
+    info!("building SP1 ELF programs (this may take a while)");
+    let output = Command::new("cargo")
+        .args(["prove", "build"])
+        .current_dir(&sp1_programs_dir)
+        .output()
+        .wrap_err("running cargo prove build — is sp1 toolchain installed?")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("SP1 ELF build failed:\n{stderr}");
+    }
+
+    for name in &required_elfs {
+        if !elf_dir.join(name).exists() {
+            bail!(
+                "SP1 ELF not found after build: {}",
+                elf_dir.join(name).display()
+            );
+        }
+    }
+
+    Ok(elf_dir)
+}
+
+/// Derive SP1 verification keys from ELF program files.
+///
+/// Uses `MockProver.setup()` which is deterministic — produces the same vkeys
+/// regardless of prover type (mock, CPU, network).
+pub fn derive_sp1_vkeys(elf_dir: &std::path::Path) -> Result<Sp1Vkeys> {
+    use sp1_ics07_tendermint_prover::programs::{
+        MembershipProgram, MisbehaviourProgram, SP1Program, UpdateClientAndMembershipProgram,
+        UpdateClientProgram,
+    };
+    use sp1_sdk::HashableKey;
+
+    let load_elf = |name: &str| -> Result<Vec<u8>> {
+        let path = elf_dir.join(name);
+        std::fs::read(&path).wrap_err_with(|| format!("reading SP1 ELF: {}", path.display()))
+    };
+
+    let update_client = UpdateClientProgram::new(load_elf("sp1-ics07-tendermint-update-client")?);
+    let membership = MembershipProgram::new(load_elf("sp1-ics07-tendermint-membership")?);
+    let uc_and_membership =
+        UpdateClientAndMembershipProgram::new(load_elf("sp1-ics07-tendermint-uc-and-membership")?);
+    let misbehaviour = MisbehaviourProgram::new(load_elf("sp1-ics07-tendermint-misbehaviour")?);
+
+    Ok(Sp1Vkeys {
+        update_client: update_client.get_vkey().bytes32_raw().into(),
+        membership: membership.get_vkey().bytes32_raw().into(),
+        uc_and_membership: uc_and_membership.get_vkey().bytes32_raw().into(),
+        misbehaviour: misbehaviour.get_vkey().bytes32_raw().into(),
+    })
+}
+
+/// Deploy `SP1ICS07Tendermint` light client via forge create.
+///
+/// Constructor args match eureka's pattern:
+/// - 4 vkeys (bytes32) derived from SP1 ELF programs
+/// - `SP1MockVerifier` address as the proof verifier
+/// - ABI-encoded Tendermint client state
+/// - keccak256 hash of ABI-encoded consensus state
+/// - `role_manager` = `address(0)` (allow anyone to submit proofs)
+pub fn deploy_sp1_light_client(
+    rpc_endpoint: &str,
+    deployer: &AnvilWallet,
+    mock_verifier: Address,
+    vkeys: &Sp1Vkeys,
+    client_state_abi: &[u8],
+    consensus_state_hash: B256,
+) -> Result<Address> {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let eureka_dir = manifest_dir.join("../../external/solidity-ibc-eureka");
+
+    let client_state_hex = format!("0x{}", hex::encode(client_state_abi));
+    let consensus_hash_hex = format!("{consensus_state_hash:#x}");
+
+    info!("deploying SP1ICS07Tendermint light client via forge create");
+    let output = Command::new("forge")
+        .args([
+            "create",
+            "contracts/light-clients/sp1-ics07/SP1ICS07Tendermint.sol:SP1ICS07Tendermint",
+            "--rpc-url",
+            rpc_endpoint,
+            "--private-key",
+            &deployer.private_key,
+            "--broadcast",
+            "--constructor-args",
+            &format!("{:#x}", vkeys.update_client),
+            &format!("{:#x}", vkeys.membership),
+            &format!("{:#x}", vkeys.uc_and_membership),
+            &format!("{:#x}", vkeys.misbehaviour),
+            &format!("{mock_verifier:#x}"),
+            &client_state_hex,
+            &consensus_hash_hex,
+            &format!("{:#x}", Address::ZERO),
+        ])
+        .current_dir(&eureka_dir)
+        .output()
+        .wrap_err("running forge create for SP1ICS07Tendermint")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if !output.status.success() {
+        bail!("forge create SP1ICS07Tendermint failed:\nstdout: {stdout}\nstderr: {stderr}");
+    }
+
+    // forge create --json outputs JSON lines to stderr (log messages),
+    // with the deployment result as the last JSON object.
+    let address = parse_forge_create_address(&stdout, &stderr)?;
+
+    info!(address = %format!("{address:#x}"), "SP1ICS07Tendermint deployed");
+    Ok(address)
+}
+
+/// Parse the deployed contract address from `forge create` output.
+///
+/// Forge may output the deployment JSON to stdout or stderr depending on version.
+/// The JSON object contains a `deployedTo` field with the contract address.
+fn parse_forge_create_address(stdout: &str, stderr: &str) -> Result<Address> {
+    // Try parsing each line as JSON, looking for the deployedTo field
+    for source in [stdout, stderr] {
+        for line in source.lines() {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line)
+                && let Some(addr_str) = json.get("deployedTo").and_then(|v| v.as_str())
+            {
+                return addr_str
+                    .parse()
+                    .wrap_err("parsing deployed SP1ICS07Tendermint address");
+            }
+        }
+    }
+
+    // Fallback: look for address pattern in "Deployed to: 0x..." text output
+    for source in [stdout, stderr] {
+        for line in source.lines() {
+            if let Some(rest) = line.strip_prefix("Deployed to: ") {
+                let addr_str = rest.trim();
+                return addr_str
+                    .parse()
+                    .wrap_err("parsing deployed SP1ICS07Tendermint address");
+            }
+        }
+    }
+
+    bail!(
+        "could not find deployed address in forge create output\nstdout: {stdout}\nstderr: {stderr}"
+    );
 }

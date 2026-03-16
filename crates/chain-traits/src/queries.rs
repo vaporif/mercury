@@ -87,4 +87,24 @@ pub trait PacketStateQuery: IbcTypes {
         client_id: &Self::ClientId,
         height: &Self::Height,
     ) -> Result<Vec<u64>>;
+
+    fn commitment_to_membership_entry(
+        &self,
+        _client_id: &Self::ClientId,
+        _sequence: u64,
+        _commitment: &Self::PacketCommitment,
+        _proof: &Self::CommitmentProof,
+    ) -> Option<mercury_core::MembershipProofEntry> {
+        None
+    }
+
+    fn ack_to_membership_entry(
+        &self,
+        _client_id: &Self::ClientId,
+        _sequence: u64,
+        _ack: &Self::Acknowledgement,
+        _proof: &Self::CommitmentProof,
+    ) -> Option<mercury_core::MembershipProofEntry> {
+        None
+    }
 }

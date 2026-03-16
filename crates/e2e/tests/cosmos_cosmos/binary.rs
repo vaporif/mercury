@@ -35,5 +35,5 @@ async fn binary_smoke() {
     .await
     .expect("balance on B");
 
-    relay.stop().expect("stop relay");
+    relay.stop();
 }

@@ -1,5 +1,5 @@
 [package]
-name = "mercury-ethereum-bridges"
+name = "mercury-ethereum-counterparties"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

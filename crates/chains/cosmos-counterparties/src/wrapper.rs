@@ -149,6 +149,28 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
     ) -> Result<Vec<u64>> {
         self.0.query_commitment_sequences(client_id, height).await
     }
+
+    fn commitment_to_membership_entry(
+        &self,
+        client_id: &Self::ClientId,
+        sequence: u64,
+        commitment: &Self::PacketCommitment,
+        proof: &Self::CommitmentProof,
+    ) -> Option<mercury_core::MembershipProofEntry> {
+        self.0
+            .commitment_to_membership_entry(client_id, sequence, commitment, proof)
+    }
+
+    fn ack_to_membership_entry(
+        &self,
+        client_id: &Self::ClientId,
+        sequence: u64,
+        ack: &Self::Acknowledgement,
+        proof: &Self::CommitmentProof,
+    ) -> Option<mercury_core::MembershipProofEntry> {
+        self.0
+            .ack_to_membership_entry(client_id, sequence, ack, proof)
+    }
 }
 
 #[async_trait]

@@ -28,5 +28,5 @@ serde = { workspace = true }
 
 [dev-dependencies]
 toml = { workspace = true }
-mercury-cosmos-bridges = { workspace = true, features = ["ethereum-beacon"] }
-mercury-ethereum-bridges = { workspace = true, features = ["cosmos-sp1"] }
+mercury-cosmos-counterparties = { workspace = true, features = ["ethereum-beacon"] }
+mercury-ethereum-counterparties = { workspace = true, features = ["cosmos-sp1"] }

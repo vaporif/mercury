@@ -32,6 +32,8 @@ use ibc_eureka_solidity_types::sp1_ics07::sp1_ics07_tendermint;
 // Renamed ibc-proto 0.51 to match the prover's expected Header type (Mercury uses 0.52 from git).
 use ibc_proto_eureka::ibc::lightclients::tendermint::v1::Header as EurekaHeader;
 
+use tracing::{debug, info};
+
 use mercury_chain_traits::builders::UpdateClientOutput;
 use mercury_core::MembershipProofs;
 
@@ -290,6 +292,7 @@ impl EthereumChainInner {
             .await
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn build_update_client_message_sp1<C: SP1ProverComponents + 'static>(
         &self,
         client_id: &EvmClientId,
@@ -326,6 +329,10 @@ impl EthereumChainInner {
             .as_nanos();
 
         if membership_proofs.is_empty() {
+            info!(
+                header_count = decoded_headers.len(),
+                "starting SP1 update-only proof generation"
+            );
             let proofs = Self::generate_update_proofs(
                 sp1,
                 decoded_headers,
@@ -334,12 +341,20 @@ impl EthereumChainInner {
                 time,
             )
             .await?;
+            info!(
+                proof_count = proofs.len(),
+                "SP1 update-only proofs complete"
+            );
 
             let vkey_hex = sp1.update_vkey.bytes32();
-            let messages = proofs
+            let messages: Vec<_> = proofs
                 .into_iter()
                 .map(|proof| self.proof_to_update_message(client_id, &vkey_hex, &proof))
                 .collect();
+            info!(
+                message_count = messages.len(),
+                "update client messages built"
+            );
 
             Ok(UpdateClientOutput::messages_only(messages))
         } else {
@@ -350,6 +365,10 @@ impl EthereumChainInner {
                 .next()
                 .ok_or_else(|| eyre::eyre!("no headers provided for combined proof"))?;
 
+            info!(
+                membership_proof_count = kv_proofs.len(),
+                "starting SP1 combined (update+membership) proof generation"
+            );
             let combined_proof = generate_uc_and_membership_proof_with_timeout(
                 sp1,
                 client_state.clone(),
@@ -359,6 +378,7 @@ impl EthereumChainInner {
                 kv_proofs,
             )
             .await?;
+            info!("SP1 combined proof generation complete");
 
             let sp1_membership_proof = SP1MembershipAndUpdateClientProof {
                 sp1Proof: SP1Proof::new(
@@ -371,8 +391,13 @@ impl EthereumChainInner {
 
             let remaining_headers: Vec<EurekaHeader> = headers_iter.collect();
             let messages = if remaining_headers.is_empty() {
+                debug!("no remaining headers after combined proof");
                 Vec::new()
             } else {
+                info!(
+                    remaining_count = remaining_headers.len(),
+                    "generating update proofs for remaining headers"
+                );
                 let proofs = Self::generate_update_proofs(
                     sp1,
                     remaining_headers,
@@ -381,6 +406,10 @@ impl EthereumChainInner {
                     time,
                 )
                 .await?;
+                info!(
+                    proof_count = proofs.len(),
+                    "remaining header proofs complete"
+                );
 
                 let vkey_hex = sp1.update_vkey.bytes32();
                 proofs
@@ -389,6 +418,11 @@ impl EthereumChainInner {
                     .collect()
             };
 
+            info!(
+                update_messages = messages.len(),
+                has_membership_proof = true,
+                "combined SP1 output ready"
+            );
             Ok(UpdateClientOutput {
                 messages,
                 membership_proof: Some(membership_proof_bytes),

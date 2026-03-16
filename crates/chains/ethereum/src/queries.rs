@@ -3,7 +3,7 @@ use std::time::Duration;
 use alloy::primitives::{Address, B256, U256};
 use alloy::providers::Provider;
 use alloy::rpc::types::Filter;
-use alloy::sol_types::SolEvent;
+use alloy::sol_types::{SolCall, SolEvent};
 use async_trait::async_trait;
 use eyre::Context;
 use tracing::instrument;
@@ -55,16 +55,37 @@ pub async fn resolve_light_client(
         .wrap_err_with(|| format!("getClient({client_id}) failed"))
 }
 
-type ClientStateReturn = sp1_ics07::SP1ICS07Tendermint::clientStateReturn;
+pub type ClientStateReturn = sp1_ics07::SP1ICS07Tendermint::clientStateReturn;
 
-// `getClientState()` returns `abi.encode(clientState())` — same ABI layout,
-// so we decode using `clientStateCall::abi_decode_returns`.
+/// Encode a decoded client state back to ABI bytes (matching the format
+/// that `clientStateCall::abi_decode_returns` expects).
+#[must_use]
+pub fn encode_client_state(cs: &ClientStateReturn) -> Vec<u8> {
+    sp1_ics07::SP1ICS07Tendermint::clientStateCall::abi_encode_returns(cs)
+}
+
 #[must_use]
 pub fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
-    use alloy::sol_types::SolCall;
-    sp1_ics07::SP1ICS07Tendermint::clientStateCall::abi_decode_returns(bytes)
-        .inspect_err(|e| tracing::warn!(error = %e, "failed to decode SP1 client state"))
-        .ok()
+    tracing::debug!(
+        bytes_len = bytes.len(),
+        "decoding client state from ABI bytes"
+    );
+    let result = sp1_ics07::SP1ICS07Tendermint::clientStateCall::abi_decode_returns(bytes);
+    match &result {
+        Ok(cs) => {
+            tracing::debug!(
+                chain_id = %cs.chainId,
+                revision_number = cs.latestHeight.revisionNumber,
+                revision_height = cs.latestHeight.revisionHeight,
+                trusting_period = cs.trustingPeriod,
+                "decoded SP1 client state successfully"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, bytes_len = bytes.len(), "failed to decode SP1 client state");
+        }
+    }
+    result.ok()
 }
 
 #[async_trait]
@@ -77,12 +98,20 @@ impl ClientQuery<Self> for EthereumChainInner {
     ) -> Result<EvmClientState> {
         let lc_address = resolve_light_client(self, client_id).await?;
         let lc = SP1ICS07Tendermint::new(lc_address, &*self.provider);
-        let result = lc
-            .getClientState()
+        // Use clientState() directly (struct accessor) instead of getClientState()
+        // (bytes wrapper) to avoid ABI decode mismatches. Re-encode using
+        // abi_encode_returns so decode_client_state can round-trip.
+        let cs = lc
+            .clientState()
             .call()
             .await
-            .wrap_err("SP1ICS07Tendermint.getClientState() failed")?;
-        Ok(EvmClientState(result.to_vec()))
+            .wrap_err("SP1ICS07Tendermint.clientState() failed")?;
+        tracing::debug!(
+            chain_id = %cs.chainId,
+            revision_height = cs.latestHeight.revisionHeight,
+            "queried SP1 client state"
+        );
+        Ok(EvmClientState(encode_client_state(&cs)))
     }
 
     #[instrument(skip_all, name = "query_consensus_state", fields(client_id = %client_id, consensus_height = %consensus_height))]

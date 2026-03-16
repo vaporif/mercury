@@ -471,6 +471,40 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChainInner<S> {
         };
         Ok((ack, proof))
     }
+
+    fn commitment_to_membership_entry(
+        &self,
+        client_id: &Self::ClientId,
+        sequence: u64,
+        commitment: &PacketCommitment,
+        proof: &MerkleProof,
+    ) -> Option<mercury_core::MembershipProofEntry> {
+        Some(mercury_core::MembershipProofEntry {
+            path: vec![
+                b"ibc".to_vec(),
+                ibc_v2_key(client_id.as_str(), COMMITMENT_DISCRIMINATOR, sequence),
+            ],
+            value: commitment.0.clone(),
+            proof: proof.proof_bytes.clone(),
+        })
+    }
+
+    fn ack_to_membership_entry(
+        &self,
+        client_id: &Self::ClientId,
+        sequence: u64,
+        ack: &PacketAcknowledgement,
+        proof: &MerkleProof,
+    ) -> Option<mercury_core::MembershipProofEntry> {
+        Some(mercury_core::MembershipProofEntry {
+            path: vec![
+                b"ibc".to_vec(),
+                ibc_v2_key(client_id.as_str(), ACK_DISCRIMINATOR, sequence),
+            ],
+            value: ack.0.clone(),
+            proof: proof.proof_bytes.clone(),
+        })
+    }
 }
 
 #[cfg(test)]

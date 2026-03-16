@@ -45,20 +45,20 @@ In `crates/cli/`:
 
 ## 5. Cross-chain support
 
-To relay between your chain and an existing chain, you need cross-chain trait impls on **both sides**. Each side lives in its respective bridge crate, behind a feature flag.
+To relay between your chain and an existing chain, you need cross-chain trait impls on **both sides**. Each side lives in its respective counterparty crate, behind a feature flag.
 
 ### What to implement
 
 For a new chain `MyChain` relaying against Cosmos:
 
-**In `mercury-mychain-bridges/`** (your bridge crate):
+**In `mercury-mychain-counterparties/`** (your counterparty crate):
 - `ClientPayloadBuilder<CosmosChainInner<S>>` — builds your chain's light client payloads. `build_create_client_payload` is typically counterparty-agnostic. `build_update_client_payload` receives `CosmosClientState`, which is an enum — match on the variant that wraps your light client (usually `Wasm` for non-Tendermint clients).
 - `ClientMessageBuilder<CosmosChainInner<S>>` — builds on-chain messages from Cosmos payloads
 - `PacketMessageBuilder<CosmosChainInner<S>>` — builds recv/ack/timeout messages
 - `ClientQuery<CosmosChainInner<S>>` — queries your chain for Cosmos client/consensus state
 - `MisbehaviourDetector<CosmosChainInner<S>>` + `MisbehaviourQuery` + `MisbehaviourMessageBuilder` — can be no-op stubs initially
 
-**In `mercury-cosmos-bridges/`** (the Cosmos bridge crate):
+**In `mercury-cosmos-counterparties/`** (the Cosmos counterparty crate):
 - `ClientPayloadBuilder<MyChainInner>` — Cosmos's impl is fully generic (`impl<C: ChainTypes> ClientPayloadBuilder<C>`), so this is automatic via the blanket forward
 - `ClientMessageBuilder<MyChainInner>` — builds `MsgCreateClient`/`MsgUpdateClient` on Cosmos targeting your chain's light client
 - `PacketMessageBuilder<MyChainInner>` — builds Cosmos packet messages from your chain's proof types
@@ -66,7 +66,7 @@ For a new chain `MyChain` relaying against Cosmos:
 
 ### Wrapper forwarding pattern
 
-Each chain has a wrapper type (`MyChain`) in its bridge crate that forwards same-chain traits from the inner type and adds cross-chain impls. Two patterns exist:
+Each chain has a wrapper type (`MyChain`) in its counterparty crate that forwards same-chain traits from the inner type and adds cross-chain impls. Two patterns exist:
 
 - **Generic forwarding** — `impl<C: ChainTypes> Trait<C> for Wrapper where Inner: Trait<C>`. Used when the impl is counterparty-agnostic (e.g., Cosmos `ClientPayloadBuilder` ignores counterparty state). New counterparties get the impl for free.
 - **Explicit forwarding** — `impl Trait<SpecificCounterparty> for Wrapper`. Required when the impl contains counterparty-specific logic (e.g., Ethereum must unwrap `CosmosClientState::Wasm` to extract beacon bytes). Each new counterparty needs a new explicit impl.

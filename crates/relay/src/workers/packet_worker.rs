@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, UpdateClientOutput,
@@ -21,8 +21,11 @@ use mercury_core::worker::Worker;
 use crate::workers::{DstTxRequest, SrcTxRequest};
 
 type UpdateClientResult<Height, Message> = Result<(Height, Vec<Message>)>;
-type DstUpdateClientResult<Height, Message> = Result<(Height, UpdateClientOutput<Message>)>;
-type BuildMessagesResult<Message, R> = (Vec<Message>, Vec<PendingSend<SendEvent<R>>>);
+type BuildMessagesResult<Message, R> = (
+    Vec<Message>,
+    Vec<PendingSend<SendEvent<R>>>,
+    Vec<mercury_core::MembershipProofEntry>,
+);
 
 const PROOF_FETCH_CONCURRENCY: usize = 8;
 const PROOF_FETCH_MAX_RETRIES: usize = 3;
@@ -59,13 +62,15 @@ where
             >>::UpdateClientPayload,
         >,
 {
+    /// Build the update client payload (headers) without generating proofs yet.
     #[instrument(skip_all, name = "build_dst_update_client")]
-    async fn build_dst_update_client_messages(
+    #[allow(clippy::type_complexity)]
+    async fn build_dst_update_client_payload(
         &self,
-    ) -> DstUpdateClientResult<
+    ) -> Result<(
         <R::SrcChain as ChainTypes>::Height,
-        <R::DstChain as ChainTypes>::Message,
-    > {
+        Option<<R::DstChain as ClientMessageBuilder<<R::SrcChain as HasInner>::Inner>>::UpdateClientPayload>,
+    )>{
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
@@ -83,21 +88,43 @@ where
         let trusted_height = DstChain::<R>::client_latest_height(&client_state);
 
         if src_height <= trusted_height {
-            return Ok((src_height, UpdateClientOutput::messages_only(vec![])));
+            return Ok((src_height, None));
         }
 
+        debug!(
+            %trusted_height,
+            %src_height,
+            "building update client payload for dst"
+        );
         let update_payload = self
             .relay
             .src_chain()
             .build_update_client_payload(&trusted_height, &src_height, &client_state)
             .await?;
-        let update_output = self
-            .relay
-            .dst_chain()
-            .build_update_client_message(self.relay.dst_client_id(), update_payload)
-            .await?;
 
-        Ok((src_height, update_output))
+        Ok((src_height, Some(update_payload)))
+    }
+
+    /// Phase 2: Enrich the payload with membership proofs and build the update client message.
+    async fn build_dst_update_client_message(
+        &self,
+        mut payload: <R::DstChain as ClientMessageBuilder<<R::SrcChain as HasInner>::Inner>>::UpdateClientPayload,
+        membership_entries: &[mercury_core::MembershipProofEntry],
+    ) -> Result<UpdateClientOutput<<R::DstChain as ChainTypes>::Message>> {
+        if !membership_entries.is_empty() {
+            info!(
+                count = membership_entries.len(),
+                "enriching update payload with membership proofs"
+            );
+            self.relay
+                .dst_chain()
+                .enrich_update_payload(&mut payload, membership_entries);
+        }
+
+        self.relay
+            .dst_chain()
+            .build_update_client_message(self.relay.dst_client_id(), payload)
+            .await
     }
 
     #[instrument(skip_all, name = "build_src_update_client")]
@@ -168,13 +195,15 @@ where
 
         let mut messages = Vec::new();
         let mut still_pending = Vec::new();
+        let mut membership_entries = Vec::new();
         let now = Instant::now();
 
         for (mut ps, result) in results {
             match result {
-                Ok(msgs) if msgs.is_empty() => {}
-                Ok(msgs) => {
+                Ok((msgs, _entries)) if msgs.is_empty() => {}
+                Ok((msgs, entries)) => {
                     messages.extend(msgs);
+                    membership_entries.extend(entries);
                     ps.recv_sent_at = Some(now);
                     still_pending.push(ps);
                 }
@@ -185,7 +214,7 @@ where
             }
         }
 
-        (messages, still_pending)
+        (messages, still_pending, membership_entries)
     }
 
     /// Queries receipt on dst chain for in-flight packets past grace period.
@@ -245,7 +274,11 @@ where
         &self,
         write_acks: WriteAckEvents<R>,
         src_height: &<R::SrcChain as ChainTypes>::Height,
-    ) -> (Vec<<R::DstChain as ChainTypes>::Message>, WriteAckEvents<R>) {
+    ) -> (
+        Vec<<R::DstChain as ChainTypes>::Message>,
+        WriteAckEvents<R>,
+        Vec<mercury_core::MembershipProofEntry>,
+    ) {
         type SrcChain<R> = <R as Relay>::SrcChain;
 
         let relay = &self.relay;
@@ -269,12 +302,14 @@ where
 
         let mut messages = Vec::new();
         let mut failed = Vec::new();
+        let mut membership_entries = Vec::new();
 
         for (event, result) in results {
             match result {
-                Ok(msgs) if msgs.is_empty() => {}
-                Ok(msgs) => {
+                Ok((msgs, _entries)) if msgs.is_empty() => {}
+                Ok((msgs, entries)) => {
                     messages.extend(msgs);
+                    membership_entries.extend(entries);
                 }
                 Err(e) => {
                     warn!(error = %e, "ack proof fetch failed after retries, will retry");
@@ -283,15 +318,19 @@ where
             }
         }
 
-        (messages, failed)
+        (messages, failed, membership_entries)
     }
 
     #[instrument(skip_all, name = "build_timeout")]
+    #[allow(clippy::type_complexity)]
     async fn build_timeout_messages(
         &self,
         timed_out: Vec<PendingSend<SendEvent<R>>>,
         dst_height: &<R::DstChain as ChainTypes>::Height,
-    ) -> BuildMessagesResult<<R::SrcChain as ChainTypes>::Message, R> {
+    ) -> (
+        Vec<<R::SrcChain as ChainTypes>::Message>,
+        Vec<PendingSend<SendEvent<R>>>,
+    ) {
         type SrcChain<R> = <R as Relay>::SrcChain;
 
         let relay = &self.relay;
@@ -477,16 +516,15 @@ where
             }
 
             if !deliverable.is_empty() || !write_acks.is_empty() {
-                match self.build_dst_update_client_messages().await {
-                    Ok((src_height, mut update_output)) => {
-                        let update_msg_count = update_output.messages.len();
-
-                        let (recv_msgs, recv_pending) = self
+                match self.build_dst_update_client_payload().await {
+                    Ok((src_height, maybe_payload)) => {
+                        // Phase 1: Build recv/ack messages (and collect membership proof entries).
+                        let (recv_msgs, recv_pending, recv_entries) = self
                             .build_recv_messages_tracked(deliverable, &src_height)
                             .await;
                         pending.extend(recv_pending);
 
-                        let (ack_msgs, ack_failed) = self
+                        let (ack_msgs, ack_failed, ack_entries) = self
                             .build_ack_messages_tracked(write_acks, &src_height)
                             .await;
                         pending_acks.extend(ack_failed);
@@ -494,17 +532,68 @@ where
                         let mut packet_msgs: Vec<_> =
                             recv_msgs.into_iter().chain(ack_msgs).collect();
 
-                        // Inject combined membership proof into first packet message if present.
-                        self.relay
-                            .dst_chain()
-                            .finalize_batch(&mut update_output, &mut packet_msgs);
+                        if packet_msgs.is_empty() {
+                            if let Some(payload) = maybe_payload {
+                                let update_output =
+                                    self.build_dst_update_client_message(payload, &[]).await?;
+                                if !update_output.messages.is_empty() {
+                                    self.sender
+                                        .send(DstTxRequest {
+                                            messages: update_output.messages,
+                                        })
+                                        .await
+                                        .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
+                                }
+                            }
+                        } else if let Some(payload) = maybe_payload {
+                            // Phase 2: Enrich payload with membership proofs and build update.
+                            let all_entries: Vec<_> =
+                                recv_entries.into_iter().chain(ack_entries).collect();
 
-                        let mut messages = update_output.messages;
-                        messages.extend(packet_msgs);
+                            debug!(
+                                membership_entries = all_entries.len(),
+                                packet_msgs = packet_msgs.len(),
+                                "building update client message with membership proofs"
+                            );
 
-                        if messages.len() > update_msg_count {
+                            let mut update_output = self
+                                .build_dst_update_client_message(payload, &all_entries)
+                                .await?;
+                            let update_msg_count = update_output.messages.len();
+
+                            debug!(
+                                update_msgs = update_msg_count,
+                                packet_msgs = packet_msgs.len(),
+                                has_membership_proof = update_output.membership_proof.is_some(),
+                                "pre-finalize message counts"
+                            );
+
+                            self.relay
+                                .dst_chain()
+                                .finalize_batch(&mut update_output, &mut packet_msgs);
+
+                            let mut messages = update_output.messages;
+                            messages.extend(packet_msgs);
+
+                            info!(
+                                total = messages.len(),
+                                update = update_msg_count,
+                                packet = messages.len() - update_msg_count,
+                                "sending batch to tx_worker"
+                            );
                             self.sender
                                 .send(DstTxRequest { messages })
+                                .await
+                                .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
+                        } else {
+                            info!(
+                                count = packet_msgs.len(),
+                                "client up to date, sending packet messages only"
+                            );
+                            self.sender
+                                .send(DstTxRequest {
+                                    messages: packet_msgs,
+                                })
                                 .await
                                 .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
                         }
@@ -512,7 +601,7 @@ where
                     Err(e) => {
                         pending.extend(deliverable);
                         pending_acks.extend(write_acks);
-                        warn!(error = %e, "failed to build dst update client messages, skipping recv/ack batch");
+                        warn!(error = %e, "failed to build dst update client payload, skipping recv/ack batch");
                     }
                 }
             }

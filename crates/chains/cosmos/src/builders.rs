@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::stream::{self, StreamExt, TryStreamExt};
+
 use ibc::core::client::types::Height;
 use ibc::core::commitment_types::specs::ProofSpecs;
 use ibc_client_tendermint::types::{
@@ -37,7 +37,6 @@ use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgeme
 const DEFAULT_TRUSTING_PERIOD: Duration = Duration::from_secs(14 * 24 * 3600);
 const DEFAULT_UNBONDING_PERIOD: Duration = Duration::from_secs(21 * 24 * 3600);
 const DEFAULT_MAX_CLOCK_DRIFT: Duration = Duration::from_secs(40);
-const HEADER_FETCH_CONCURRENCY: usize = 8;
 
 /// Payload for creating a Tendermint light client on a counterparty chain.
 #[derive(Clone, Debug)]
@@ -121,6 +120,12 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChainInne
         let trusted_height_value = trusted_height.value();
         let target_height_value = target_height.value();
 
+        tracing::debug!(
+            trusted_height = trusted_height_value,
+            target_height = target_height_value,
+            "build_update_client_payload: querying Cosmos RPC"
+        );
+
         if target_height_value <= trusted_height_value {
             eyre::bail!(
                 "target height ({target_height_value}) must be greater than trusted height ({trusted_height_value})"
@@ -158,43 +163,38 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChainInne
         let ibc_trusted_height = Height::new(self.chain_id.revision_number(), trusted_height_value)
             .map_err(|e| eyre::eyre!("{e}"))?;
 
-        let heights: Vec<u64> = ((trusted_height_value + 1)..=target_height_value).collect();
+        // Only fetch the target header — the SP1 light client supports skip verification
+        // (verifying a header directly from a non-adjacent trusted height via >1/3 validator overlap).
+        let target_tm_height = TmHeight::try_from(target_height_value)?;
+        let (commit_response, validators_response) = tokio::try_join!(
+            async {
+                self.rpc_client
+                    .commit(target_tm_height)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+            async {
+                self.rpc_client
+                    .validators(target_tm_height, Paging::All)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+        )?;
 
-        let headers: Vec<Any> = stream::iter(heights)
-            .map(|h| {
-                let rpc = &self.rpc_client;
-                let trusted_vs = &trusted_next_validator_set;
-                async move {
-                    let height = TmHeight::try_from(h)?;
+        let proposer = find_proposer(
+            &validators_response.validators,
+            &commit_response.signed_header.header.proposer_address,
+        );
+        let validator_set = ValidatorSet::new(validators_response.validators, proposer);
 
-                    let (commit_response, validators_response) = tokio::try_join!(
-                        async { rpc.commit(height).await.map_err(eyre::Report::from) },
-                        async {
-                            rpc.validators(height, Paging::All)
-                                .await
-                                .map_err(eyre::Report::from)
-                        },
-                    )?;
+        let header = TmIbcHeader {
+            signed_header: commit_response.signed_header,
+            validator_set,
+            trusted_height: ibc_trusted_height,
+            trusted_next_validator_set: trusted_next_validator_set.clone(),
+        };
 
-                    let proposer = find_proposer(
-                        &validators_response.validators,
-                        &commit_response.signed_header.header.proposer_address,
-                    );
-                    let validator_set = ValidatorSet::new(validators_response.validators, proposer);
-
-                    let header = TmIbcHeader {
-                        signed_header: commit_response.signed_header,
-                        validator_set,
-                        trusted_height: ibc_trusted_height,
-                        trusted_next_validator_set: trusted_vs.clone(),
-                    };
-
-                    Ok::<_, eyre::Report>(header.into())
-                }
-            })
-            .buffered(HEADER_FETCH_CONCURRENCY)
-            .try_collect()
-            .await?;
+        let headers: Vec<Any> = vec![header.into()];
 
         Ok(CosmosUpdateClientPayload {
             headers,
@@ -280,8 +280,8 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChainInner<S> {
 pub fn cosmos_packet_to_v2(packet: &CosmosPacket) -> V2Packet {
     V2Packet {
         sequence: packet.sequence,
-        source_client: packet.source_client_id.to_string(),
-        destination_client: packet.dest_client_id.to_string(),
+        source_client: packet.source_client_id.0.clone(),
+        destination_client: packet.dest_client_id.0.clone(),
         timeout_timestamp: packet.timeout_timestamp,
         payloads: packet
             .payloads
@@ -367,15 +367,13 @@ impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChainInner<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ibc::core::host::types::identifiers::ClientId;
-
-    use crate::types::PacketPayload;
+    use crate::types::{PacketPayload, RawClientId};
 
     #[test]
     fn cosmos_packet_to_v2_converts_fields() {
         let packet = CosmosPacket {
-            source_client_id: ClientId::new("07-tendermint", 0).unwrap(),
-            dest_client_id: ClientId::new("07-tendermint", 1).unwrap(),
+            source_client_id: RawClientId("07-tendermint-0".into()),
+            dest_client_id: RawClientId("07-tendermint-1".into()),
             sequence: 5,
             timeout_timestamp: 12345,
             payloads: vec![PacketPayload {
@@ -401,8 +399,8 @@ mod tests {
     #[test]
     fn cosmos_packet_to_v2_empty_payloads() {
         let packet = CosmosPacket {
-            source_client_id: ClientId::new("07-tendermint", 0).unwrap(),
-            dest_client_id: ClientId::new("07-tendermint", 1).unwrap(),
+            source_client_id: RawClientId("07-tendermint-0".into()),
+            dest_client_id: RawClientId("07-tendermint-1".into()),
             sequence: 1,
             timeout_timestamp: 0,
             payloads: vec![],

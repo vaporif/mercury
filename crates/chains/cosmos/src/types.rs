@@ -1,4 +1,3 @@
-use ibc::core::host::types::identifiers::ClientId;
 use prost::Message;
 use tendermint::block::Height as TmHeight;
 
@@ -46,11 +45,37 @@ pub struct MerkleProof {
     pub proof_bytes: Vec<u8>,
 }
 
+/// Unvalidated client identifier from an on-chain packet.
+///
+/// Unlike `ibc::ClientId` this accepts any string, which is necessary for
+/// cross-chain packets where the counterparty may use identifiers that don't
+/// satisfy IBC's 9–64 character validation (e.g. Ethereum's `client-0`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RawClientId(pub String);
+
+impl std::fmt::Display for RawClientId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<String> for RawClientId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl AsRef<str> for RawClientId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 /// An IBC v2 packet with routing info and payloads.
 #[derive(Clone, Debug)]
 pub struct CosmosPacket {
-    pub source_client_id: ClientId,
-    pub dest_client_id: ClientId,
+    pub source_client_id: RawClientId,
+    pub dest_client_id: RawClientId,
     pub sequence: u64,
     pub timeout_timestamp: u64,
     pub payloads: Vec<PacketPayload>,

@@ -12,6 +12,10 @@
       url = "github:cosmos/solidity-ibc-eureka/86505ac8c69be4e955f8b7d3baafbd0fddaeefee";
       flake = false;
     };
+    sp1 = {
+      url = "github:vaporif/sp1-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
@@ -20,16 +24,22 @@
     fenix,
     crane,
     solidity-ibc-eureka,
+    sp1,
     ...
   }: let
     systems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
     forAllSystems = f:
-      nixpkgs.lib.genAttrs systems (system:
+      nixpkgs.lib.genAttrs systems (system: let
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [sp1.overlays.default];
+        };
+      in
         f {
-          pkgs = nixpkgs.legacyPackages.${system};
+          inherit pkgs;
           fenixPkgs = fenix.packages.${system};
           craneLib =
-            (crane.mkLib nixpkgs.legacyPackages.${system}).overrideToolchain
+            (crane.mkLib pkgs).overrideToolchain
             fenix.packages.${system}.stable.toolchain;
         });
   in {
@@ -58,6 +68,7 @@
           runHook postInstall
         '';
       };
+
       # Vendor deps with workarounds:
       # 1. solidity-ibc-eureka has relative readme paths that don't exist when crane extracts the git dep
       # 2. sp1-core-machine ships a stale Cargo.lock pinning cfg-if 1.0.0; its build.rs uses cbindgen
@@ -116,6 +127,7 @@
       fenixPkgs,
       ...
     }: let
+      system = pkgs.stdenv.hostPlatform.system;
       toolchain = fenixPkgs.stable.withComponents [
         "cargo"
         "clippy"
@@ -137,6 +149,10 @@
             pkgs.foundry
             pkgs.bun
           ]
+          ++ (with pkgs.sp1."v5.2.4"; [
+            cargo-prove
+            sp1-rust-toolchain
+          ])
           ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
           ];

@@ -14,7 +14,24 @@ pub mod sp1_ics07 {
     );
 }
 
-// Re-export commonly used types for convenience.
+pub mod ics20_transfer {
+    alloy::sol!(
+        #[sol(rpc, all_derives)]
+        ICS20Transfer,
+        "../../../external/solidity-ibc-eureka/abi/ICS20Transfer.json"
+    );
+}
+
+pub mod ibc_erc20 {
+    alloy::sol!(
+        #[sol(rpc, all_derives)]
+        IBCERC20,
+        "../../../external/solidity-ibc-eureka/abi/IBCERC20.json"
+    );
+}
+
+pub use ibc_erc20::IBCERC20;
+pub use ics20_transfer::ICS20Transfer;
 pub use ics26_router::{ICS26Router, IICS02ClientMsgs, IICS26RouterMsgs};
 pub use sp1_ics07::SP1ICS07Tendermint;
 

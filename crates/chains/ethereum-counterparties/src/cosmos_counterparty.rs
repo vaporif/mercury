@@ -32,7 +32,7 @@ use mercury_ethereum::chain::to_sol_merkle_prefix;
 use mercury_ethereum::contracts::{
     ICS26Router, IICS02ClientMsgs, IICS26RouterMsgs, SP1ICS07Tendermint,
 };
-use mercury_ethereum::queries::{decode_client_state, resolve_light_client};
+use mercury_ethereum::queries::{decode_client_state, encode_client_state, resolve_light_client};
 use mercury_ethereum::types::{
     EvmClientId, EvmClientState, EvmConsensusState, EvmHeight, EvmMessage, EvmPacket,
 };
@@ -87,12 +87,19 @@ impl<S: CosmosSigner> ClientQuery<CosmosChainInner<S>> for EthereumChain {
     ) -> Result<EvmClientState> {
         let lc_address = resolve_light_client(&self.0, client_id).await?;
         let lc = SP1ICS07Tendermint::new(lc_address, &*self.provider);
-        let result = lc
-            .getClientState()
+        // Use clientState() directly (struct accessor) instead of getClientState()
+        // (bytes wrapper) to avoid ABI decode mismatches.
+        let cs = lc
+            .clientState()
             .call()
             .await
-            .wrap_err("SP1ICS07Tendermint.getClientState() failed")?;
-        Ok(EvmClientState(result.to_vec()))
+            .wrap_err("SP1ICS07Tendermint.clientState() failed")?;
+        tracing::debug!(
+            chain_id = %cs.chainId,
+            revision_height = cs.latestHeight.revisionHeight,
+            "queried SP1 client state (cross-chain)"
+        );
+        Ok(EvmClientState(encode_client_state(&cs)))
     }
 
     #[instrument(skip_all, name = "query_consensus_state", fields(client_id = %client_id, consensus_height = %consensus_height))]
@@ -119,16 +126,23 @@ impl<S: CosmosSigner> ClientQuery<CosmosChainInner<S>> for EthereumChain {
     }
 
     fn client_latest_height(client_state: &EvmClientState) -> TmHeight {
-        decode_client_state(&client_state.0).map_or_else(
+        let height = decode_client_state(&client_state.0).map_or_else(
             || {
                 tracing::warn!("failed to decode client state, defaulting to height 1");
                 TmHeight::try_from(1u64).expect("height 1 is valid")
             },
             |cs| {
+                tracing::debug!(
+                    revision_height = cs.latestHeight.revisionHeight,
+                    revision_number = cs.latestHeight.revisionNumber,
+                    "extracted height from SP1 client state"
+                );
                 TmHeight::try_from(cs.latestHeight.revisionHeight)
                     .unwrap_or_else(|_| TmHeight::try_from(1u64).expect("height 1 is valid"))
             },
-        )
+        );
+        tracing::debug!(trusted_height = %height, "client_latest_height for Cosmos counterparty");
+        height
     }
 }
 
@@ -261,8 +275,8 @@ fn inject_membership_proof(msg: &mut EvmMessage, proof_bytes: &[u8]) {
 fn cosmos_packet_to_sol(packet: &CosmosPacket) -> IICS26RouterMsgs::Packet {
     IICS26RouterMsgs::Packet {
         sequence: packet.sequence,
-        sourceClient: packet.source_client_id.to_string(),
-        destClient: packet.dest_client_id.to_string(),
+        sourceClient: packet.source_client_id.0.clone(),
+        destClient: packet.dest_client_id.0.clone(),
         timeoutTimestamp: packet.timeout_timestamp,
         payloads: packet
             .payloads

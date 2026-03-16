@@ -29,8 +29,7 @@ async fn setup_context() -> Result<TestContext> {
     let bootstrap_a = CosmosDockerBootstrap::new("mercury-a");
     let bootstrap_b = CosmosDockerBootstrap::new("mercury-b");
 
-    let handle_a = bootstrap_a.start().await?;
-    let handle_b = bootstrap_b.start().await?;
+    let (handle_a, handle_b) = tokio::try_join!(bootstrap_a.start(), bootstrap_b.start())?;
 
     TestContext::setup(handle_a, handle_b).await
 }
