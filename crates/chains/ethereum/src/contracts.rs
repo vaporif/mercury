@@ -30,7 +30,6 @@ pub mod ibc_erc20 {
     );
 }
 
-// Re-export commonly used types for convenience.
 pub use ibc_erc20::IBCERC20;
 pub use ics20_transfer::ICS20Transfer;
 pub use ics26_router::{ICS26Router, IICS02ClientMsgs, IICS26RouterMsgs};

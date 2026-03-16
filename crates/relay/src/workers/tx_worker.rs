@@ -6,7 +6,7 @@ use futures::future::BoxFuture;
 use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 use mercury_chain_traits::relay::Relay;
 use mercury_chain_traits::types::MessageSender;
@@ -63,6 +63,7 @@ async fn run_tx_loop<M: Send + 'static>(
         }
 
         let msg_count = messages.len();
+        debug!("{label}: received {msg_count} messages from channel, submitting");
         let permit = tokio::select! {
             permit = semaphore.clone().acquire_owned() => permit?,
             () = token.cancelled() => {

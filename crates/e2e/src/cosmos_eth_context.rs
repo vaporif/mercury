@@ -44,29 +44,22 @@ pub struct CosmosEthTestContext {
 impl CosmosEthTestContext {
     #[allow(clippy::future_not_send, clippy::too_many_lines)]
     pub async fn setup() -> Result<Self> {
-        // 1. Start Cosmos
         let cosmos_bootstrap = CosmosDockerBootstrap::new("mercury-cosmos");
         let cosmos_handle = cosmos_bootstrap.start().await?;
 
-        // 2. Start Anvil + deploy contracts
         let anvil_handle = start_anvil().await?;
 
-        // 3. Store dummy Wasm light client on Cosmos
         let wasm_checksum = store_dummy_wasm_light_client(&cosmos_handle).await?;
 
-        // 4. Build CosmosChain
         let cosmos_chain = build_cosmos_chain(&cosmos_handle, Some(&wasm_checksum)).await?;
 
-        // 4b. Build SP1 ELF programs and derive vkeys
         info!("building SP1 programs and deriving vkeys");
         let elf_dir = crate::bootstrap::anvil::build_sp1_programs()?;
         let vkeys = crate::bootstrap::anvil::derive_sp1_vkeys(&elf_dir)?;
 
-        // 4c. Build Solidity client state from Cosmos
         let (client_state_abi, consensus_state_hash) =
             build_sp1_client_state(&cosmos_handle).await?;
 
-        // 4d. Deploy SP1ICS07Tendermint on Anvil
         let sp1_light_client = crate::bootstrap::anvil::deploy_sp1_light_client(
             &anvil_handle.rpc_endpoint,
             &anvil_handle.relayer_wallet,
@@ -76,7 +69,6 @@ impl CosmosEthTestContext {
             consensus_state_hash,
         )?;
 
-        // 5. Build EthereumChain
         let eth_signer: alloy::signers::local::PrivateKeySigner = anvil_handle
             .relayer_wallet
             .private_key
@@ -105,7 +97,6 @@ impl CosmosEthTestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
 
-        // 6. Create client on Cosmos for Ethereum (Wasm-wrapped beacon client)
         info!("creating IBC client on Cosmos for Ethereum");
         let eth_payload = ClientPayloadBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_create_client_payload(&eth_chain)
             .await
@@ -123,7 +114,6 @@ impl CosmosEthTestContext {
         let client_id_on_cosmos = extract_cosmos_client_id(&cosmos_responses)?;
         info!(client_id = %client_id_on_cosmos, "created client on Cosmos");
 
-        // 7. Create client on Ethereum for Cosmos (register mock verifier on ICS26Router)
         info!("creating IBC client on Ethereum for Cosmos");
         let cosmos_payload =
             ClientPayloadBuilder::<EthereumChain>::build_create_client_payload(&cosmos_chain)
@@ -142,7 +132,6 @@ impl CosmosEthTestContext {
         let client_id_on_eth = extract_evm_client_id(&eth_responses)?;
         info!(client_id = %client_id_on_eth, "created client on Ethereum");
 
-        // 8. Register counterparties
         info!("registering counterparties");
         let msg_register_cosmos =
             ClientMessageBuilder::<mercury_ethereum::chain::EthereumChainInner>::build_register_counterparty_message(
@@ -224,25 +213,27 @@ impl CosmosEthTestContext {
     }
 
     /// Send an IBC v2 transfer from Cosmos user1 to Ethereum user1.
-    #[allow(clippy::future_not_send, clippy::missing_panics_doc)]
+    #[allow(clippy::future_not_send)]
     pub async fn send_cosmos_to_eth_transfer(&self, amount: u64, denom: &str) -> Result<()> {
+        use alloy::sol_types::SolValue;
+        use ibc_eureka_solidity_types::msgs::IICS20TransferMsgs::FungibleTokenPacketData;
+
         let cosmos_user = &self.cosmos_handle.user_wallets()[0];
         let eth_user = &self.anvil_handle.user_wallets[0];
 
         let user_chain =
             build_cosmos_chain_with_user(&self.cosmos_handle, cosmos_user, None).await?;
 
-        let packet_data = serde_json::json!({
-            "denom": denom,
-            "amount": amount.to_string(),
-            "sender": cosmos_user.address,
-            "receiver": format!("{:#x}", eth_user.address),
-            "memo": "",
-        });
+        let packet_data = FungibleTokenPacketData {
+            denom: denom.to_string(),
+            sender: cosmos_user.address.clone(),
+            receiver: format!("{:#x}", eth_user.address),
+            amount: U256::from(amount),
+            memo: String::new(),
+        };
 
         let timeout = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("time")
+            .duration_since(std::time::UNIX_EPOCH)?
             .as_secs()
             + 600;
 
@@ -253,8 +244,8 @@ impl CosmosEthTestContext {
                 source_port: "transfer".to_string(),
                 destination_port: "transfer".to_string(),
                 version: "ics20-1".to_string(),
-                encoding: "application/json".to_string(),
-                value: serde_json::to_vec(&packet_data)?,
+                encoding: "application/x-solidity-abi".to_string(),
+                value: packet_data.abi_encode(),
             }],
             signer: cosmos_user.address.clone(),
         };

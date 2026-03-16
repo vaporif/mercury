@@ -463,10 +463,8 @@ impl EthereumChainInner {
         })
     }
 
-    fn build_update_client_payload_mock() -> UpdateClientPayload {
-        UpdateClientPayload {
-            headers: vec![vec![]],
-        }
+    const fn build_update_client_payload_mock() -> UpdateClientPayload {
+        UpdateClientPayload { headers: vec![] }
     }
 }
 

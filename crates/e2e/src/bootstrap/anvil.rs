@@ -413,12 +413,12 @@ fn parse_forge_create_address(stdout: &str, stderr: &str) -> Result<Address> {
     // Try parsing each line as JSON, looking for the deployedTo field
     for source in [stdout, stderr] {
         for line in source.lines() {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-                if let Some(addr_str) = json.get("deployedTo").and_then(|v| v.as_str()) {
-                    return addr_str
-                        .parse()
-                        .wrap_err("parsing deployed SP1ICS07Tendermint address");
-                }
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line)
+                && let Some(addr_str) = json.get("deployedTo").and_then(|v| v.as_str())
+            {
+                return addr_str
+                    .parse()
+                    .wrap_err("parsing deployed SP1ICS07Tendermint address");
             }
         }
     }

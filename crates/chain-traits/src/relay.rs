@@ -64,6 +64,8 @@ pub trait ClientUpdater: Relay {
     async fn update_dst_client(&self) -> Result<()>;
 }
 
+pub type PacketBuildResult<M> = Result<(Vec<M>, Vec<mercury_core::MembershipProofEntry>)>;
+
 /// Builds relay-level packet messages (receive, ack, timeout).
 #[async_trait]
 pub trait RelayPacketBuilder: Relay {
@@ -71,14 +73,14 @@ pub trait RelayPacketBuilder: Relay {
         &self,
         packet: &<Self::SrcChain as IbcTypes>::Packet,
         proof_height: &<Self::SrcChain as ChainTypes>::Height,
-    ) -> Result<Vec<<Self::DstChain as ChainTypes>::Message>>;
+    ) -> PacketBuildResult<<Self::DstChain as ChainTypes>::Message>;
 
     async fn build_ack_packet_messages(
         &self,
         packet: &<Self::SrcChain as IbcTypes>::Packet,
         ack: &<Self::SrcChain as IbcTypes>::Acknowledgement,
         proof_height: &<Self::SrcChain as ChainTypes>::Height,
-    ) -> Result<Vec<<Self::DstChain as ChainTypes>::Message>>;
+    ) -> PacketBuildResult<<Self::DstChain as ChainTypes>::Message>;
 
     /// Build timeout messages to submit to the **source** chain.
     /// The proof of non-receipt comes from the destination chain.

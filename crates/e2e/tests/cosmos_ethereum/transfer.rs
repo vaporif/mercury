@@ -12,10 +12,8 @@ async fn cosmos_to_eth_transfer() -> Result<()> {
     let ctx = CosmosEthTestContext::setup().await?;
     let relay = ctx.start_relay_library()?;
 
-    // Send 1000 stake from Cosmos user1 → Ethereum user1
     ctx.send_cosmos_to_eth_transfer(1000, "stake").await?;
 
-    // The IBC denom on Ethereum: transfer/{eth_client_id}/stake
     let eth_denom = format!("transfer/{}/stake", ctx.client_id_on_eth);
     let eth_user = ctx.anvil_handle.user_wallets[0].address;
 
