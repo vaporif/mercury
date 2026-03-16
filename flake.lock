@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "backtrace-rs": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1750057121,
+        "narHash": "sha256-fG907gkqVC+7V4STVEzPIPGJU+FJX9m/kteb3hmo1ec=",
+        "owner": "rust-lang",
+        "repo": "backtrace-rs",
+        "rev": "b65ab935fb2e0d59dba8966ffca09c9cc5a5f57c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rust-lang",
+        "repo": "backtrace-rs",
+        "rev": "b65ab935fb2e0d59dba8966ffca09c9cc5a5f57c",
+        "type": "github"
+      }
+    },
     "crane": {
       "locked": {
         "lastModified": 1773189535,
@@ -52,29 +69,13 @@
         "type": "github"
       }
     },
-    "nixpkgs_2": {
-      "locked": {
-        "lastModified": 1744536153,
-        "narHash": "sha256-awS2zRgF4uTwrOKwwiJcByDzDOdo3Q1rPZbiHQg/N38=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "18dd725c29603f582cf1900e0d25f9f1063dbf11",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixpkgs-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
         "crane": "crane",
         "fenix": "fenix",
         "nixpkgs": "nixpkgs",
         "solidity-ibc-eureka": "solidity-ibc-eureka",
-        "sp1-nix": "sp1-nix"
+        "sp1-overlay": "sp1-overlay"
       }
     },
     "rust-analyzer-src": {
@@ -91,24 +92,6 @@
         "owner": "rust-lang",
         "ref": "nightly",
         "repo": "rust-analyzer",
-        "type": "github"
-      }
-    },
-    "rust-overlay": {
-      "inputs": {
-        "nixpkgs": "nixpkgs_2"
-      },
-      "locked": {
-        "lastModified": 1773544328,
-        "narHash": "sha256-Iv+qez54LAz+isij4APBk31VWA//Go81hwFOXr5iWTw=",
-        "owner": "oxalica",
-        "repo": "rust-overlay",
-        "rev": "4f977d776793c8bfbfdd7eca7835847ccc48874e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "oxalica",
-        "repo": "rust-overlay",
         "type": "github"
       }
     },
@@ -129,26 +112,27 @@
         "type": "github"
       }
     },
-    "sp1-nix": {
+    "sp1-overlay": {
       "inputs": {
+        "backtrace-rs": "backtrace-rs",
         "nixpkgs": [
           "nixpkgs"
         ],
-        "rust-overlay": "rust-overlay",
         "sp1-src": "sp1-src",
+        "succinct-rust": "succinct-rust",
         "systems": "systems"
       },
       "locked": {
-        "lastModified": 1773613057,
-        "narHash": "sha256-SOkdzGGQDESEBH+u3mA0kZh5a+u4S74sCIlkgk/k+Fo=",
+        "lastModified": 1773626209,
+        "narHash": "sha256-vc3u99E3VH8/PGGPrJtyop3blRXEKOCOdy9SvwY375Y=",
         "owner": "vaporif",
-        "repo": "sp1.nix",
-        "rev": "f456a214b16d6ae11b48aed451f3d0f33c38715b",
+        "repo": "sp1-overlay",
+        "rev": "13b6bb45aa74aceeda5b62383949039bfc7d4c3f",
         "type": "github"
       },
       "original": {
         "owner": "vaporif",
-        "repo": "sp1.nix",
+        "repo": "sp1-overlay",
         "type": "github"
       }
     },
@@ -166,6 +150,23 @@
         "owner": "succinctlabs",
         "ref": "v6.0.2",
         "repo": "sp1",
+        "type": "github"
+      }
+    },
+    "succinct-rust": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1769567992,
+        "narHash": "sha256-DQZmuZlDMetowQjUo0AC6f0IltgBbWLia0r9JyN5kiI=",
+        "owner": "succinctlabs",
+        "repo": "rust",
+        "rev": "e4545c06c345d76aefe89d59ebd86b926f9f1279",
+        "type": "github"
+      },
+      "original": {
+        "owner": "succinctlabs",
+        "ref": "succinct-1.93.0-64bit",
+        "repo": "rust",
         "type": "github"
       }
     },
