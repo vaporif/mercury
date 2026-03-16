@@ -87,14 +87,14 @@ impl<C: SP1ProverComponents> Sp1Instance<C> {
         let (uc_membership_pkey, uc_membership_vkey) = prover.setup(uc_membership_program.elf());
         tracing::info!(vkey = %uc_membership_vkey.bytes32(), "uc-and-membership SP1 prover setup complete");
 
-        let mis_elf_path = config.elf_dir.join("sp1-ics07-tendermint-misbehaviour");
-        let mis_elf_bytes = std::fs::read(&mis_elf_path)
-            .wrap_err_with(|| format!("reading SP1 ELF from {}", mis_elf_path.display()))?;
+        let misbehavior_elf_path = config.elf_dir.join("sp1-ics07-tendermint-misbehaviour");
+        let misbehavior_elf_bytes = std::fs::read(&misbehavior_elf_path)
+            .wrap_err_with(|| format!("reading SP1 ELF from {}", misbehavior_elf_path.display()))?;
 
-        let mis_elf_hash: [u8; 32] = sha2::Sha256::digest(&mis_elf_bytes).into();
-        tracing::info!(elf_hash = %hex::encode(mis_elf_hash), path = %mis_elf_path.display(), "loaded misbehaviour SP1 ELF");
+        let misbehavior_elf_hash: [u8; 32] = sha2::Sha256::digest(&misbehavior_elf_bytes).into();
+        tracing::info!(elf_hash = %hex::encode(misbehavior_elf_hash), path = %misbehavior_elf_path.display(), "loaded misbehaviour SP1 ELF");
 
-        let misbehaviour_program = MisbehaviourProgram::new(mis_elf_bytes);
+        let misbehaviour_program = MisbehaviourProgram::new(misbehavior_elf_bytes);
         let (misbehaviour_pkey, misbehaviour_vkey) = prover.setup(misbehaviour_program.elf());
         tracing::info!(vkey = %misbehaviour_vkey.bytes32(), "misbehaviour SP1 prover setup complete");
 
