@@ -61,12 +61,13 @@ tendermint-rpc = { version = "0.40", features = ["http-client"] }
 tendermint-proto = "0.40"
 tendermint-light-client-verifier = "0.40"
 ibc = { version = "0.57", default-features = false, features = ["serde"] }
-ibc-proto = { git = "https://github.com/cosmos/ibc-proto-rs", branch = "main", default-features = false, features = ["serde"] }
+ibc-proto = { git = "https://github.com/cosmos/ibc-proto-rs", branch = "main", default-features = false, features = ["serde", "client", "transport"] }
 ibc-client-tendermint = { version = "0.57", default-features = false }
 ibc-core-commitment-types = { version = "0.57", default-features = false }
 prost = "0.13"
 prost-types = "0.13"
-tonic = { version = "0.14", features = [
+# TODO: upgrade to tonic 0.14 once ibc-proto/cosmos-sdk-proto support it
+tonic = { version = "0.13", features = [
   "tls-native-roots",
   "channel",
   "transport",
