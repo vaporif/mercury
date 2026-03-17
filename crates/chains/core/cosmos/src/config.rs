@@ -61,7 +61,6 @@ pub struct CosmosChainConfig {
     pub rpc_rate_limit: u64,
 }
 
-/// Gas price amount and denomination for fee calculation.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GasPrice {
     pub amount: f64,
