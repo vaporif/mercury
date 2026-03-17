@@ -26,7 +26,6 @@ impl<M> UpdateClientOutput<M> {
     }
 }
 
-/// Builds payloads for creating and updating IBC light clients.
 #[async_trait]
 pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
     type CreateClientPayload: ThreadSafe;
@@ -44,7 +43,6 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
         Counterparty: IbcTypes;
 }
 
-/// Builds messages for creating/updating IBC clients and registering counterparties.
 #[async_trait]
 pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     type CreateClientPayload: ThreadSafe;
@@ -87,7 +85,6 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     }
 }
 
-/// Checks update headers against the source chain for light client divergence.
 #[async_trait]
 pub trait MisbehaviourDetector<Counterparty: ChainTypes>: IbcTypes {
     type UpdateHeader: ThreadSafe;
@@ -105,7 +102,6 @@ pub trait MisbehaviourDetector<Counterparty: ChainTypes>: IbcTypes {
     ) -> Result<Option<Self::MisbehaviourEvidence>>;
 }
 
-/// Builds a `MsgUpdateClient` containing misbehaviour evidence for submission on the destination chain.
 #[async_trait]
 pub trait MisbehaviourMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     type MisbehaviourEvidence: ThreadSafe;
@@ -118,7 +114,6 @@ pub trait MisbehaviourMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     ) -> Result<Self::Message>;
 }
 
-/// Builds receive, ack, and timeout packet messages.
 #[async_trait]
 pub trait PacketMessageBuilder<Counterparty: IbcTypes>: IbcTypes {
     async fn build_receive_packet_message(

@@ -51,8 +51,5 @@ pub struct TxReceipt {
 /// Sends a batch of messages to the chain.
 #[async_trait]
 pub trait MessageSender: ChainTypes {
-    async fn send_messages(
-        &self,
-        messages: Vec<Self::Message>,
-    ) -> Result<TxReceipt>;
+    async fn send_messages(&self, messages: Vec<Self::Message>) -> Result<TxReceipt>;
 }

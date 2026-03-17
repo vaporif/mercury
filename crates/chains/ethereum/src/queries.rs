@@ -164,10 +164,7 @@ async fn get_storage_proof(
         .await
         .wrap_err("eth_getProof failed")?;
 
-    let sp = proof
-        .storage_proof
-        .first()
-        .ok_or(ProofError::Missing)?;
+    let sp = proof.storage_proof.first().ok_or(ProofError::Missing)?;
 
     Ok(EvmCommitmentProof {
         proof_height: height.0,

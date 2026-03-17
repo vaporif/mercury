@@ -1,6 +1,6 @@
 //! Error handling — re-exports from `eyre` plus typed domain errors.
 
-pub use eyre::{bail, eyre, Context, Report, Result, WrapErr};
+pub use eyre::{Context, Report, Result, WrapErr, bail, eyre};
 
 /// Whether an error is safe to retry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

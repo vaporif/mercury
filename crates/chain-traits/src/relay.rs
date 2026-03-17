@@ -58,7 +58,6 @@ pub trait BiRelay: ThreadSafe {
     fn relay_b_to_a(&self) -> &Self::RelayBToA;
 }
 
-/// Updates the IBC light client on the destination chain.
 #[async_trait]
 pub trait ClientUpdater: Relay {
     async fn update_dst_client(&self) -> Result<()>;
@@ -66,7 +65,6 @@ pub trait ClientUpdater: Relay {
 
 pub type PacketBuildResult<M> = Result<(Vec<M>, Vec<mercury_core::MembershipProofEntry>)>;
 
-/// Builds relay-level packet messages (receive, ack, timeout).
 #[async_trait]
 pub trait RelayPacketBuilder: Relay {
     async fn build_receive_packet_messages(

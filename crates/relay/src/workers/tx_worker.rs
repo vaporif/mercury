@@ -117,25 +117,36 @@ impl<R: Relay> Worker for TxWorker<R> {
         let (mut msg_rx, fwd_task) = forward_requests(self.receiver, metrics.clone());
         let relay = self.relay;
 
-        let result = run_tx_loop("dst_tx", metrics.clone(), &mut msg_rx, &self.token, move |messages, created_at| {
-            let relay = Arc::clone(&relay);
-            let metrics = metrics.clone();
-            let msg_count = messages.len();
-            Box::pin(async move {
-                match relay.dst_chain().send_messages(messages).await {
-                    Ok(receipt) => {
-                        info!(count = msg_count, "dst batch confirmed");
-                        metrics.record_success(msg_count, created_at, receipt.confirmed_at, receipt.gas_used);
-                        true
+        let result = run_tx_loop(
+            "dst_tx",
+            metrics.clone(),
+            &mut msg_rx,
+            &self.token,
+            move |messages, created_at| {
+                let relay = Arc::clone(&relay);
+                let metrics = metrics.clone();
+                let msg_count = messages.len();
+                Box::pin(async move {
+                    match relay.dst_chain().send_messages(messages).await {
+                        Ok(receipt) => {
+                            info!(count = msg_count, "dst batch confirmed");
+                            metrics.record_success(
+                                msg_count,
+                                created_at,
+                                receipt.confirmed_at,
+                                receipt.gas_used,
+                            );
+                            true
+                        }
+                        Err(e) => {
+                            warn!(count = msg_count, error = %e, "dst batch failed");
+                            metrics.record_error(&e);
+                            false
+                        }
                     }
-                    Err(e) => {
-                        warn!(count = msg_count, error = %e, "dst batch failed");
-                        metrics.record_error(&e);
-                        false
-                    }
-                }
-            })
-        })
+                })
+            },
+        )
         .await;
 
         fwd_task.abort();
@@ -163,25 +174,36 @@ impl<R: Relay> Worker for SrcTxWorker<R> {
         let (mut msg_rx, fwd_task) = forward_requests(self.receiver, metrics.clone());
         let relay = self.relay;
 
-        let result = run_tx_loop("src_tx", metrics.clone(), &mut msg_rx, &self.token, move |messages, created_at| {
-            let relay = Arc::clone(&relay);
-            let metrics = metrics.clone();
-            let msg_count = messages.len();
-            Box::pin(async move {
-                match relay.src_chain().send_messages(messages).await {
-                    Ok(receipt) => {
-                        info!(count = msg_count, "src batch confirmed");
-                        metrics.record_success(msg_count, created_at, receipt.confirmed_at, receipt.gas_used);
-                        true
+        let result = run_tx_loop(
+            "src_tx",
+            metrics.clone(),
+            &mut msg_rx,
+            &self.token,
+            move |messages, created_at| {
+                let relay = Arc::clone(&relay);
+                let metrics = metrics.clone();
+                let msg_count = messages.len();
+                Box::pin(async move {
+                    match relay.src_chain().send_messages(messages).await {
+                        Ok(receipt) => {
+                            info!(count = msg_count, "src batch confirmed");
+                            metrics.record_success(
+                                msg_count,
+                                created_at,
+                                receipt.confirmed_at,
+                                receipt.gas_used,
+                            );
+                            true
+                        }
+                        Err(e) => {
+                            warn!(count = msg_count, error = %e, "src batch failed");
+                            metrics.record_error(&e);
+                            false
+                        }
                     }
-                    Err(e) => {
-                        warn!(count = msg_count, error = %e, "src batch failed");
-                        metrics.record_error(&e);
-                        false
-                    }
-                }
-            })
-        })
+                })
+            },
+        )
         .await;
 
         fwd_task.abort();
@@ -192,7 +214,10 @@ impl<R: Relay> Worker for SrcTxWorker<R> {
 fn forward_requests<T, M>(
     mut req_rx: mpsc::Receiver<T>,
     metrics: TxMetrics,
-) -> (mpsc::Receiver<TimestampedMessages<M>>, tokio::task::JoinHandle<()>)
+) -> (
+    mpsc::Receiver<TimestampedMessages<M>>,
+    tokio::task::JoinHandle<()>,
+)
 where
     T: Into<TimestampedMessages<M>> + Send + 'static,
     M: Send + 'static,

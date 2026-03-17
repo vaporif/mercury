@@ -93,7 +93,10 @@ impl<R: Relay> Worker for EventWatcher<R> {
                 }
 
                 let pre_filter_count = ibc_events.len();
-                let send_count = ibc_events.iter().filter(|e| matches!(e, IbcEvent::SendPacket(_))).count();
+                let send_count = ibc_events
+                    .iter()
+                    .filter(|e| matches!(e, IbcEvent::SendPacket(_)))
+                    .count();
                 let ack_count = pre_filter_count - send_count;
 
                 self.metrics.record_send_events(send_count);

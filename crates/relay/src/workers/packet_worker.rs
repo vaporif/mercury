@@ -517,7 +517,8 @@ where
                 }
             }
 
-            self.metrics.record_backlog(pending.len() + deliverable.len() + timed_out.len());
+            self.metrics
+                .record_backlog(pending.len() + deliverable.len() + timed_out.len());
 
             if !deliverable.is_empty() || !write_acks.is_empty() {
                 match self.build_dst_update_client_payload().await {
@@ -590,7 +591,10 @@ where
                                 "sending batch to tx_worker"
                             );
                             self.sender
-                                .send(DstTxRequest { messages, created_at: std::time::Instant::now() })
+                                .send(DstTxRequest {
+                                    messages,
+                                    created_at: std::time::Instant::now(),
+                                })
                                 .await
                                 .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
                         } else {
@@ -630,7 +634,10 @@ where
                             messages.extend(timeout_msgs);
 
                             self.src_sender
-                                .send(SrcTxRequest { messages, created_at: std::time::Instant::now() })
+                                .send(SrcTxRequest {
+                                    messages,
+                                    created_at: std::time::Instant::now(),
+                                })
                                 .await
                                 .map_err(|_| eyre::eyre!("src_tx_worker channel closed"))?;
                         }

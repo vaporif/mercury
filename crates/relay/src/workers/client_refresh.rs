@@ -72,7 +72,6 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
 
             let current_trusted = DstChain::<R>::client_latest_height(&client_state);
 
-            // Get src chain latest height
             let target_height = match self.relay.src_chain().query_chain_status().await {
                 Ok(status) => SrcChain::<R>::chain_status_height(&status).clone(),
                 Err(e) => {
@@ -87,7 +86,6 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
                 continue;
             }
 
-            // Build and send MsgUpdateClient
             match async {
                 let payload = self
                     .relay
@@ -105,7 +103,15 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
                     let messages = output.messages;
                     self.metrics.record_update_submitted();
                     info!("refreshing client");
-                    if self.sender.send(DstTxRequest { messages, created_at: std::time::Instant::now() }).await.is_err() {
+                    if self
+                        .sender
+                        .send(DstTxRequest {
+                            messages,
+                            created_at: std::time::Instant::now(),
+                        })
+                        .await
+                        .is_err()
+                    {
                         warn!("tx_worker channel closed");
                         break;
                     }

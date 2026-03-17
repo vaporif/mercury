@@ -34,7 +34,6 @@ impl TestContext {
         let cosmos_a = build_cosmos_chain(&handle_a).await?;
         let cosmos_b = build_cosmos_chain(&handle_b).await?;
 
-        // Create client on chain B for chain A
         info!("creating IBC client on chain B for chain A");
         let payload_a = ClientPayloadBuilder::<Cosmos>::build_create_client_payload(&cosmos_a)
             .await
@@ -52,7 +51,6 @@ impl TestContext {
         let client_id_b = extract_client_id_from_events(&responses_b)?;
         info!(client_id = %client_id_b, "created client on chain B");
 
-        // Create client on chain A for chain B
         info!("creating IBC client on chain A for chain B");
         let payload_b = ClientPayloadBuilder::<Cosmos>::build_create_client_payload(&cosmos_b)
             .await
@@ -70,7 +68,6 @@ impl TestContext {
         let client_id_a = extract_client_id_from_events(&responses_a)?;
         info!(client_id = %client_id_a, "created client on chain A");
 
-        // Register counterparties (IBC v2)
         info!("registering counterparties");
         let msg_register_a =
             ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_register_counterparty_message(
@@ -112,15 +109,12 @@ impl TestContext {
         })
     }
 
-    /// Send an IBC v2 transfer from chain A user1 to chain B user1.
     #[allow(clippy::missing_panics_doc)]
     pub async fn send_transfer_a_to_b(&self, amount: u64, denom: &str) -> Result<()> {
         self.send_transfer_a_to_b_with_timeout(amount, denom, 600)
             .await
     }
 
-    /// Send an IBC v2 transfer from chain A user1 to chain B user1
-    /// with a custom timeout in seconds.
     #[allow(clippy::missing_panics_doc)]
     pub async fn send_transfer_a_to_b_with_timeout(
         &self,
@@ -178,7 +172,6 @@ impl TestContext {
         Ok(())
     }
 
-    /// Send an IBC v2 transfer from chain B user1 to chain A user1.
     #[allow(clippy::missing_panics_doc)]
     pub async fn send_transfer_b_to_a(&self, amount: u64, denom: &str) -> Result<()> {
         let user_b = &self.handle_b.user_wallets()[0];
@@ -230,8 +223,6 @@ impl TestContext {
         Ok(())
     }
 
-    /// Compute the IBC denom hash for on-chain balance queries.
-    ///
     /// Returns `ibc/<SHA256_HEX>` — the bank module denomination.
     #[must_use]
     pub fn ibc_denom(port_id: &str, client_id: &str, base_denom: &str) -> String {
@@ -240,8 +231,6 @@ impl TestContext {
         format!("ibc/{}", hex::encode_upper(hash))
     }
 
-    /// Build the IBC denomination trace path for packet data.
-    ///
     /// Returns `<port_id>/<client_id>/<base_denom>` — the format used in
     /// `FungibleTokenPacketData` when sending IBC vouchers back via IBC v2.
     #[must_use]
@@ -249,7 +238,6 @@ impl TestContext {
         format!("{port_id}/{client_id}/{base_denom}")
     }
 
-    /// Query balance via `simd query bank balances` in the container.
     #[allow(clippy::future_not_send)]
     pub async fn query_balance(
         handle: &CosmosDockerHandle,
@@ -282,7 +270,6 @@ impl TestContext {
         Ok(0)
     }
 
-    /// Poll a chain handle for expected balance, with timeout.
     #[allow(clippy::future_not_send)]
     pub async fn assert_eventual_balance(
         &self,

@@ -231,9 +231,11 @@ async fn generate_update_proof_with_timeout<C: SP1ProverComponents + 'static>(
     .map_err(|_| ProofError::ZkProvingFailed {
         reason: format!("timed out after {}s", timeout_duration.as_secs()),
     })?
-    .map_err(|e| eyre::Report::from(ProofError::ZkProvingFailed {
-        reason: format!("proving task panicked: {e}"),
-    }))
+    .map_err(|e| {
+        eyre::Report::from(ProofError::ZkProvingFailed {
+            reason: format!("proving task panicked: {e}"),
+        })
+    })
 }
 
 async fn generate_uc_and_membership_proof_with_timeout<C: SP1ProverComponents + 'static>(
@@ -261,11 +263,16 @@ async fn generate_uc_and_membership_proof_with_timeout<C: SP1ProverComponents + 
     )
     .await
     .map_err(|_| ProofError::ZkProvingFailed {
-        reason: format!("combined proof timed out after {}s", timeout_duration.as_secs()),
+        reason: format!(
+            "combined proof timed out after {}s",
+            timeout_duration.as_secs()
+        ),
     })?
-    .map_err(|e| eyre::Report::from(ProofError::ZkProvingFailed {
-        reason: format!("combined proving task panicked: {e}"),
-    }))
+    .map_err(|e| {
+        eyre::Report::from(ProofError::ZkProvingFailed {
+            reason: format!("combined proving task panicked: {e}"),
+        })
+    })
 }
 
 pub async fn generate_misbehaviour_proof_with_timeout<C: SP1ProverComponents + 'static>(
@@ -293,11 +300,16 @@ pub async fn generate_misbehaviour_proof_with_timeout<C: SP1ProverComponents + '
     )
     .await
     .map_err(|_| ProofError::ZkProvingFailed {
-        reason: format!("misbehaviour proof timed out after {}s", timeout_duration.as_secs()),
+        reason: format!(
+            "misbehaviour proof timed out after {}s",
+            timeout_duration.as_secs()
+        ),
     })?
-    .map_err(|e| eyre::Report::from(ProofError::ZkProvingFailed {
-        reason: format!("misbehaviour proving task panicked: {e}"),
-    }))
+    .map_err(|e| {
+        eyre::Report::from(ProofError::ZkProvingFailed {
+            reason: format!("misbehaviour proving task panicked: {e}"),
+        })
+    })
 }
 
 /// Convert membership proof entries into typed `(KVPair, MerkleProof)` pairs

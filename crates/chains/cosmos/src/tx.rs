@@ -17,6 +17,7 @@ const DEFAULT_GAS: u64 = 300_000;
 const TX_ENVELOPE_OVERHEAD: usize = 350;
 const PROTOBUF_ANY_OVERHEAD: usize = 10;
 const MAX_PARALLEL_BATCHES: usize = 3;
+const MAX_TX_POLL_RETRIES: u32 = 10;
 
 /// Transaction fee with gas limit and token denomination.
 #[derive(Clone, Debug)]
@@ -287,7 +288,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
                 return Err(TxError::SimulationFailed {
                     reason: status.to_string(),
                 }
-                .into())
+                .into());
             }
         };
 
@@ -378,7 +379,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
 
         let hash = Hash::from_bytes(tendermint::hash::Algorithm::Sha256, &hex::decode(tx_hash)?)?;
 
-        let max_retries: u32 = 10;
+        let max_retries = MAX_TX_POLL_RETRIES;
         let poll_interval = self.block_time / 2;
         let mut last_err = eyre::eyre!("no attempts made");
 
@@ -452,7 +453,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
             attempts: max_retries,
             reason: last_err.to_string(),
         }
-        .into())
+        .into());
     }
 }
 
@@ -612,10 +613,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
 #[async_trait]
 impl<S: CosmosSigner> MessageSender for CosmosChainInner<S> {
     #[instrument(skip_all, name = "send_messages", fields(count = messages.len()))]
-    async fn send_messages(
-        &self,
-        messages: Vec<Self::Message>,
-    ) -> Result<TxReceipt> {
+    async fn send_messages(&self, messages: Vec<Self::Message>) -> Result<TxReceipt> {
         if messages.is_empty() {
             return Ok(TxReceipt {
                 gas_used: None,
