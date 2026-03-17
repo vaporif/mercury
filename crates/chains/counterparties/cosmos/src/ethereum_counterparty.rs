@@ -289,10 +289,6 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChain> for CosmosAdapter<S> {
     }
 }
 
-// -- Misbehaviour: CosmosAdapter as Src, EthereumChain as Dst --
-// Cosmos detects Tendermint misbehaviour for headers submitted to Ethereum's SP1 light client.
-// Same detection logic as Cosmos→Cosmos — compares submitted header against on-chain commit.
-
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourDetector<EthereumChain> for CosmosAdapter<S> {
     type UpdateHeader = ibc_client_tendermint::types::Header;
@@ -374,9 +370,6 @@ impl<S: CosmosSigner> MisbehaviourDetector<EthereumChain> for CosmosAdapter<S> {
         ))
     }
 }
-
-// -- Misbehaviour: CosmosAdapter as Dst, EthereumChain as Src (beacon chain) --
-// Cosmos can't yet detect beacon chain misbehaviour or query Ethereum headers from its wasm LC.
 
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourQuery<EthereumChain> for CosmosAdapter<S> {

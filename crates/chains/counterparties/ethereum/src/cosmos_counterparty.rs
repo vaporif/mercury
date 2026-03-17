@@ -412,9 +412,6 @@ mod tests {
     }
 }
 
-// -- Misbehaviour: EthereumAdapter as Src (beacon chain), CosmosChain as Dst --
-// Ethereum can't yet detect its own beacon chain misbehaviour.
-
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourDetector<CosmosChain<S>> for EthereumAdapter {
     type UpdateHeader = ();
@@ -430,10 +427,6 @@ impl<S: CosmosSigner> MisbehaviourDetector<CosmosChain<S>> for EthereumAdapter {
         Ok(None)
     }
 }
-
-// -- Misbehaviour: EthereumAdapter as Dst, CosmosChain as Src --
-// Ethereum queries its SP1 light client for Tendermint consensus state heights
-// and builds SP1 misbehaviour proofs for submission to the contract.
 
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {

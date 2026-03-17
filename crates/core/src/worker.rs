@@ -1,11 +1,8 @@
-//! Async worker abstraction and spawning helpers.
-
 use async_trait::async_trait;
 use tokio::task::JoinHandle;
 
 use crate::error::Result;
 
-/// A named async task that can be spawned onto the Tokio runtime.
 #[async_trait]
 pub trait Worker: Send + 'static {
     fn name(&self) -> &'static str;

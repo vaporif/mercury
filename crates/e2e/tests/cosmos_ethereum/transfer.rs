@@ -34,7 +34,6 @@ async fn cosmos_eth_roundtrip_transfer() -> Result<()> {
     let ctx = CosmosEthTestContext::setup().await?;
     let relay = ctx.start_relay_library()?;
 
-    // Step 1: Cosmos → Ethereum
     ctx.send_cosmos_to_eth_transfer(1000, "stake").await?;
 
     let eth_denom = format!("transfer/{}/stake", ctx.client_id_on_eth);
@@ -43,7 +42,6 @@ async fn cosmos_eth_roundtrip_transfer() -> Result<()> {
     ctx.assert_eventual_eth_balance(&eth_denom, eth_user, 1000, Duration::from_secs(60))
         .await?;
 
-    // Step 2: Ethereum → Cosmos (send it back)
     let cosmos_user_addr = &ctx.cosmos_handle.user_wallets()[0].address;
     let balance_before = ctx.query_cosmos_balance(cosmos_user_addr, "stake").await?;
 

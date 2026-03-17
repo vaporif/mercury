@@ -1,16 +1,11 @@
-//! Core types, error handling, and worker infrastructure for the Mercury relayer.
-
 use std::sync::Arc;
 
-/// Serialization and deserialization abstractions.
 pub mod encoding;
-/// Error types and result aliases.
 pub mod error;
 pub mod plugin;
 pub mod registry;
 /// RPC rate-limiting and timeout guard.
 pub mod rpc_guard;
-/// Async worker trait and spawning utilities.
 pub mod worker;
 
 /// Marker trait for types that are `Send + Sync + 'static`.

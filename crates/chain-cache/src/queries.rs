@@ -7,8 +7,6 @@ use mercury_core::error::Result;
 
 use crate::CachedChain;
 
-// --- Cache-aware ChainStatusQuery ---
-
 #[async_trait]
 impl<C: ChainStatusQuery + IbcTypes> ChainStatusQuery for CachedChain<C>
 where
@@ -26,8 +24,6 @@ where
         Ok(status)
     }
 }
-
-// --- Cache-aware ClientQuery ---
 
 #[async_trait]
 impl<X: ChainTypes, C: ClientQuery<X>> ClientQuery<X> for CachedChain<C> {

@@ -121,7 +121,6 @@ where
         Ok((src_height, Some(update_payload)))
     }
 
-    /// Phase 2: Enrich the payload with membership proofs and build the update client message.
     async fn build_dst_update_client_message(
         &self,
         mut payload: <R::DstChain as ClientMessageBuilder<<R::SrcChain as HasCore>::Core>>::UpdateClientPayload,
@@ -542,7 +541,6 @@ where
             if !deliverable.is_empty() || !write_acks.is_empty() {
                 match self.build_dst_update_client_payload().await {
                     Ok((src_height, maybe_payload)) => {
-                        // Phase 1: Build recv/ack messages (and collect membership proof entries).
                         let (recv_msgs, recv_pending, recv_entries) = self
                             .build_recv_messages_tracked(deliverable, &src_height)
                             .await;
@@ -586,7 +584,6 @@ where
                                 }
                             }
                         } else if let Some(payload) = maybe_payload {
-                            // Phase 2: Enrich payload with membership proofs and build update.
                             let all_entries: Vec<_> =
                                 recv_entries.into_iter().chain(ack_entries).collect();
 

@@ -1,5 +1,3 @@
-//! Traits for encoding and decoding values into byte representations.
-
 use crate::ThreadSafe;
 use crate::error::Result;
 
