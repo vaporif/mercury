@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 
-use crate::config::ChainConfig;
+use crate::registry::build_registry;
 
 #[derive(Args)]
 pub struct StatusCmd {
@@ -21,55 +21,27 @@ impl StatusCmd {
 }
 
 async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
-    let cfg = crate::config::load_config(config_path)?;
+    let registry = build_registry();
+    let cfg = crate::config::load_config(config_path, &registry)?;
+    let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
 
-    let chain_config = cfg
-        .chains
-        .iter()
-        .find(|c| c.chain_id() == chain_id)
-        .ok_or_else(|| eyre::eyre!("chain '{chain_id}' not found in config"))?;
+    let chain_cfg = cfg.find_chain(&registry, chain_id)?;
 
-    let rpc_addr = chain_config.rpc_addr();
+    let plugin = registry.chain(&chain_cfg.chain_type)?;
+    let rpc_addr = plugin.rpc_addr_from_config(&chain_cfg.raw)?;
+    let chain = plugin.connect(&chain_cfg.raw, config_dir).await?;
 
     println!("Chain:     {chain_id}");
     println!("RPC:       {rpc_addr}");
 
-    match chain_config {
-        ChainConfig::Cosmos(_) => {
-            match mercury_cosmos_counterparties::queries::query_cosmos_status(rpc_addr).await {
-                Ok(status) => {
-                    println!("Height:    {}", status.height);
-                    println!("Timestamp: {}", status.timestamp);
-                    println!("Status:    reachable");
-                }
-                Err(e) => {
-                    println!("Status:    unreachable ({e})");
-                }
-            }
+    match plugin.query_status(&chain).await {
+        Ok(info) => {
+            println!("Height:    {}", info.height);
+            println!("Timestamp: {}", info.timestamp);
+            println!("Status:    reachable");
         }
-        ChainConfig::Ethereum(cfg) => {
-            use alloy::eips::BlockNumberOrTag;
-            use alloy::providers::{Provider, ProviderBuilder};
-
-            let url: url::Url = cfg
-                .rpc_addr
-                .parse()
-                .map_err(|e| eyre::eyre!("invalid Ethereum RPC URL: {e}"))?;
-            let provider = ProviderBuilder::new().connect_http(url);
-
-            match provider.get_block_by_number(BlockNumberOrTag::Latest).await {
-                Ok(Some(block)) => {
-                    println!("Height:    {}", block.header.number);
-                    println!("Timestamp: {}", block.header.timestamp);
-                    println!("Status:    reachable");
-                }
-                Ok(None) => {
-                    println!("Status:    unreachable (no block returned)");
-                }
-                Err(e) => {
-                    println!("Status:    unreachable ({e})");
-                }
-            }
+        Err(e) => {
+            println!("Status:    unreachable ({e})");
         }
     }
 

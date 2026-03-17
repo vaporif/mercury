@@ -1,4 +1,4 @@
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -34,6 +34,8 @@ impl RelayHandle {
 pub struct SubprocessHandle {
     child: Child,
     health_port: u16,
+    stdout_path: std::path::PathBuf,
+    stderr_path: std::path::PathBuf,
     _config_dir: tempfile::TempDir,
 }
 
@@ -45,19 +47,23 @@ impl SubprocessHandle {
 
     /// Poll the relayer's health endpoint until it responds HTTP 200.
     pub async fn wait_until_ready(&mut self, timeout: Duration) -> Result<()> {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tokio::net::TcpStream;
-
         let start = std::time::Instant::now();
         let poll_interval = Duration::from_millis(250);
         let warning_threshold = Duration::from_secs(15);
         let mut warned = false;
-        let addr = format!("127.0.0.1:{}", self.health_port);
+        let url = format!("http://127.0.0.1:{}/health", self.health_port);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .wrap_err("building http client")?;
 
         loop {
             let elapsed = start.elapsed();
             if elapsed > timeout {
-                bail!("relayer health endpoint not ready after {elapsed:?}");
+                bail!(
+                    "relayer health endpoint not ready after {elapsed:?}\n{}",
+                    self.collect_logs()
+                );
             }
 
             if !warned && elapsed > warning_threshold {
@@ -69,28 +75,48 @@ impl SubprocessHandle {
             }
 
             if !self.is_running() {
-                bail!("relayer process exited unexpectedly during startup");
+                bail!(
+                    "relayer process exited unexpectedly during startup\n{}",
+                    self.collect_logs()
+                );
             }
 
-            if let Ok(mut stream) = TcpStream::connect(&addr).await {
-                let _ = stream
-                    .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
-                    .await;
-                let mut buf = [0u8; 32];
-                if let Ok(n) = stream.read(&mut buf).await
-                    && n > 0
-                    && buf.starts_with(b"HTTP/1.1 200")
-                {
-                    info!(
-                        elapsed = ?start.elapsed(),
-                        "binary relayer ready (health check passed)"
-                    );
-                    return Ok(());
-                }
+            if let Ok(resp) = client.get(&url).send().await
+                && resp.status().is_success()
+            {
+                info!(
+                    elapsed = ?start.elapsed(),
+                    "binary relayer ready (health check passed)"
+                );
+                return Ok(());
             }
 
             tokio::time::sleep(poll_interval).await;
         }
+    }
+
+    /// Collect stdout and stderr logs from the relayer process.
+    #[must_use]
+    pub fn collect_logs(&self) -> String {
+        let mut output = String::new();
+        if let Ok(stderr) = std::fs::read_to_string(&self.stderr_path)
+            && !stderr.is_empty()
+        {
+            output.push_str("=== relayer stderr ===\n");
+            output.push_str(&stderr);
+            output.push('\n');
+        }
+        if let Ok(stdout) = std::fs::read_to_string(&self.stdout_path)
+            && !stdout.is_empty()
+        {
+            output.push_str("=== relayer stdout ===\n");
+            output.push_str(&stdout);
+            output.push('\n');
+        }
+        if output.is_empty() {
+            output.push_str("(no relayer output captured)");
+        }
+        output
     }
 
     pub fn stop(self) {
@@ -162,6 +188,13 @@ impl TestContext {
             listener.local_addr().wrap_err("getting local addr")?.port()
         };
 
+        let stdout_path = config_dir.path().join("relayer_stdout.log");
+        let stderr_path = config_dir.path().join("relayer_stderr.log");
+        let stdout_file =
+            std::fs::File::create(&stdout_path).wrap_err("creating stdout log file")?;
+        let stderr_file =
+            std::fs::File::create(&stderr_path).wrap_err("creating stderr log file")?;
+
         let child = Command::new(&binary)
             .args([
                 "start",
@@ -170,12 +203,16 @@ impl TestContext {
                 "--health-port",
                 &health_port.to_string(),
             ])
+            .stdout(Stdio::from(stdout_file))
+            .stderr(Stdio::from(stderr_file))
             .spawn()
             .wrap_err("spawning mercury-relayer")?;
 
         Ok(SubprocessHandle {
             child,
             health_port,
+            stdout_path,
+            stderr_path,
             _config_dir: config_dir,
         })
     }

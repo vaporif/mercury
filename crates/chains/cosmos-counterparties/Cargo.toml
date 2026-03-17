@@ -16,10 +16,17 @@ workspace = true
 [dependencies]
 mercury-core = { workspace = true }
 mercury-chain-traits = { workspace = true }
+mercury-chain-cache = { workspace = true }
 mercury-cosmos = { workspace = true }
+mercury-relay = { workspace = true }
 
 async-trait = { workspace = true }
 eyre = { workspace = true }
+futures = { workspace = true }
+ibc = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 # Cross-chain (optional)
@@ -29,7 +36,6 @@ prost = { workspace = true, optional = true }
 tendermint = { workspace = true, optional = true }
 tendermint-rpc = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
-ibc = { workspace = true, optional = true }
 ibc-client-tendermint = { workspace = true, optional = true }
 alloy = { workspace = true, optional = true }
 ethereum-light-client = { workspace = true, optional = true }
@@ -44,7 +50,6 @@ ethereum-beacon = [
     "dep:tendermint",
     "dep:tendermint-rpc",
     "dep:tokio",
-    "dep:ibc",
     "dep:ibc-client-tendermint",
     "dep:alloy",
     "dep:ethereum-light-client",
