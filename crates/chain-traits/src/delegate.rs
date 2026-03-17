@@ -74,6 +74,9 @@ macro_rules! delegate_chain_inner {
             fn block_time(&self) -> ::std::time::Duration {
                 self.0.block_time()
             }
+            fn chain_id(&self) -> &Self::ChainId {
+                self.0.chain_id()
+            }
         }
 
         impl<$($gen)*> $crate::IbcTypes for $Wrapper {

@@ -66,12 +66,22 @@ For a new chain `MyChain` relaying against Cosmos:
 
 ### Wrapper forwarding pattern
 
-Each chain has a wrapper type (`MyChain`) in its counterparty crate that forwards same-chain traits from the inner type and adds cross-chain impls. Two patterns exist:
+Each chain has a wrapper type (`MyChain`) in its counterparty crate that forwards same-chain traits from the inner type and adds cross-chain impls. The `delegate_chain_inner!` macro handles all boilerplate delegation:
 
-- **Generic forwarding** — `impl<C: ChainTypes> Trait<C> for Wrapper where Inner: Trait<C>`. Used when the impl is counterparty-agnostic (e.g., Cosmos `ClientPayloadBuilder` ignores counterparty state). New counterparties get the impl for free.
-- **Explicit forwarding** — `impl Trait<SpecificCounterparty> for Wrapper`. Required when the impl contains counterparty-specific logic (e.g., Ethereum must unwrap `CosmosClientState::Wasm` to extract beacon bytes). Each new counterparty needs a new explicit impl.
+```rust
+// Generates Deref, HasInner, ChainTypes, IbcTypes, and all operational trait delegations.
+// Also generates a blanket ClientPayloadBuilder<C> delegation by default.
+mercury_chain_traits::delegate_chain_inner! {
+    impl[S: MySigner] MyChain<S> => MyChainInner<S>
+}
 
-Use generic forwarding when possible. Fall back to explicit impls when the counterparty type appears in the method body (not just in the signature).
+// Use skip_cpb if your wrapper needs a custom ClientPayloadBuilder impl:
+mercury_chain_traits::delegate_chain_inner! {
+    impl[] MyChain => MyChainInner; skip_cpb
+}
+```
+
+Cross-chain trait impls (`ClientMessageBuilder<OtherChainInner>`, `PacketMessageBuilder<OtherChainInner>`) are still written manually on the wrapper, since they contain counterparty-specific logic (e.g., Ethereum must unwrap `CosmosClientState::Wasm` to extract beacon bytes).
 
 ### CosmosClientState enum
 
