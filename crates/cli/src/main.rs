@@ -18,9 +18,19 @@ mod config;
 
 use config::{ChainConfig, RelayConfig};
 
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+enum LogFormat {
+    #[default]
+    Pretty,
+    Json,
+}
+
 #[derive(Parser)]
 #[command(name = "mercury", about = "IBC v2 relayer")]
 struct Cli {
+    #[arg(long, global = true, default_value = "pretty")]
+    log_format: LogFormat,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -50,11 +60,22 @@ enum Commands {
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
-
     let cli = Cli::parse();
+
+    match cli.log_format {
+        LogFormat::Pretty => {
+            tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::from_default_env())
+                .with_target(false)
+                .init();
+        }
+        LogFormat::Json => {
+            tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::from_default_env())
+                .json()
+                .init();
+        }
+    }
 
     match cli.command {
         Commands::Start {
