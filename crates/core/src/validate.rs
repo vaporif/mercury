@@ -10,8 +10,8 @@ pub fn require_http_url(name: &str, url: &str) -> eyre::Result<()> {
 
 pub fn require_positive<T: Default + PartialOrd + Display>(
     name: &str,
-    value: T,
+    value: &T,
 ) -> eyre::Result<()> {
-    eyre::ensure!(value > T::default(), "{name} must be > 0, got {value}");
+    eyre::ensure!(*value > T::default(), "{name} must be > 0, got {value}");
     Ok(())
 }

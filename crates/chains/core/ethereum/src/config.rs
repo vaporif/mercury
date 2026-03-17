@@ -109,7 +109,7 @@ impl EthereumChainConfig {
     }
 
     fn validate_inner(&self) -> eyre::Result<()> {
-        use mercury_core::validate::{require_http_url, require_positive};
+        use mercury_core::validate::require_http_url;
 
         require_http_url("rpc_addr", &self.rpc_addr)?;
         self.router_address()?;
@@ -149,12 +149,13 @@ impl EthereumChainConfig {
 
             #[cfg(feature = "sp1")]
             {
+                use mercury_core::validate::require_positive;
                 eyre::ensure!(
                     self.light_client_address.is_some(),
                     "light_client_address is required when sp1_prover is configured"
                 );
-                require_positive("proof_timeout_secs", sp1.proof_timeout_secs)?;
-                require_positive("max_concurrent_proofs", sp1.max_concurrent_proofs)?;
+                require_positive("proof_timeout_secs", &sp1.proof_timeout_secs)?;
+                require_positive("max_concurrent_proofs", &sp1.max_concurrent_proofs)?;
             }
         }
         Ok(())

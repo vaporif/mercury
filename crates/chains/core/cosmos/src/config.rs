@@ -96,10 +96,10 @@ impl CosmosChainConfig {
             eyre::ensure!(m >= 1.0, "gas_multiplier must be >= 1.0, got {m}");
         }
         if let Some(max) = self.max_gas {
-            require_positive("max_gas", max)?;
+            require_positive("max_gas", &max)?;
         }
         if let Some(def) = self.default_gas {
-            require_positive("default_gas", def)?;
+            require_positive("default_gas", &def)?;
         }
         if let Some(ref granter) = self.fee_granter {
             eyre::ensure!(
@@ -115,10 +115,10 @@ impl CosmosChainConfig {
                 dgp.multiplier >= 1.0,
                 "dynamic_gas_price.multiplier must be >= 1.0"
             );
-            require_positive("dynamic_gas_price.max", dgp.max)?;
+            require_positive("dynamic_gas_price.max", &dgp.max)?;
         }
         if let Some(size) = self.max_tx_size {
-            require_positive("max_tx_size", size)?;
+            require_positive("max_tx_size", &size)?;
         }
         if let (Some(trusting), Some(unbonding)) = (self.trusting_period, self.unbonding_period) {
             eyre::ensure!(
