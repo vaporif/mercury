@@ -57,6 +57,7 @@ pub struct EthereumChain {
     pub payload_client: PayloadClient,
     #[cfg(feature = "sp1")]
     pub sp1: Option<Arc<crate::sp1::Sp1Instance<sp1_prover::components::CpuProverComponents>>>,
+    label: mercury_core::ChainLabel,
 }
 
 impl std::fmt::Debug for EthereumChain {
@@ -134,6 +135,7 @@ impl EthereumChain {
 
         info!(chain_id = config.chain_id, %router_address, "ethereum chain initialized");
 
+        let label = mercury_core::ChainLabel::with_id("ethereum", config.chain_id.to_string());
         Ok(Self {
             chain_id: EvmChainId(config.chain_id),
             config,
@@ -143,6 +145,7 @@ impl EthereumChain {
             payload_client,
             #[cfg(feature = "sp1")]
             sp1,
+            label,
         })
     }
 }
@@ -190,7 +193,7 @@ impl ChainTypes for EthereumChain {
     }
 
     fn chain_label(&self) -> mercury_core::ChainLabel {
-        mercury_core::ChainLabel::with_id("ethereum", self.chain_id.0.to_string())
+        self.label.clone()
     }
 }
 
