@@ -52,12 +52,12 @@ impl<R: Relay> Worker for EventWatcher<R> {
 
             self.metrics.record_lag(last_block_at);
 
-            let latest = match src.query_latest_height().await {
-                Ok(h) => h,
-                Err(e) => {
-                    warn!(error = %e, "failed to query latest height, will retry");
-                    continue;
-                }
+            let Ok(latest) = src
+                .query_latest_height()
+                .await
+                .inspect_err(|e| warn!(error = %e, "failed to query latest height, will retry"))
+            else {
+                continue;
             };
             if latest <= last_height {
                 trace!(height = %last_height, "no new blocks");

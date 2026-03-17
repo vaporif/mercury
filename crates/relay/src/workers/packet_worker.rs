@@ -462,12 +462,16 @@ where
                 continue;
             }
 
-            let dst_status = match self.relay.dst_chain().query_chain_status().await {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!(error = %e, "failed to query dst chain status, skipping iteration");
-                    continue;
-                }
+            let Ok(dst_status) = self
+                .relay
+                .dst_chain()
+                .query_chain_status()
+                .await
+                .inspect_err(
+                    |e| warn!(error = %e, "failed to query dst chain status, skipping iteration"),
+                )
+            else {
+                continue;
             };
             let dst_timestamp_secs = DstChain::<R>::chain_status_timestamp_secs(&dst_status);
 
@@ -543,15 +547,12 @@ where
 
                         if packet_msgs.is_empty() {
                             if let Some(payload) = maybe_payload {
-                                let update_output = match self
+                                let Ok(update_output) = self
                                     .build_dst_update_client_message(payload, &[])
                                     .await
-                                {
-                                    Ok(o) => o,
-                                    Err(e) => {
-                                        warn!(error = %e, "failed to build update client message, skipping");
-                                        continue;
-                                    }
+                                    .inspect_err(|e| warn!(error = %e, "failed to build update client message, skipping"))
+                                else {
+                                    continue;
                                 };
                                 if !update_output.messages.is_empty()
                                     && self
@@ -579,15 +580,12 @@ where
                                 "building update client message with membership proofs"
                             );
 
-                            let mut update_output = match self
+                            let Ok(mut update_output) = self
                                 .build_dst_update_client_message(payload, &all_entries)
                                 .await
-                            {
-                                Ok(o) => o,
-                                Err(e) => {
-                                    warn!(error = %e, "failed to build update client message with proofs, skipping batch");
-                                    continue;
-                                }
+                                .inspect_err(|e| warn!(error = %e, "failed to build update client message with proofs, skipping batch"))
+                            else {
+                                continue;
                             };
                             let update_msg_count = update_output.messages.len();
 

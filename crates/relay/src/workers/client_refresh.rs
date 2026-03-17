@@ -48,7 +48,7 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
             }
 
             // Query client state to determine next check interval
-            let (_dst_height, client_state) = match async {
+            let Ok((_dst_height, client_state)) = async {
                 let dst_status = self.relay.dst_chain().query_chain_status().await?;
                 let dst_height = DstChain::<R>::chain_status_height(&dst_status).clone();
                 let cs = self
@@ -59,12 +59,9 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
                 Ok::<_, eyre::Report>((dst_height, cs))
             }
             .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    warn!(error = %e, "client refresh: failed to query chain/client state, will retry");
-                    continue;
-                }
+            .inspect_err(|e| warn!(error = %e, "client refresh: failed to query chain/client state, will retry"))
+            else {
+                continue;
             };
 
             check_interval = DstChain::<R>::trusting_period(&client_state)
@@ -76,13 +73,16 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
 
             let current_trusted = DstChain::<R>::client_latest_height(&client_state);
 
-            let target_height = match self.relay.src_chain().query_chain_status().await {
-                Ok(status) => SrcChain::<R>::chain_status_height(&status).clone(),
-                Err(e) => {
-                    warn!(error = %e, "client refresh: failed to query src chain status, will retry");
-                    continue;
-                }
+            let Ok(target_status) = self
+                .relay
+                .src_chain()
+                .query_chain_status()
+                .await
+                .inspect_err(|e| warn!(error = %e, "client refresh: failed to query src chain status, will retry"))
+            else {
+                continue;
             };
+            let target_height = SrcChain::<R>::chain_status_height(&target_status).clone();
 
             if target_height <= current_trusted {
                 debug!("client already up to date, skipping refresh");
