@@ -58,13 +58,31 @@ pub trait IbcTypes: ChainTypes {
 
 Making `IbcTypes` non-generic is a deliberate choice. In the generic approach (`IbcTypes<Counterparty>`), adding a new counterparty chain requires implementing `IbcTypes<NewChain>` — which in practice always uses the same types. Cosmos IBC types don't change based on whether the counterparty is another Cosmos chain or an EVM chain. Removing the generic parameter eliminates this redundancy and, critically, eliminates the circular dependency problem entirely (see [Cross-Chain Architecture](#cross-chain-architecture)).
 
-### Wrapper Pattern: HasInner
+### Wrapper Pattern: HasInner + `delegate_chain_inner!`
 
 Cross-chain relaying between different chain types (Cosmos↔EVM) hits Rust's orphan rule: the EVM counterparty crate can't implement Cosmos traits for the Cosmos type, and vice versa. Mercury solves this with a wrapper pattern.
 
 Each chain has two types:
 - **Inner type** (e.g., `CosmosChainInner<S>`) — lives in the chain's core crate, implements `ChainTypes` + `IbcTypes` + operational traits
 - **Wrapper type** (e.g., `CosmosChain<S>`) — lives in the counterparty crate, wraps the inner type, and adds cross-chain trait impls
+
+The `delegate_chain_inner!` macro generates all boilerplate delegation from wrapper to inner type — `Deref`, `HasInner`, `ChainTypes`, `IbcTypes`, and all operational trait impls (`MessageSender`, `ChainStatusQuery`, `PacketStateQuery`, `PacketEvents`, `ClientQuery`, `ClientMessageBuilder`, `PacketMessageBuilder`, `MisbehaviourDetector`, `MisbehaviourMessageBuilder`, `MisbehaviourQuery`). It also generates a blanket `ClientPayloadBuilder<C>` delegation by default.
+
+```rust
+// With generics — generates all delegating impls including blanket ClientPayloadBuilder<C>:
+mercury_chain_traits::delegate_chain_inner! {
+    impl[S: CosmosSigner] CosmosChain<S> => CosmosChainInner<S>
+}
+
+// Without generics, skip_cpb — skips ClientPayloadBuilder delegation for manual cross-chain impl:
+mercury_chain_traits::delegate_chain_inner! {
+    impl[] EthereumChain => EthereumChainInner; skip_cpb
+}
+```
+
+Use `skip_cpb` when the wrapper needs a custom `ClientPayloadBuilder` impl (e.g., Ethereum's self-referential `ClientPayloadBuilder<EthereumChainInner>`). Cross-chain traits (`ClientMessageBuilder<CosmosChainInner>`, `PacketMessageBuilder<CosmosChainInner>`) are still implemented manually on the wrapper in the counterparty crate.
+
+The underlying `HasInner` trait guarantees that the wrapper and inner types share identical associated types:
 
 ```rust
 pub trait HasInner: ChainTypes + IbcTypes {
@@ -80,9 +98,7 @@ pub trait HasInner: ChainTypes + IbcTypes {
 }
 ```
 
-`HasInner` guarantees that the wrapper and inner types share identical associated types. Relay code works with wrappers but can pass values through to inner types seamlessly. The wrapper forwards operational traits (queries, message sending) to the inner type via blanket-style impls, while cross-chain traits (`ClientMessageBuilder<CosmosChainInner>`, `PacketMessageBuilder<CosmosChainInner>`) are implemented directly on the wrapper.
-
-**Why wrappers exist.** The wrapper layer is the cost of splitting chain implementations into separate crates. Rust's orphan rule forbids implementing a foreign trait on a foreign type — so `mercury-ethereum-counterparties` can't implement `ClientMessageBuilder<CosmosChainInner<S>>` directly on `EthereumChainInner` (defined in `mercury-ethereum`). The wrapper (`EthereumChain`, local to the counterparty crate) exists solely to satisfy the orphan rule. A single-crate design wouldn't need wrappers, but would lose independent compilation, feature gating, and the ability to add new chain pairs without touching existing chain crates.
+**Why wrappers exist.** The wrapper layer is the cost of splitting chain implementations into separate crates. Rust's orphan rule forbids implementing a foreign trait on a foreign type — so `mercury-ethereum-counterparties` can't implement `ClientMessageBuilder<CosmosChainInner<S>>` directly on `EthereumChainInner` (defined in `mercury-ethereum`). The wrapper (`EthereumChain`, local to the counterparty crate) exists solely to satisfy the orphan rule. A single-crate design wouldn't need wrappers, but would lose independent compilation, feature gating, and the ability to add new chain pairs without touching existing chain crates. The `delegate_chain_inner!` macro eliminates the manual boilerplate cost of maintaining these wrappers.
 
 ### RelayChain Supertrait
 

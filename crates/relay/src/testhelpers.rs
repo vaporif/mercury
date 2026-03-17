@@ -75,11 +75,15 @@ impl Default for MockState {
 #[derive(Clone)]
 pub struct MockChain {
     pub state: Arc<Mutex<MockState>>,
+    pub chain_id: String,
 }
 
 impl MockChain {
     pub fn new(state: Arc<Mutex<MockState>>) -> Self {
-        Self { state }
+        Self {
+            state,
+            chain_id: "mock-chain".to_owned(),
+        }
     }
 }
 
@@ -123,6 +127,9 @@ impl ChainTypes for MockChain {
     }
     fn block_time(&self) -> Duration {
         Duration::from_secs(1)
+    }
+    fn chain_id(&self) -> &Self::ChainId {
+        &self.chain_id
     }
 }
 

@@ -35,6 +35,20 @@ const PROOF_FETCH_RETRY_DELAY: Duration = Duration::from_millis(500);
 const PENDING_RECHECK_INTERVAL: Duration = Duration::from_secs(5);
 const RECV_GRACE_PERIOD: Duration = Duration::from_secs(15);
 
+async fn send_or_cancel<T>(
+    sender: &mpsc::Sender<T>,
+    request: T,
+    token: &CancellationToken,
+    label: &str,
+) -> bool {
+    if sender.send(request).await.is_err() {
+        warn!("{label} channel closed, cancelling relay");
+        token.cancel();
+        return true;
+    }
+    false
+}
+
 /// Receives IBC events and builds relay messages (recv, ack, timeout).
 pub struct PacketWorker<R: Relay> {
     pub relay: Arc<R>,
@@ -418,13 +432,14 @@ where
         "packet_worker"
     }
 
-    #[instrument(skip_all, name = "packet_worker")]
+    #[instrument(skip_all, name = "packet_worker", fields(src_chain = %self.relay.src_chain().chain_id(), dst_chain = %self.relay.dst_chain().chain_id()))]
     async fn run(mut self) -> Result<()> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
         let mut pending: Vec<PendingSend<SendEvent<R>>> = Vec::new();
         let mut pending_acks: WriteAckEvents<R> = Vec::new();
+        info!("packet worker started");
 
         loop {
             let has_pending = !pending.is_empty() || !pending_acks.is_empty();
@@ -461,12 +476,16 @@ where
                 continue;
             }
 
-            let dst_status = match self.relay.dst_chain().query_chain_status().await {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!(error = %e, "failed to query dst chain status, skipping iteration");
-                    continue;
-                }
+            let Ok(dst_status) = self
+                .relay
+                .dst_chain()
+                .query_chain_status()
+                .await
+                .inspect_err(
+                    |e| warn!(error = %e, "failed to query dst chain status, skipping iteration"),
+                )
+            else {
+                continue;
             };
             let dst_timestamp_secs = DstChain::<R>::chain_status_timestamp_secs(&dst_status);
 
@@ -518,7 +537,7 @@ where
             }
 
             self.metrics
-                .record_backlog(pending.len() + deliverable.len() + timed_out.len());
+                .record_backlog(in_flight.len() + deliverable.len() + timed_out.len());
 
             if !deliverable.is_empty() || !write_acks.is_empty() {
                 match self.build_dst_update_client_payload().await {
@@ -542,16 +561,28 @@ where
 
                         if packet_msgs.is_empty() {
                             if let Some(payload) = maybe_payload {
-                                let update_output =
-                                    self.build_dst_update_client_message(payload, &[]).await?;
-                                if !update_output.messages.is_empty() {
-                                    self.sender
-                                        .send(DstTxRequest {
+                                // Intentionally log-and-continue rather than propagate:
+                                // transient build failures shouldn't kill the worker.
+                                let Ok(update_output) = self
+                                    .build_dst_update_client_message(payload, &[])
+                                    .await
+                                    .inspect_err(|e| warn!(error = %e, "failed to build update client message, skipping"))
+                                else {
+                                    continue;
+                                };
+                                if !update_output.messages.is_empty()
+                                    && send_or_cancel(
+                                        &self.sender,
+                                        DstTxRequest {
                                             messages: update_output.messages,
                                             created_at: std::time::Instant::now(),
-                                        })
-                                        .await
-                                        .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
+                                        },
+                                        &self.token,
+                                        "tx_worker",
+                                    )
+                                    .await
+                                {
+                                    return Ok(());
                                 }
                             }
                         } else if let Some(payload) = maybe_payload {
@@ -565,9 +596,13 @@ where
                                 "building update client message with membership proofs"
                             );
 
-                            let mut update_output = self
+                            let Ok(mut update_output) = self
                                 .build_dst_update_client_message(payload, &all_entries)
-                                .await?;
+                                .await
+                                .inspect_err(|e| warn!(error = %e, "failed to build update client message with proofs, skipping batch"))
+                            else {
+                                continue;
+                            };
                             let update_msg_count = update_output.messages.len();
 
                             debug!(
@@ -590,25 +625,37 @@ where
                                 packet = messages.len() - update_msg_count,
                                 "sending batch to tx_worker"
                             );
-                            self.sender
-                                .send(DstTxRequest {
+                            if send_or_cancel(
+                                &self.sender,
+                                DstTxRequest {
                                     messages,
                                     created_at: std::time::Instant::now(),
-                                })
-                                .await
-                                .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
+                                },
+                                &self.token,
+                                "tx_worker",
+                            )
+                            .await
+                            {
+                                return Ok(());
+                            }
                         } else {
                             info!(
                                 count = packet_msgs.len(),
                                 "client up to date, sending packet messages only"
                             );
-                            self.sender
-                                .send(DstTxRequest {
+                            if send_or_cancel(
+                                &self.sender,
+                                DstTxRequest {
                                     messages: packet_msgs,
                                     created_at: std::time::Instant::now(),
-                                })
-                                .await
-                                .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
+                                },
+                                &self.token,
+                                "tx_worker",
+                            )
+                            .await
+                            {
+                                return Ok(());
+                            }
                         }
                     }
                     Err(e) => {
@@ -633,13 +680,19 @@ where
                             let mut messages = src_update_msgs;
                             messages.extend(timeout_msgs);
 
-                            self.src_sender
-                                .send(SrcTxRequest {
+                            if send_or_cancel(
+                                &self.src_sender,
+                                SrcTxRequest {
                                     messages,
                                     created_at: std::time::Instant::now(),
-                                })
-                                .await
-                                .map_err(|_| eyre::eyre!("src_tx_worker channel closed"))?;
+                                },
+                                &self.token,
+                                "src_tx_worker",
+                            )
+                            .await
+                            {
+                                return Ok(());
+                            }
                         }
                     }
                     Err(e) => {

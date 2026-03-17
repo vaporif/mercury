@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::MessageSender;
+use mercury_chain_traits::types::{ChainTypes, MessageSender};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 use mercury_telemetry::recorder::TxMetrics;
@@ -44,16 +44,17 @@ async fn run_tx_loop<M: Send + 'static>(
                     Ok(false) => {
                         consecutive_failures += 1;
                         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                            warn!("{label}: {consecutive_failures} consecutive tx failures, cancelling relay");
+                            warn!(label, consecutive_failures, "consecutive tx failures, cancelling relay");
                             token.cancel();
                             break;
                         }
-                        let backoff = (BACKOFF_BASE * 2u32.saturating_pow(consecutive_failures.min(5).try_into().unwrap_or(5)))
+                        #[allow(clippy::cast_possible_truncation)]
+                        let backoff = (BACKOFF_BASE * 2u32.saturating_pow(consecutive_failures.min(5) as u32))
                             .min(BACKOFF_CAP);
-                        warn!("{label}: tx failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}, backing off {backoff:?}");
+                        warn!(label, consecutive_failures, max = MAX_CONSECUTIVE_FAILURES, ?backoff, "tx failure, backing off");
                         tokio::time::sleep(backoff).await;
                     }
-                    Err(e) => { warn!("{label}: tx task panicked: {e}"); }
+                    Err(e) => { warn!(label, error = %e, "tx task panicked"); }
                 }
                 metrics.record_consecutive_failures(consecutive_failures);
                 continue;
@@ -71,11 +72,14 @@ async fn run_tx_loop<M: Send + 'static>(
         }
 
         let msg_count = messages.len();
-        debug!("{label}: received {msg_count} messages from channel, submitting");
+        debug!(
+            label,
+            msg_count, "received messages from channel, submitting"
+        );
         let permit = tokio::select! {
             permit = semaphore.clone().acquire_owned() => permit?,
             () = token.cancelled() => {
-                warn!("{label}: dropping {msg_count} batched messages due to cancellation");
+                warn!(label, msg_count, "dropping batched messages due to cancellation");
                 break;
             }
         };
@@ -90,7 +94,7 @@ async fn run_tx_loop<M: Send + 'static>(
 
     while let Some(result) = join_set.join_next().await {
         if let Err(e) = result {
-            warn!("{label}: tx task panicked during shutdown: {e}");
+            warn!(label, error = %e, "tx task panicked during shutdown");
         }
     }
 
@@ -111,7 +115,7 @@ impl<R: Relay> Worker for TxWorker<R> {
         "tx_worker"
     }
 
-    #[instrument(skip_all, name = "tx_worker")]
+    #[instrument(skip_all, name = "tx_worker", fields(chain = %self.relay.dst_chain().chain_id()))]
     async fn run(mut self) -> Result<()> {
         let metrics = self.metrics.clone();
         let (mut msg_rx, fwd_task) = forward_requests(self.receiver, metrics.clone());
@@ -168,7 +172,7 @@ impl<R: Relay> Worker for SrcTxWorker<R> {
         "src_tx_worker"
     }
 
-    #[instrument(skip_all, name = "src_tx_worker")]
+    #[instrument(skip_all, name = "src_tx_worker", fields(chain = %self.relay.src_chain().chain_id()))]
     async fn run(mut self) -> Result<()> {
         let metrics = self.metrics.clone();
         let (mut msg_rx, fwd_task) = forward_requests(self.receiver, metrics.clone());
