@@ -31,6 +31,12 @@ The practical costs:
 - **Tooling** — rust-analyzer can't resolve through the macro layers; go-to-definition, autocomplete, and rename don't work
 - **Onboarding** — contributors must learn a custom programming paradigm before they can read the code
 
+## Mercury's Approach
+
+CGP's core insight — Inversion of Control to decouple cross-chain trait bounds — is correct. Mercury applies the same principle directly in Rust's trait system, without a macro framework: non-generic `IbcTypes`, wrapper types for orphan rule avoidance, and weakened builder bounds. Direct trait impls mean rust-analyzer works, error messages point to your code, and any Rust developer can read it.
+
+See [Architecture](./architecture.md) for the full trait hierarchy, cross-chain design, and code examples.
+
 ## Eureka Relayer: Different Layer
 
 The [Eureka relayer](https://github.com/cosmos/solidity-ibc-eureka/tree/main/programs/relayer) is a stateless gRPC service that generates unsigned transactions for cross-chain IBC operations. Its `RelayerService` exposes `RelayByTx(source_tx_ids)` — an external system must discover IBC transactions and call this RPC with specific tx hashes. No event watching, no packet recovery, no continuous relaying. The relayer doesn't even submit transactions — it returns raw tx bytes to the caller.
@@ -42,9 +48,3 @@ Mercury differs in three ways:
 - **Shared relay logic.** All workers (`EventWatcher`, `PacketWorker`, `TxWorker`, `ClearingWorker`) are generic over the `Relay` trait — the same code handles every chain pair. Eureka duplicates relay logic per direction. Mercury still has per-pair counterparty wrappers (~600 lines each for orphan rule compliance), but the relay pipeline itself is written once.
 - **Autonomous operation.** Mercury polls blocks, recovers missed packets, manages client refresh, and submits transactions. Eureka requires an external orchestrator for all of this.
 - **Compile-time type safety.** `RelayContext<Src, Dst>` enforces payload type matching through associated type constraints. Eureka's modules receive opaque `serde_json::Value` config and discover type errors at runtime.
-
-## Mercury's Approach
-
-CGP's core insight — Inversion of Control to decouple cross-chain trait bounds — is correct. Mercury applies the same principle directly in Rust's trait system, without a macro framework: non-generic `IbcTypes`, wrapper types for orphan rule avoidance, and weakened builder bounds. Direct trait impls mean rust-analyzer works, error messages point to your code, and any Rust developer can read it.
-
-See [Architecture](./architecture.md) for the full trait hierarchy, cross-chain design, and code examples.
