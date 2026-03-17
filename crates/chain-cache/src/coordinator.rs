@@ -10,14 +10,12 @@ struct TxSubmission<M> {
     response: oneshot::Sender<Result<TxReceipt>>,
 }
 
-/// Handle for submitting transactions to the per-chain coordinator.
 #[derive(Clone)]
 pub struct TxCoordinatorHandle<M> {
     sender: mpsc::Sender<TxSubmission<M>>,
 }
 
 impl<M: Send + 'static> TxCoordinatorHandle<M> {
-    /// Submit messages and wait for the result.
     pub async fn submit(&self, messages: Vec<M>) -> Result<TxReceipt> {
         let (tx, rx) = oneshot::channel();
         self.sender
@@ -32,9 +30,7 @@ impl<M: Send + 'static> TxCoordinatorHandle<M> {
     }
 }
 
-/// Spawn the coordinator background task. Returns the sender handle.
-///
-/// The coordinator exits when all senders are dropped (channel closed).
+/// Exits when all senders are dropped (channel closed).
 pub fn spawn_coordinator<C>(chain: C) -> TxCoordinatorHandle<C::Message>
 where
     C: MessageSender + Send + 'static,
@@ -54,7 +50,6 @@ where
         let mut all_messages = first.messages;
         let mut responses = vec![first.response];
 
-        // Coalesce: drain any other pending submissions.
         while let Ok(sub) = rx.try_recv() {
             all_messages.extend(sub.messages);
             responses.push(sub.response);

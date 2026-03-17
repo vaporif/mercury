@@ -273,7 +273,6 @@ where
         // Tear down remaining workers from this pipeline iteration.
         pipeline_token.cancel();
 
-        // Await independent workers to finish their shutdown.
         let _ = tokio::join!(client_refresh_handle, clearing_handle, misbehaviour_handle);
 
         match result {
