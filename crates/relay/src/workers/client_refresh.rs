@@ -9,7 +9,7 @@ use tracing::{debug, info, instrument, warn};
 use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery};
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::ChainTypes;
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -27,13 +27,33 @@ pub struct ClientRefreshWorker<R: Relay> {
     pub metrics: ClientMetrics,
 }
 
+impl<R: Relay> ClientRefreshWorker<R> {
+    async fn query_dst_client_state(
+        &self,
+    ) -> eyre::Result<(
+        <R::DstChain as ChainTypes>::Height,
+        <R::DstChain as IbcTypes>::ClientState,
+    )> {
+        type DstChain<R> = <R as Relay>::DstChain;
+
+        let dst_status = self.relay.dst_chain().query_chain_status().await?;
+        let dst_height = DstChain::<R>::chain_status_height(&dst_status).clone();
+        let cs = self
+            .relay
+            .dst_chain()
+            .query_client_state(self.relay.dst_client_id(), &dst_height)
+            .await?;
+        Ok((dst_height, cs))
+    }
+}
+
 #[async_trait]
 impl<R: Relay> Worker for ClientRefreshWorker<R> {
     fn name(&self) -> &'static str {
         "client_refresh"
     }
 
-    #[instrument(skip_all, name = "client_refresh")]
+    #[instrument(skip_all, name = "client_refresh", fields(src_chain = %self.relay.src_chain().chain_id(), dst_chain = %self.relay.dst_chain().chain_id()))]
     async fn run(self) -> Result<()> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
@@ -47,38 +67,33 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
                 () = tokio::time::sleep(check_interval) => {}
             }
 
-            // Query client state to determine next check interval
-            let (_dst_height, client_state) = match async {
-                let dst_status = self.relay.dst_chain().query_chain_status().await?;
-                let dst_height = DstChain::<R>::chain_status_height(&dst_status).clone();
-                let cs = self
-                    .relay
-                    .dst_chain()
-                    .query_client_state(self.relay.dst_client_id(), &dst_height)
-                    .await?;
-                Ok::<_, eyre::Report>((dst_height, cs))
-            }
-            .await
-            {
-                Ok(v) => v,
-                Err(e) => {
-                    warn!(error = %e, "client refresh: failed to query chain/client state, will retry");
-                    continue;
-                }
+            let Ok((_dst_height, client_state)) = self
+                .query_dst_client_state()
+                .await
+                .inspect_err(|e| warn!(error = %e, "client refresh: failed to query chain/client state, will retry"))
+            else {
+                continue;
             };
 
             check_interval = DstChain::<R>::trusting_period(&client_state)
                 .map_or(DEFAULT_REFRESH_INTERVAL, |tp| tp / 3);
+            debug!(
+                interval_secs = check_interval.as_secs(),
+                "next client refresh check"
+            );
 
             let current_trusted = DstChain::<R>::client_latest_height(&client_state);
 
-            let target_height = match self.relay.src_chain().query_chain_status().await {
-                Ok(status) => SrcChain::<R>::chain_status_height(&status).clone(),
-                Err(e) => {
-                    warn!(error = %e, "client refresh: failed to query src chain status, will retry");
-                    continue;
-                }
+            let Ok(target_status) = self
+                .relay
+                .src_chain()
+                .query_chain_status()
+                .await
+                .inspect_err(|e| warn!(error = %e, "client refresh: failed to query src chain status, will retry"))
+            else {
+                continue;
             };
+            let target_height = SrcChain::<R>::chain_status_height(&target_status).clone();
 
             if target_height <= current_trusted {
                 debug!("client already up to date, skipping refresh");

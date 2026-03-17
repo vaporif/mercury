@@ -7,7 +7,7 @@ use eyre::Context;
 use mercury_chain_traits::events::PacketEvents;
 use mercury_core::error::Result;
 
-use crate::chain::EthereumChainInner;
+use crate::chain::EthereumChain;
 use crate::contracts::{ICS26Router, IICS26RouterMsgs};
 use crate::types::{
     EvmAcknowledgement, EvmClientId, EvmEvent, EvmHeight, EvmPacket, EvmPayload,
@@ -35,7 +35,7 @@ fn sol_packet_to_evm(p: &IICS26RouterMsgs::Packet) -> EvmPacket {
 }
 
 #[async_trait]
-impl PacketEvents for EthereumChainInner {
+impl PacketEvents for EthereumChain {
     type SendPacketEvent = EvmSendPacketEvent;
     type WriteAckEvent = EvmWriteAckEvent;
 

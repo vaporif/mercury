@@ -8,7 +8,7 @@ use tracing::{debug, info, instrument, warn};
 use mercury_chain_traits::types::{MessageSender, TxReceipt};
 use mercury_core::error::{Result, TxError};
 
-use crate::chain::CosmosChainInner;
+use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
 use crate::types::{CosmosEvent, CosmosMessage, CosmosTxResponse};
 
@@ -206,7 +206,7 @@ async fn build_tx_bytes(
     Ok(tx_raw.encode_to_vec())
 }
 
-impl<S: CosmosSigner> CosmosChainInner<S> {
+impl<S: CosmosSigner> CosmosChain<S> {
     #[instrument(skip_all, name = "query_nonce")]
     pub async fn query_nonce(&self, signer: &S) -> Result<CosmosNonce> {
         use ibc_proto::cosmos::auth::v1beta1::{
@@ -479,7 +479,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
     }
 }
 
-impl<S: CosmosSigner> CosmosChainInner<S> {
+impl<S: CosmosSigner> CosmosChain<S> {
     /// Send messages and return raw chain responses (for e2e / setup code that
     /// needs to inspect events). Relay workers should use `MessageSender::send_messages` instead.
     ///
@@ -633,7 +633,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> MessageSender for CosmosChainInner<S> {
+impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
     #[instrument(skip_all, name = "send_messages", fields(count = messages.len()))]
     async fn send_messages(&self, messages: Vec<Self::Message>) -> Result<TxReceipt> {
         if messages.is_empty() {

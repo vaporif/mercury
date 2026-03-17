@@ -1,19 +1,19 @@
 use crate::types::{ChainTypes, IbcTypes};
 
-/// Maps a wrapper chain type to its inner (core) chain type.
+/// Maps an adapter (wrapper) chain type to its core chain type.
 ///
-/// Bridge crates define wrapper types (e.g. `CosmosChain<S>`) around core types
-/// (e.g. `CosmosChainInner<S>`). This trait tells the compiler the associated
+/// Bridge crates define adapter types (e.g. `CosmosAdapter<S>`) around core types
+/// (e.g. `CosmosChain<S>`). This trait tells the compiler the associated
 /// types are identical, allowing relay code to pass values between contexts.
 ///
-/// Wrappers exist because of Rust's orphan rule: cross-chain trait impls
-/// (e.g. `ClientMessageBuilder<CosmosChainInner>` for `EthereumChain`) must live
+/// Adapters exist because of Rust's orphan rule: cross-chain trait impls
+/// (e.g. `ClientMessageBuilder<CosmosChain>` for `EthereumAdapter`) must live
 /// in the bridge crate, which can only impl traits on locally-defined types.
 /// This is the cost of the multi-crate design — in exchange we get independent
 /// compilation, feature gating, and additive chain pairs without touching
 /// existing chain crates. See `docs/architecture.md`.
-pub trait HasInner: ChainTypes + IbcTypes {
-    type Inner: ChainTypes<
+pub trait HasCore: ChainTypes + IbcTypes {
+    type Core: ChainTypes<
             Height = Self::Height,
             Timestamp = Self::Timestamp,
             ChainId = Self::ChainId,

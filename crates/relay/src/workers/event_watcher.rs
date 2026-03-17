@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use mercury_chain_traits::events::PacketEvents;
 use mercury_chain_traits::queries::ChainStatusQuery;
@@ -34,7 +34,7 @@ impl<R: Relay> Worker for EventWatcher<R> {
         "event_watcher"
     }
 
-    #[instrument(skip_all, name = "event_watcher")]
+    #[instrument(skip_all, name = "event_watcher", fields(src_chain = %self.relay.src_chain().chain_id()))]
     async fn run(self) -> Result<()> {
         let src = self.relay.src_chain();
         let mut last_height = match self.start_height {
@@ -42,6 +42,7 @@ impl<R: Relay> Worker for EventWatcher<R> {
             None => src.query_latest_height().await?,
         };
         let mut last_block_at = Instant::now();
+        info!(start_height = %last_height, "event watcher started");
 
         loop {
             tokio::select! {
@@ -51,20 +52,24 @@ impl<R: Relay> Worker for EventWatcher<R> {
 
             self.metrics.record_lag(last_block_at);
 
-            let latest = match src.query_latest_height().await {
-                Ok(h) => h,
-                Err(e) => {
-                    warn!(error = %e, "failed to query latest height, will retry");
-                    continue;
-                }
+            let Ok(latest) = src
+                .query_latest_height()
+                .await
+                .inspect_err(|e| warn!(error = %e, "failed to query latest height, will retry"))
+            else {
+                continue;
             };
             if latest <= last_height {
+                trace!(height = %last_height, "no new blocks");
                 continue;
             }
 
             let mut maybe_h = R::SrcChain::increment_height(&last_height);
             while let Some(h) = maybe_h {
-                // Stay 1 block behind tip so proof queries at (height - 1) see the commitment.
+                // TODO: investigate whether we need to stay 1 block behind tip.
+                // The `>=` check processes up to `latest - 1`, which means proof
+                // queries run against `h - 1` (two behind tip). Confirm whether
+                // processing `h == latest` (one behind for proofs) would be safe.
                 if h >= latest {
                     break;
                 }

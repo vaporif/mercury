@@ -33,7 +33,7 @@ The practical costs:
 
 ## Mercury's Approach
 
-CGP's core insight — Inversion of Control to decouple cross-chain trait bounds — is correct. Mercury applies the same principle directly in Rust's trait system, without a macro framework: non-generic `IbcTypes`, wrapper types for orphan rule avoidance, and weakened builder bounds. Direct trait impls mean rust-analyzer works, error messages point to your code, and any Rust developer can read it.
+CGP's core insight — Inversion of Control to decouple cross-chain trait bounds — is correct. Mercury applies the same principle directly in Rust's trait system, without a macro framework: non-generic `IbcTypes`, adapter types for orphan rule avoidance (generated via the `delegate_chain!` macro), and weakened builder bounds. Direct trait impls mean rust-analyzer works, error messages point to your code, and any Rust developer can read it.
 
 See [Architecture](./architecture.md) for the full trait hierarchy, cross-chain design, and code examples.
 

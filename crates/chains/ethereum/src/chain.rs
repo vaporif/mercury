@@ -7,6 +7,8 @@ use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::sol_types::SolCall;
 use async_trait::async_trait;
 use eyre::Context;
+use tracing::info;
+
 use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, UpdateClientOutput,
 };
@@ -46,7 +48,7 @@ impl std::fmt::Debug for PayloadClient {
 }
 
 #[derive(Clone)]
-pub struct EthereumChainInner {
+pub struct EthereumChain {
     pub config: EthereumChainConfig,
     pub chain_id: EvmChainId,
     pub router_address: Address,
@@ -57,9 +59,9 @@ pub struct EthereumChainInner {
     pub sp1: Option<Arc<crate::sp1::Sp1Instance<sp1_prover::components::CpuProverComponents>>>,
 }
 
-impl std::fmt::Debug for EthereumChainInner {
+impl std::fmt::Debug for EthereumChain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EthereumChainInner")
+        f.debug_struct("EthereumChain")
             .field("chain_id", &self.chain_id)
             .field("router_address", &self.router_address)
             .field("rpc_guard", &self.rpc_guard)
@@ -68,7 +70,7 @@ impl std::fmt::Debug for EthereumChainInner {
     }
 }
 
-impl EthereumChainInner {
+impl EthereumChain {
     pub async fn new(
         config: EthereumChainConfig,
         signer: alloy::signers::local::PrivateKeySigner,
@@ -129,6 +131,8 @@ impl EthereumChainInner {
             None
         };
 
+        info!(chain_id = config.chain_id, %router_address, "ethereum chain initialized");
+
         Ok(Self {
             chain_id: EvmChainId(config.chain_id),
             config,
@@ -142,7 +146,7 @@ impl EthereumChainInner {
     }
 }
 
-impl ChainTypes for EthereumChainInner {
+impl ChainTypes for EthereumChain {
     type Height = EvmHeight;
     type Timestamp = EvmTimestamp;
     type ChainId = EvmChainId;
@@ -179,9 +183,13 @@ impl ChainTypes for EthereumChainInner {
     fn block_time(&self) -> Duration {
         self.config.block_time()
     }
+
+    fn chain_id(&self) -> &Self::ChainId {
+        &self.chain_id
+    }
 }
 
-impl IbcTypes for EthereumChainInner {
+impl IbcTypes for EthereumChain {
     type ClientState = EvmClientState;
     type ConsensusState = EvmConsensusState;
     type CommitmentProof = EvmCommitmentProof;
@@ -208,7 +216,7 @@ impl IbcTypes for EthereumChainInner {
 }
 
 #[async_trait]
-impl ClientPayloadBuilder<Self> for EthereumChainInner {
+impl ClientPayloadBuilder<Self> for EthereumChain {
     type CreateClientPayload = CreateClientPayload;
     type UpdateClientPayload = UpdateClientPayload;
 
@@ -251,7 +259,7 @@ impl ClientPayloadBuilder<Self> for EthereumChainInner {
     }
 }
 
-impl EthereumChainInner {
+impl EthereumChain {
     async fn build_create_client_payload_beacon(
         &self,
         beacon_api: &BeaconApiClient,
@@ -494,7 +502,7 @@ pub fn to_sol_merkle_prefix(prefix: &mercury_core::MerklePrefix) -> Vec<alloy::p
 }
 
 #[async_trait]
-impl ClientMessageBuilder<Self> for EthereumChainInner {
+impl ClientMessageBuilder<Self> for EthereumChain {
     type CreateClientPayload = CreateClientPayload;
     type UpdateClientPayload = UpdateClientPayload;
 
@@ -594,28 +602,25 @@ mod tests {
     #[test]
     fn increment_height() {
         let h = EvmHeight(100);
-        assert_eq!(
-            EthereumChainInner::increment_height(&h),
-            Some(EvmHeight(101))
-        );
+        assert_eq!(EthereumChain::increment_height(&h), Some(EvmHeight(101)));
     }
 
     #[test]
     fn increment_height_overflow() {
         let h = EvmHeight(u64::MAX);
-        assert_eq!(EthereumChainInner::increment_height(&h), None);
+        assert_eq!(EthereumChain::increment_height(&h), None);
     }
 
     #[test]
     fn sub_height_normal() {
         let h = EvmHeight(10);
-        assert_eq!(EthereumChainInner::sub_height(&h, 3), Some(EvmHeight(7)));
+        assert_eq!(EthereumChain::sub_height(&h, 3), Some(EvmHeight(7)));
     }
 
     #[test]
     fn sub_height_clamps_to_one() {
         let h = EvmHeight(5);
-        assert_eq!(EthereumChainInner::sub_height(&h, 100), Some(EvmHeight(1)));
+        assert_eq!(EthereumChain::sub_height(&h, 100), Some(EvmHeight(1)));
     }
 
     #[test]
@@ -624,9 +629,9 @@ mod tests {
             height: EvmHeight(42),
             timestamp: EvmTimestamp(1_700_000_000),
         };
-        assert_eq!(EthereumChainInner::chain_status_height(&status).0, 42);
+        assert_eq!(EthereumChain::chain_status_height(&status).0, 42);
         assert_eq!(
-            EthereumChainInner::chain_status_timestamp_secs(&status),
+            EthereumChain::chain_status_timestamp_secs(&status),
             1_700_000_000
         );
     }
@@ -640,10 +645,7 @@ mod tests {
             timeout_timestamp: 0,
             payloads: vec![],
         };
-        assert_eq!(
-            <EthereumChainInner as IbcTypes>::packet_sequence(&packet),
-            42
-        );
+        assert_eq!(<EthereumChain as IbcTypes>::packet_sequence(&packet), 42);
     }
 
     #[test]
@@ -656,7 +658,7 @@ mod tests {
             payloads: vec![],
         };
         assert_eq!(
-            <EthereumChainInner as IbcTypes>::packet_timeout_timestamp(&packet),
+            <EthereumChain as IbcTypes>::packet_timeout_timestamp(&packet),
             1_700_000_000
         );
     }

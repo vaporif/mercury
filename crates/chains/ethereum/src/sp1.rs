@@ -39,7 +39,7 @@ use tracing::{debug, info};
 use mercury_chain_traits::builders::UpdateClientOutput;
 use mercury_core::MembershipProofs;
 
-use crate::chain::EthereumChainInner;
+use crate::chain::EthereumChain;
 use crate::config::{ProverMode, Sp1ProverConfig, ZkAlgorithm};
 use crate::contracts::ICS26Router;
 use crate::types::{EvmClientId, EvmMessage};
@@ -336,7 +336,7 @@ fn convert_membership_proofs(
         .collect()
 }
 
-impl EthereumChainInner {
+impl EthereumChain {
     fn proof_to_update_message(
         &self,
         client_id: &EvmClientId,

@@ -20,11 +20,11 @@ use mercury_core::MerklePrefix;
 use mercury_core::error::Result;
 
 use mercury_cosmos::builders::{CosmosCreateClientPayload, CosmosUpdateClientPayload};
-use mercury_cosmos::chain::CosmosChainInner;
+use mercury_cosmos::chain::CosmosChain;
 use mercury_cosmos::keys::CosmosSigner;
 use mercury_cosmos::types::{CosmosPacket, MerkleProof, PacketAcknowledgement};
 
-use crate::wrapper::EthereumChain;
+use crate::wrapper::EthereumAdapter;
 use mercury_cosmos::client_types::CosmosClientState;
 use mercury_ethereum::builders::{
     CreateClientPayload as EvmCreateClientPayload, UpdateClientPayload as EvmUpdateClientPayload,
@@ -39,7 +39,7 @@ use mercury_ethereum::types::{
 };
 
 #[async_trait]
-impl<S: CosmosSigner> ClientPayloadBuilder<CosmosChainInner<S>> for EthereumChain {
+impl<S: CosmosSigner> ClientPayloadBuilder<CosmosChain<S>> for EthereumAdapter {
     type CreateClientPayload = EvmCreateClientPayload;
     type UpdateClientPayload = EvmUpdateClientPayload;
 
@@ -51,7 +51,7 @@ impl<S: CosmosSigner> ClientPayloadBuilder<CosmosChainInner<S>> for EthereumChai
         &self,
         trusted_height: &EvmHeight,
         target_height: &EvmHeight,
-        counterparty_client_state: &<CosmosChainInner<S> as mercury_chain_traits::types::IbcTypes>::ClientState,
+        counterparty_client_state: &<CosmosChain<S> as mercury_chain_traits::types::IbcTypes>::ClientState,
     ) -> Result<EvmUpdateClientPayload> {
         // The counterparty (Cosmos) stores the Ethereum beacon light client
         // state inside a WASM envelope. Extract the inner `data` bytes, which
@@ -73,7 +73,7 @@ impl<S: CosmosSigner> ClientPayloadBuilder<CosmosChainInner<S>> for EthereumChai
 }
 
 #[async_trait]
-impl<S: CosmosSigner> ClientQuery<CosmosChainInner<S>> for EthereumChain {
+impl<S: CosmosSigner> ClientQuery<CosmosChain<S>> for EthereumAdapter {
     #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
@@ -145,7 +145,7 @@ impl<S: CosmosSigner> ClientQuery<CosmosChainInner<S>> for EthereumChain {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> ClientMessageBuilder<CosmosChainInner<S>> for EthereumChain {
+impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for EthereumAdapter {
     type CreateClientPayload = CosmosCreateClientPayload;
     type UpdateClientPayload = CosmosUpdateClientPayload;
 
@@ -201,7 +201,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChainInner<S>> for EthereumChai
     async fn build_register_counterparty_message(
         &self,
         client_id: &EvmClientId,
-        counterparty_client_id: &<CosmosChainInner<S> as mercury_chain_traits::types::ChainTypes>::ClientId,
+        counterparty_client_id: &<CosmosChain<S> as mercury_chain_traits::types::ChainTypes>::ClientId,
         counterparty_merkle_prefix: MerklePrefix,
     ) -> Result<EvmMessage> {
         let call = ICS26Router::migrateClientCall {
@@ -296,7 +296,7 @@ fn cosmos_packet_to_sol(packet: &CosmosPacket) -> IICS26RouterMsgs::Packet {
 /// messages themselves carry empty proof bytes — the on-chain verifier checks
 /// them against the already-verified state root.
 #[async_trait]
-impl<S: CosmosSigner> PacketMessageBuilder<CosmosChainInner<S>> for EthereumChain {
+impl<S: CosmosSigner> PacketMessageBuilder<CosmosChain<S>> for EthereumAdapter {
     async fn build_receive_packet_message(
         &self,
         packet: &CosmosPacket,
@@ -402,27 +402,27 @@ mod tests {
     /// Compile-time verification that cross-chain trait bounds are satisfied.
     fn _assert_cross_chain_traits<S: CosmosSigner>()
     where
-        EthereumChain: IbcTypes
-            + ClientQuery<CosmosChainInner<S>>
-            + ClientMessageBuilder<CosmosChainInner<S>>
-            + ClientPayloadBuilder<CosmosChainInner<S>>,
-        CosmosChainInner<S>: ClientPayloadBuilder<EthereumChain>,
+        EthereumAdapter: IbcTypes
+            + ClientQuery<CosmosChain<S>>
+            + ClientMessageBuilder<CosmosChain<S>>
+            + ClientPayloadBuilder<CosmosChain<S>>,
+        CosmosChain<S>: ClientPayloadBuilder<EthereumAdapter>,
     {
     }
 }
 
-// -- Misbehaviour: EthereumChain as Src (beacon chain), CosmosChain as Dst --
+// -- Misbehaviour: EthereumAdapter as Src (beacon chain), CosmosChain as Dst --
 // Ethereum can't yet detect its own beacon chain misbehaviour.
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourDetector<CosmosChainInner<S>> for EthereumChain {
+impl<S: CosmosSigner> MisbehaviourDetector<CosmosChain<S>> for EthereumAdapter {
     type UpdateHeader = ();
     type MisbehaviourEvidence = ();
     type CounterpartyClientState = mercury_cosmos::client_types::CosmosClientState;
 
     async fn check_for_misbehaviour(
         &self,
-        _client_id: &<CosmosChainInner<S> as mercury_chain_traits::types::ChainTypes>::ClientId,
+        _client_id: &<CosmosChain<S> as mercury_chain_traits::types::ChainTypes>::ClientId,
         _update_header: &(),
         _client_state: &mercury_cosmos::client_types::CosmosClientState,
     ) -> Result<Option<()>> {
@@ -430,12 +430,12 @@ impl<S: CosmosSigner> MisbehaviourDetector<CosmosChainInner<S>> for EthereumChai
     }
 }
 
-// -- Misbehaviour: EthereumChain as Dst, CosmosChain as Src --
+// -- Misbehaviour: EthereumAdapter as Dst, CosmosChain as Src --
 // Ethereum queries its SP1 light client for Tendermint consensus state heights
 // and builds SP1 misbehaviour proofs for submission to the contract.
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourQuery<CosmosChainInner<S>> for EthereumChain {
+impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
     type CounterpartyUpdateHeader = ibc_client_tendermint::types::Header;
 
     #[instrument(skip_all, name = "eth_query_consensus_heights", fields(client_id = %client_id))]
@@ -537,7 +537,7 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChainInner<S>> for EthereumChain {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChainInner<S>> for EthereumChain {
+impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for EthereumAdapter {
     type MisbehaviourEvidence = mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence;
 
     #[instrument(skip_all, name = "eth_build_misbehaviour_msg", fields(client_id = %client_id))]
