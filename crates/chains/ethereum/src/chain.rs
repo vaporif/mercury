@@ -188,6 +188,10 @@ impl ChainTypes for EthereumChain {
     fn chain_id(&self) -> &Self::ChainId {
         &self.chain_id
     }
+
+    fn chain_label(&self) -> mercury_core::ChainLabel {
+        mercury_core::ChainLabel::with_id("ethereum", self.chain_id.0.to_string())
+    }
 }
 
 impl IbcTypes for EthereumChain {

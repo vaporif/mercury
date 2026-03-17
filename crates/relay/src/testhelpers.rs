@@ -131,6 +131,9 @@ impl ChainTypes for MockChain {
     fn chain_id(&self) -> &Self::ChainId {
         &self.chain_id
     }
+    fn chain_label(&self) -> mercury_core::ChainLabel {
+        mercury_core::ChainLabel::new("mock")
+    }
 }
 
 impl IbcTypes for MockChain {

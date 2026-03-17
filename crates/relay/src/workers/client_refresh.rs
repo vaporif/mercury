@@ -53,7 +53,7 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
         "client_refresh"
     }
 
-    #[instrument(skip_all, name = "client_refresh", fields(src_chain = %self.relay.src_chain().chain_id(), dst_chain = %self.relay.dst_chain().chain_id()))]
+    #[instrument(skip_all, name = "client_refresh", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     async fn run(self) -> Result<()> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;

@@ -43,7 +43,7 @@ where
         "misbehaviour_worker"
     }
 
-    #[instrument(skip_all, name = "misbehaviour_worker", fields(src_chain = %self.relay.src_chain().chain_id(), dst_chain = %self.relay.dst_chain().chain_id()))]
+    #[instrument(skip_all, name = "misbehaviour_worker", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     async fn run(self) -> Result<()> {
         let mut last_scanned_height: Option<<R::SrcChain as ChainTypes>::Height> = None;
 
@@ -205,7 +205,7 @@ mod tests {
             relay: Arc::new(relay),
             token: CancellationToken::new(),
             scan_interval: Duration::from_millis(10),
-            metrics: MisbehaviourMetrics,
+            metrics: MisbehaviourMetrics::new(mercury_core::ChainLabel::new("mock")),
         };
 
         (worker, src_state, dst_state)
