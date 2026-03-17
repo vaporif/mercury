@@ -1,5 +1,7 @@
 //! Core types, error handling, and worker infrastructure for the Mercury relayer.
 
+use std::sync::Arc;
+
 /// Serialization and deserialization abstractions.
 pub mod encoding;
 /// Error types and result aliases.
@@ -13,18 +15,11 @@ pub mod worker;
 pub trait ThreadSafe: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> ThreadSafe for T {}
 
-/// A generic metric label with a name and value.
-#[derive(Clone, Debug)]
-pub struct MetricLabel {
-    pub name: &'static str,
-    pub value: String,
-}
-
 /// Human-readable chain identifier for metrics and telemetry.
 #[derive(Clone, Debug)]
 pub struct ChainLabel {
     name: &'static str,
-    id: Option<String>,
+    id: Option<Arc<str>>,
 }
 
 impl ChainLabel {
@@ -34,7 +29,7 @@ impl ChainLabel {
     }
 
     #[must_use]
-    pub fn with_id(name: &'static str, id: impl Into<String>) -> Self {
+    pub fn with_id(name: &'static str, id: impl Into<Arc<str>>) -> Self {
         Self {
             name,
             id: Some(id.into()),
@@ -52,16 +47,10 @@ impl ChainLabel {
     }
 
     #[must_use]
-    pub fn metric_labels(&self) -> Vec<MetricLabel> {
-        let mut labels = vec![MetricLabel {
-            name: "chain_name",
-            value: self.name.to_owned(),
-        }];
+    pub fn metric_labels(&self) -> Vec<(&'static str, String)> {
+        let mut labels = vec![("chain_name", self.name.to_owned())];
         if let Some(id) = &self.id {
-            labels.push(MetricLabel {
-                name: "chain_id",
-                value: id.clone(),
-            });
+            labels.push(("chain_id", id.to_string()));
         }
         labels
     }

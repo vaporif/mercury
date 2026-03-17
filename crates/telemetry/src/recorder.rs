@@ -12,25 +12,9 @@ fn duration_millis(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
 
-/// Lossless usize-to-f64 via u32 saturation.
-/// All metric counts (backlog, channel fill, failure counts) are bounded
-/// well below `u32::MAX` by system constraints.
-fn usize_gauge(v: usize) -> f64 {
-    f64::from(u32::try_from(v).unwrap_or(u32::MAX))
-}
-
-/// Lossless u64-to-f64 via u32 saturation.
-/// Gas values are bounded by block gas limits (typically < 30M).
-fn u64_gauge(v: u64) -> f64 {
-    f64::from(u32::try_from(v).unwrap_or(u32::MAX))
-}
-
-fn chain_labels(label: &ChainLabel) -> Vec<(&'static str, String)> {
-    label
-        .metric_labels()
-        .into_iter()
-        .map(|ml| (ml.name, ml.value))
-        .collect()
+/// Lossless integer-to-f64 via u32 saturation.
+fn saturating_gauge(v: impl TryInto<u32>) -> f64 {
+    f64::from(v.try_into().unwrap_or(u32::MAX))
 }
 
 /// Which chain a tx worker submits transactions to.
@@ -41,7 +25,7 @@ pub enum TxDirection {
 }
 
 impl TxDirection {
-    fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
             Self::Src => "src",
             Self::Dst => "dst",
@@ -63,8 +47,8 @@ impl TxMetrics {
     }
 
     fn labels(&self) -> Vec<(&'static str, String)> {
-        let mut labels = vec![("chain", self.direction.as_str().to_owned())];
-        labels.extend(chain_labels(&self.label));
+        let mut labels = vec![("direction", self.direction.as_str().to_owned())];
+        labels.extend(self.label.metric_labels());
         labels
     }
 
@@ -86,7 +70,7 @@ impl TxMetrics {
             .record(duration_millis(confirmed_at.duration_since(created_at)));
 
         if let Some(gas) = gas_used {
-            histogram!(metric::tx::GAS_PAID, &labels).record(u64_gauge(gas));
+            histogram!(metric::tx::GAS_PAID, &labels).record(saturating_gauge(gas));
         }
     }
 
@@ -101,12 +85,12 @@ impl TxMetrics {
 
     pub fn record_consecutive_failures(&self, count: usize) {
         let labels = self.labels();
-        gauge!(metric::tx::TX_CONSECUTIVE_FAILURES, &labels).set(usize_gauge(count));
+        gauge!(metric::tx::TX_CONSECUTIVE_FAILURES, &labels).set(saturating_gauge(count));
     }
 
     pub fn record_channel_utilization(&self, fill: usize) {
         let labels = self.labels();
-        gauge!(metric::tx::TX_CHANNEL_UTILIZATION, &labels).set(usize_gauge(fill));
+        gauge!(metric::tx::TX_CHANNEL_UTILIZATION, &labels).set(saturating_gauge(fill));
     }
 }
 
@@ -124,28 +108,28 @@ impl PacketMetrics {
 
     pub fn record_recv(&self, count: usize) {
         if count > 0 {
-            let labels = chain_labels(&self.label);
+            let labels = self.label.metric_labels();
             counter!(metric::packet::RECEIVE_PACKETS, &labels).increment(count as u64);
         }
     }
 
     pub fn record_ack(&self, count: usize) {
         if count > 0 {
-            let labels = chain_labels(&self.label);
+            let labels = self.label.metric_labels();
             counter!(metric::packet::ACK_PACKETS, &labels).increment(count as u64);
         }
     }
 
     pub fn record_timeout(&self, count: usize) {
         if count > 0 {
-            let labels = chain_labels(&self.label);
+            let labels = self.label.metric_labels();
             counter!(metric::packet::TIMEOUT_PACKETS, &labels).increment(count as u64);
         }
     }
 
     pub fn record_backlog(&self, size: usize) {
-        let labels = chain_labels(&self.label);
-        gauge!(metric::backlog::BACKLOG_SIZE, &labels).set(usize_gauge(size));
+        let labels = self.label.metric_labels();
+        gauge!(metric::backlog::BACKLOG_SIZE, &labels).set(saturating_gauge(size));
     }
 }
 
@@ -162,28 +146,28 @@ impl EventMetrics {
     }
 
     pub fn record_lag(&self, last_block_at: Instant) {
-        let labels = chain_labels(&self.label);
+        let labels = self.label.metric_labels();
         gauge!(metric::event::EVENT_WATCHER_LAG_SECS, &labels)
             .set(last_block_at.elapsed().as_secs_f64());
     }
 
     pub fn record_send_events(&self, count: usize) {
         if count > 0 {
-            let labels = chain_labels(&self.label);
+            let labels = self.label.metric_labels();
             counter!(metric::event::SEND_PACKET_EVENTS, &labels).increment(count as u64);
         }
     }
 
     pub fn record_ack_events(&self, count: usize) {
         if count > 0 {
-            let labels = chain_labels(&self.label);
+            let labels = self.label.metric_labels();
             counter!(metric::event::ACK_EVENTS, &labels).increment(count as u64);
         }
     }
 
     pub fn record_filtered(&self, count: usize) {
         if count > 0 {
-            let labels = chain_labels(&self.label);
+            let labels = self.label.metric_labels();
             counter!(metric::packet::FILTERED_PACKETS, &labels).increment(count as u64);
         }
     }
@@ -203,7 +187,7 @@ impl ClearingMetrics {
 
     pub fn record_cleared(&self, count: usize) {
         if count > 0 {
-            let labels = chain_labels(&self.label);
+            let labels = self.label.metric_labels();
             counter!(metric::event::CLEARED_EVENTS, &labels).increment(count as u64);
         }
     }
@@ -222,12 +206,12 @@ impl ClientMetrics {
     }
 
     pub fn record_update_submitted(&self) {
-        let labels = chain_labels(&self.label);
+        let labels = self.label.metric_labels();
         counter!(metric::client::CLIENT_UPDATES_SUBMITTED, &labels).increment(1);
     }
 
     pub fn record_update_skipped(&self) {
-        let labels = chain_labels(&self.label);
+        let labels = self.label.metric_labels();
         counter!(metric::client::CLIENT_UPDATES_SKIPPED, &labels).increment(1);
     }
 }
@@ -245,7 +229,7 @@ impl MisbehaviourMetrics {
     }
 
     pub fn record_submitted(&self) {
-        let labels = chain_labels(&self.label);
+        let labels = self.label.metric_labels();
         counter!(metric::client::MISBEHAVIOURS_SUBMITTED, &labels).increment(1);
     }
 }
