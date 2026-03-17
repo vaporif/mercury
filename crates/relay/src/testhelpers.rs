@@ -124,6 +124,10 @@ impl ChainTypes for MockChain {
     fn block_time(&self) -> Duration {
         Duration::from_secs(1)
     }
+    fn chain_id(&self) -> &Self::ChainId {
+        static MOCK_CHAIN_ID: &str = "mock-chain";
+        MOCK_CHAIN_ID
+    }
 }
 
 impl IbcTypes for MockChain {

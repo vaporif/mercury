@@ -68,6 +68,9 @@ impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
     fn block_time(&self) -> std::time::Duration {
         self.0.block_time()
     }
+    fn chain_id(&self) -> &Self::ChainId {
+        self.0.chain_id()
+    }
 }
 
 impl<S: CosmosSigner> IbcTypes for CosmosChain<S> {

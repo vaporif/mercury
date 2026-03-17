@@ -171,6 +171,10 @@ impl ChainTypes for EthereumChainInner {
     fn block_time(&self) -> Duration {
         self.config.block_time()
     }
+
+    fn chain_id(&self) -> &Self::ChainId {
+        &self.chain_id
+    }
 }
 
 impl IbcTypes for EthereumChainInner {
