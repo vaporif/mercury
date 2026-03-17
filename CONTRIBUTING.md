@@ -90,11 +90,18 @@ Read the [Architecture](./docs/architecture.md) doc before diving into the code.
 
 | Crate | Description |
 |-------|-------------|
-| `mercury-relayer` (`crates/cli`) | CLI binary — entry point, config parsing, worker orchestration |
-| `mercury-cosmos` (`crates/chains/cosmos`) | Cosmos chain implementation — RPC, protobuf, tx signing |
+| `mercury-cli` (`crates/cli`) | CLI binary — entry point, config parsing, worker orchestration |
+| `mercury-core` (`crates/core`) | Error types, encoding, plugin traits, worker trait, membership proofs |
+| `mercury-chain-traits` (`crates/chain-traits`) | Chain types, messaging, queries, relay traits (~21 traits) |
 | `mercury-relay` (`crates/relay`) | Worker pipeline, generic over chain traits |
-| `mercury-chain-traits` (`crates/chain-traits`) | Chain types, messaging, queries, relay traits (~16 traits) |
-| `mercury-core` (`crates/core`) | Error types, encoding, worker trait |
+| `mercury-chain-cache` (`crates/chain-cache`) | Query result caching + tx coordination (deduplication) |
+| `mercury-telemetry` (`crates/telemetry`) | Metrics, logging, worker gauges |
+| `mercury-cosmos` (`crates/chains/core/cosmos`) | Cosmos chain implementation — RPC, protobuf, tx signing |
+| `mercury-ethereum` (`crates/chains/core/ethereum`) | EVM chain implementation — alloy, contracts, SP1 proving |
+| `mercury-cosmos-counterparties` (`crates/chains/counterparties/cosmos`) | Cosmos adapter + cross-chain trait impls |
+| `mercury-ethereum-counterparties` (`crates/chains/counterparties/ethereum`) | Ethereum adapter + cross-chain trait impls |
+| `mercury-cosmos-cosmos-relay` (`crates/chains/relay-pairs/cosmos-cosmos`) | Cosmos↔Cosmos relay pair plugin |
+| `mercury-cosmos-ethereum-relay` (`crates/chains/relay-pairs/cosmos-ethereum`) | Cosmos↔Ethereum relay pair plugin |
 | `mercury-e2e` (`crates/e2e`) | End-to-end tests |
 
 ### Entry Points
