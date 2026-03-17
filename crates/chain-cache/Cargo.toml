@@ -1,5 +1,5 @@
 [package]
-name = "mercury-chain-traits"
+name = "mercury-chain-cache"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,5 +15,5 @@ workspace = true
 
 [dependencies]
 mercury-core = { workspace = true }
+mercury-chain-traits = { workspace = true }
 async-trait = { workspace = true }
-eyre = { workspace = true }

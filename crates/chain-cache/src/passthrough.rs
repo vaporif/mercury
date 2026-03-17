@@ -1,80 +1,17 @@
-use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use async_trait::async_trait;
-use mercury_core::error::Result;
-use tokio::sync::RwLock;
-
-use crate::builders::{
+use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, MisbehaviourDetector, MisbehaviourMessageBuilder,
     PacketMessageBuilder, UpdateClientOutput,
 };
-use crate::events::PacketEvents;
-use crate::inner::HasInner;
-use crate::queries::{ChainStatusQuery, ClientQuery, MisbehaviourQuery, PacketStateQuery};
-use crate::types::{ChainTypes, IbcTypes, MessageSender, TxReceipt};
+use mercury_chain_traits::events::PacketEvents;
+use mercury_chain_traits::inner::HasInner;
+use mercury_chain_traits::queries::{MisbehaviourQuery, PacketStateQuery};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes, MessageSender, TxReceipt};
+use mercury_core::error::Result;
 
-struct BoundedCache<V> {
-    entries: HashMap<String, V>,
-    insert_order: VecDeque<String>,
-    cap: usize,
-}
-
-impl<V> BoundedCache<V> {
-    fn new(cap: usize) -> Self {
-        Self {
-            entries: HashMap::with_capacity(cap),
-            insert_order: VecDeque::with_capacity(cap),
-            cap,
-        }
-    }
-
-    fn get(&self, key: &str) -> Option<&V> {
-        self.entries.get(key)
-    }
-
-    fn insert(&mut self, key: String, value: V) {
-        if let Some(existing) = self.entries.get_mut(&key) {
-            *existing = value;
-            return;
-        }
-
-        if self.entries.len() >= self.cap
-            && let Some(oldest) = self.insert_order.pop_front()
-        {
-            self.entries.remove(&oldest);
-        }
-
-        self.insert_order.push_back(key.clone());
-        self.entries.insert(key, value);
-    }
-}
-
-const CLIENT_CACHE_CAP: usize = 20;
-
-type CachedStatus<S> = Arc<RwLock<Option<(S, Instant)>>>;
-
-#[derive(Clone)]
-pub struct CachedChain<C: IbcTypes> {
-    inner: C,
-    status: CachedStatus<C::ChainStatus>,
-    client_states: Arc<RwLock<BoundedCache<C::ClientState>>>,
-    consensus_states: Arc<RwLock<BoundedCache<C::ConsensusState>>>,
-}
-
-impl<C: IbcTypes> CachedChain<C> {
-    pub fn new(inner: C) -> Self {
-        Self {
-            inner,
-            status: Arc::new(RwLock::new(None)),
-            client_states: Arc::new(RwLock::new(BoundedCache::new(CLIENT_CACHE_CAP))),
-            consensus_states: Arc::new(RwLock::new(BoundedCache::new(CLIENT_CACHE_CAP))),
-        }
-    }
-}
-
-// --- ChainTypes passthrough ---
+use crate::CachedChain;
 
 impl<C: IbcTypes> ChainTypes for CachedChain<C> {
     type Height = C::Height;
@@ -119,8 +56,6 @@ impl<C: IbcTypes> ChainTypes for CachedChain<C> {
     }
 }
 
-// --- IbcTypes passthrough ---
-
 impl<C: IbcTypes> IbcTypes for CachedChain<C> {
     type ClientState = C::ClientState;
     type ConsensusState = C::ConsensusState;
@@ -143,13 +78,9 @@ impl<C: IbcTypes> IbcTypes for CachedChain<C> {
     }
 }
 
-// --- HasInner passthrough ---
-
 impl<C: HasInner> HasInner for CachedChain<C> {
     type Inner = C::Inner;
 }
-
-// --- MessageSender passthrough ---
 
 #[async_trait]
 impl<C: MessageSender + IbcTypes> MessageSender for CachedChain<C> {
@@ -157,8 +88,6 @@ impl<C: MessageSender + IbcTypes> MessageSender for CachedChain<C> {
         self.inner.send_messages(messages).await
     }
 }
-
-// --- PacketStateQuery passthrough ---
 
 #[async_trait]
 impl<C: PacketStateQuery> PacketStateQuery for CachedChain<C> {
@@ -228,8 +157,6 @@ impl<C: PacketStateQuery> PacketStateQuery for CachedChain<C> {
     }
 }
 
-// --- PacketEvents passthrough ---
-
 #[async_trait]
 impl<C: PacketEvents> PacketEvents for CachedChain<C> {
     type SendPacketEvent = C::SendPacketEvent;
@@ -268,8 +195,6 @@ impl<C: PacketEvents> PacketEvents for CachedChain<C> {
     }
 }
 
-// --- ClientPayloadBuilder passthrough ---
-
 #[async_trait]
 impl<X: ChainTypes, C: ClientPayloadBuilder<X> + IbcTypes> ClientPayloadBuilder<X>
     for CachedChain<C>
@@ -295,8 +220,6 @@ impl<X: ChainTypes, C: ClientPayloadBuilder<X> + IbcTypes> ClientPayloadBuilder<
             .await
     }
 }
-
-// --- ClientMessageBuilder passthrough ---
 
 #[async_trait]
 impl<X: ChainTypes, C: ClientMessageBuilder<X>> ClientMessageBuilder<X> for CachedChain<C> {
@@ -352,8 +275,6 @@ impl<X: ChainTypes, C: ClientMessageBuilder<X>> ClientMessageBuilder<X> for Cach
     }
 }
 
-// --- MisbehaviourDetector passthrough ---
-
 #[async_trait]
 impl<X: ChainTypes, C: MisbehaviourDetector<X>> MisbehaviourDetector<X> for CachedChain<C> {
     type UpdateHeader = C::UpdateHeader;
@@ -372,8 +293,6 @@ impl<X: ChainTypes, C: MisbehaviourDetector<X>> MisbehaviourDetector<X> for Cach
     }
 }
 
-// --- MisbehaviourMessageBuilder passthrough ---
-
 #[async_trait]
 impl<X: ChainTypes, C: MisbehaviourMessageBuilder<X>> MisbehaviourMessageBuilder<X>
     for CachedChain<C>
@@ -390,8 +309,6 @@ impl<X: ChainTypes, C: MisbehaviourMessageBuilder<X>> MisbehaviourMessageBuilder
             .await
     }
 }
-
-// --- MisbehaviourQuery passthrough ---
 
 #[async_trait]
 impl<X: ChainTypes, C: MisbehaviourQuery<X>> MisbehaviourQuery<X> for CachedChain<C> {
@@ -414,8 +331,6 @@ impl<X: ChainTypes, C: MisbehaviourQuery<X>> MisbehaviourQuery<X> for CachedChai
             .await
     }
 }
-
-// --- PacketMessageBuilder passthrough ---
 
 #[async_trait]
 impl<X: IbcTypes, C: PacketMessageBuilder<X>> PacketMessageBuilder<X> for CachedChain<C> {
@@ -454,151 +369,5 @@ impl<X: IbcTypes, C: PacketMessageBuilder<X>> PacketMessageBuilder<X> for Cached
         self.inner
             .build_timeout_packet_message(packet, proof, proof_height, revision)
             .await
-    }
-}
-
-// --- Cache-aware ChainStatusQuery ---
-
-#[async_trait]
-impl<C: ChainStatusQuery + IbcTypes> ChainStatusQuery for CachedChain<C>
-where
-    C::ChainStatus: Clone,
-{
-    async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
-        let ttl = self.inner.block_time() / 2;
-
-        // Fast path: read lock
-        {
-            let cache = self.status.read().await;
-            if let Some((ref status, ts)) = *cache
-                && ts.elapsed() < ttl
-            {
-                return Ok(status.clone());
-            }
-        }
-
-        // Slow path: write lock with double-check
-        let mut cache = self.status.write().await;
-        if let Some((ref status, ts)) = *cache
-            && ts.elapsed() < ttl
-        {
-            return Ok(status.clone());
-        }
-
-        let status = self.inner.query_chain_status().await?;
-        let cloned = status.clone();
-        *cache = Some((status, Instant::now()));
-        drop(cache);
-        Ok(cloned)
-    }
-}
-
-// --- Cache-aware ClientQuery ---
-
-#[async_trait]
-impl<X: ChainTypes, C: ClientQuery<X>> ClientQuery<X> for CachedChain<C> {
-    async fn query_client_state(
-        &self,
-        client_id: &Self::ClientId,
-        height: &Self::Height,
-    ) -> Result<Self::ClientState> {
-        let key = format!("{client_id}:{height}");
-
-        // Fast path: read lock
-        {
-            let cache = self.client_states.read().await;
-            if let Some(state) = cache.get(&key) {
-                return Ok(state.clone());
-            }
-        }
-
-        // Slow path: write lock with double-check
-        let mut cache = self.client_states.write().await;
-        if let Some(state) = cache.get(&key) {
-            return Ok(state.clone());
-        }
-
-        let state = self.inner.query_client_state(client_id, height).await?;
-        cache.insert(key, state.clone());
-        drop(cache);
-        Ok(state)
-    }
-
-    async fn query_consensus_state(
-        &self,
-        client_id: &Self::ClientId,
-        consensus_height: &X::Height,
-        query_height: &Self::Height,
-    ) -> Result<Self::ConsensusState> {
-        let key = format!("{client_id}:{consensus_height}:{query_height}");
-
-        // Fast path: read lock
-        {
-            let cache = self.consensus_states.read().await;
-            if let Some(state) = cache.get(&key) {
-                return Ok(state.clone());
-            }
-        }
-
-        // Slow path: write lock with double-check
-        let mut cache = self.consensus_states.write().await;
-        if let Some(state) = cache.get(&key) {
-            return Ok(state.clone());
-        }
-
-        let state = self
-            .inner
-            .query_consensus_state(client_id, consensus_height, query_height)
-            .await?;
-        cache.insert(key, state.clone());
-        drop(cache);
-        Ok(state)
-    }
-
-    fn trusting_period(client_state: &Self::ClientState) -> Option<Duration> {
-        C::trusting_period(client_state)
-    }
-
-    fn client_latest_height(client_state: &Self::ClientState) -> X::Height {
-        C::client_latest_height(client_state)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bounded_cache_insert_and_get() {
-        let mut cache = BoundedCache::new(3);
-        cache.insert("a".into(), 1);
-        cache.insert("b".into(), 2);
-        assert_eq!(cache.get("a"), Some(&1));
-        assert_eq!(cache.get("b"), Some(&2));
-        assert_eq!(cache.get("c"), None);
-    }
-
-    #[test]
-    fn bounded_cache_evicts_oldest() {
-        let mut cache = BoundedCache::new(2);
-        cache.insert("a".into(), 1);
-        cache.insert("b".into(), 2);
-        cache.insert("c".into(), 3);
-        assert_eq!(cache.get("a"), None); // evicted
-        assert_eq!(cache.get("b"), Some(&2));
-        assert_eq!(cache.get("c"), Some(&3));
-    }
-
-    #[test]
-    fn bounded_cache_overwrite_existing() {
-        let mut cache = BoundedCache::new(2);
-        cache.insert("a".into(), 1);
-        cache.insert("a".into(), 10);
-        assert_eq!(cache.get("a"), Some(&10));
-        // Should not have grown — still at 1 entry
-        cache.insert("b".into(), 2);
-        cache.insert("c".into(), 3);
-        // "a" was inserted first, so it gets evicted
-        assert_eq!(cache.get("a"), None);
     }
 }

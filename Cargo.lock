@@ -4987,13 +4987,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d97bbf43eb4f088f8ca469930cde17fa036207c9a5e02ccc5107c4e8b17c964"
 
 [[package]]
+name = "mercury-chain-cache"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "async-trait",
+ "mercury-chain-traits",
+ "mercury-core",
+]
+
+[[package]]
 name = "mercury-chain-traits"
 version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
  "eyre",
  "mercury-core",
- "tokio",
 ]
 
 [[package]]
@@ -5006,7 +5014,7 @@ dependencies = [
  "eyre",
  "futures",
  "ibc",
- "mercury-chain-traits",
+ "mercury-chain-cache",
  "mercury-core",
  "mercury-cosmos-counterparties",
  "mercury-ethereum",

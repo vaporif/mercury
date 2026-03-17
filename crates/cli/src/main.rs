@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use futures::FutureExt;
-use mercury_chain_traits::cached::CachedChain;
+use mercury_chain_cache::CachedChain;
 use mercury_cosmos_counterparties::CosmosChain;
 use mercury_cosmos_counterparties::keys::{Secp256k1KeyPair, load_cosmos_signer};
 use mercury_ethereum::types::EvmClientId;
