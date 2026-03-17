@@ -145,6 +145,7 @@ where
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn run_pipeline(
         self: &Arc<Self>,
         token: &CancellationToken,
@@ -253,7 +254,8 @@ where
         );
 
         // RAII guards: gauge increments on creation, decrements on drop.
-        let mut _guards = vec![
+        #[allow(clippy::collection_is_never_read)]
+        let mut guards = vec![
             WorkerGuard::with_chain_labels("event_watcher", &src_label, Some(&dst_label)),
             WorkerGuard::with_chain_labels("packet_worker", &src_label, Some(&dst_label)),
             WorkerGuard::with_chain_labels("tx_worker", &dst_label, Some(&src_label)),
@@ -261,10 +263,10 @@ where
             WorkerGuard::with_chain_labels("client_refresh", &src_label, Some(&dst_label)),
         ];
         if config.clearing_interval.is_some() {
-            _guards.push(WorkerGuard::with_chain_labels("clearing_worker", &src_label, Some(&dst_label)));
+            guards.push(WorkerGuard::with_chain_labels("clearing_worker", &src_label, Some(&dst_label)));
         }
         if config.misbehaviour_scan_interval.is_some() {
-            _guards.push(WorkerGuard::with_chain_labels("misbehaviour_worker", &src_label, Some(&dst_label)));
+            guards.push(WorkerGuard::with_chain_labels("misbehaviour_worker", &src_label, Some(&dst_label)));
         }
 
         info!("relay pipeline started");

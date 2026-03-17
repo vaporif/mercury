@@ -20,7 +20,7 @@ fn saturating_gauge(v: impl TryInto<u32>) -> f64 {
 
 fn build_labels(
     label: &ChainLabel,
-    counterparty: &Option<ChainLabel>,
+    counterparty: Option<&ChainLabel>,
 ) -> Vec<(&'static str, String)> {
     let mut labels = label.metric_labels();
     if let Some(cp) = counterparty {
@@ -55,7 +55,7 @@ pub struct TxMetrics {
 
 impl TxMetrics {
     #[must_use]
-    pub fn new(direction: TxDirection, label: ChainLabel) -> Self {
+    pub const fn new(direction: TxDirection, label: ChainLabel) -> Self {
         Self {
             direction,
             label,
@@ -71,7 +71,7 @@ impl TxMetrics {
 
     fn labels(&self) -> Vec<(&'static str, String)> {
         let mut labels = vec![("direction", self.direction.as_str().to_owned())];
-        labels.extend(build_labels(&self.label, &self.counterparty));
+        labels.extend(build_labels(&self.label, self.counterparty.as_ref()));
         labels
     }
 
@@ -126,7 +126,7 @@ pub struct PacketMetrics {
 
 impl PacketMetrics {
     #[must_use]
-    pub fn new(label: ChainLabel) -> Self {
+    pub const fn new(label: ChainLabel) -> Self {
         Self {
             label,
             counterparty: None,
@@ -141,27 +141,27 @@ impl PacketMetrics {
 
     pub fn record_recv(&self, count: usize) {
         if count > 0 {
-            let labels = build_labels(&self.label, &self.counterparty);
+            let labels = build_labels(&self.label, self.counterparty.as_ref());
             counter!(metric::packet::RECEIVE_PACKETS, &labels).increment(count as u64);
         }
     }
 
     pub fn record_ack(&self, count: usize) {
         if count > 0 {
-            let labels = build_labels(&self.label, &self.counterparty);
+            let labels = build_labels(&self.label, self.counterparty.as_ref());
             counter!(metric::packet::ACK_PACKETS, &labels).increment(count as u64);
         }
     }
 
     pub fn record_timeout(&self, count: usize) {
         if count > 0 {
-            let labels = build_labels(&self.label, &self.counterparty);
+            let labels = build_labels(&self.label, self.counterparty.as_ref());
             counter!(metric::packet::TIMEOUT_PACKETS, &labels).increment(count as u64);
         }
     }
 
     pub fn record_backlog(&self, size: usize) {
-        let labels = build_labels(&self.label, &self.counterparty);
+        let labels = build_labels(&self.label, self.counterparty.as_ref());
         gauge!(metric::backlog::BACKLOG_SIZE, &labels).set(saturating_gauge(size));
     }
 }
@@ -175,7 +175,7 @@ pub struct EventMetrics {
 
 impl EventMetrics {
     #[must_use]
-    pub fn new(label: ChainLabel) -> Self {
+    pub const fn new(label: ChainLabel) -> Self {
         Self {
             label,
             counterparty: None,
@@ -189,28 +189,28 @@ impl EventMetrics {
     }
 
     pub fn record_lag(&self, last_block_at: Instant) {
-        let labels = build_labels(&self.label, &self.counterparty);
+        let labels = build_labels(&self.label, self.counterparty.as_ref());
         gauge!(metric::event::EVENT_WATCHER_LAG_SECS, &labels)
             .set(last_block_at.elapsed().as_secs_f64());
     }
 
     pub fn record_send_events(&self, count: usize) {
         if count > 0 {
-            let labels = build_labels(&self.label, &self.counterparty);
+            let labels = build_labels(&self.label, self.counterparty.as_ref());
             counter!(metric::event::SEND_PACKET_EVENTS, &labels).increment(count as u64);
         }
     }
 
     pub fn record_ack_events(&self, count: usize) {
         if count > 0 {
-            let labels = build_labels(&self.label, &self.counterparty);
+            let labels = build_labels(&self.label, self.counterparty.as_ref());
             counter!(metric::event::ACK_EVENTS, &labels).increment(count as u64);
         }
     }
 
     pub fn record_filtered(&self, count: usize) {
         if count > 0 {
-            let labels = build_labels(&self.label, &self.counterparty);
+            let labels = build_labels(&self.label, self.counterparty.as_ref());
             counter!(metric::packet::FILTERED_PACKETS, &labels).increment(count as u64);
         }
     }
@@ -225,7 +225,7 @@ pub struct ClearingMetrics {
 
 impl ClearingMetrics {
     #[must_use]
-    pub fn new(label: ChainLabel) -> Self {
+    pub const fn new(label: ChainLabel) -> Self {
         Self {
             label,
             counterparty: None,
@@ -240,7 +240,7 @@ impl ClearingMetrics {
 
     pub fn record_cleared(&self, count: usize) {
         if count > 0 {
-            let labels = build_labels(&self.label, &self.counterparty);
+            let labels = build_labels(&self.label, self.counterparty.as_ref());
             counter!(metric::event::CLEARED_EVENTS, &labels).increment(count as u64);
         }
     }
@@ -256,7 +256,7 @@ pub struct ClientMetrics {
 
 impl ClientMetrics {
     #[must_use]
-    pub fn new(label: ChainLabel) -> Self {
+    pub const fn new(label: ChainLabel) -> Self {
         Self {
             label,
             counterparty: None,
@@ -277,7 +277,7 @@ impl ClientMetrics {
     }
 
     fn labels(&self) -> Vec<(&'static str, String)> {
-        let mut labels = build_labels(&self.label, &self.counterparty);
+        let mut labels = build_labels(&self.label, self.counterparty.as_ref());
         if let Some(ref id) = self.client_id {
             labels.push(("client_id", id.to_string()));
         }
@@ -305,7 +305,7 @@ pub struct MisbehaviourMetrics {
 
 impl MisbehaviourMetrics {
     #[must_use]
-    pub fn new(label: ChainLabel) -> Self {
+    pub const fn new(label: ChainLabel) -> Self {
         Self {
             label,
             counterparty: None,
@@ -326,7 +326,7 @@ impl MisbehaviourMetrics {
     }
 
     fn labels(&self) -> Vec<(&'static str, String)> {
-        let mut labels = build_labels(&self.label, &self.counterparty);
+        let mut labels = build_labels(&self.label, self.counterparty.as_ref());
         if let Some(ref id) = self.client_id {
             labels.push(("client_id", id.to_string()));
         }
