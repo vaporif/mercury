@@ -425,6 +425,7 @@ where
 
         let mut pending: Vec<PendingSend<SendEvent<R>>> = Vec::new();
         let mut pending_acks: WriteAckEvents<R> = Vec::new();
+        info!("packet worker started");
 
         loop {
             let has_pending = !pending.is_empty() || !pending_acks.is_empty();

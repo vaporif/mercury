@@ -55,6 +55,7 @@ impl<R: Relay> Worker for ClearingWorker<R> {
 
 impl<R: Relay> ClearingWorker<R> {
     async fn scan(&self) -> Result<()> {
+        debug!("starting clearing scan");
         let src = self.relay.src_chain();
         let dst = self.relay.dst_chain();
 

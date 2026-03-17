@@ -69,6 +69,7 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
 
             check_interval = DstChain::<R>::trusting_period(&client_state)
                 .map_or(DEFAULT_REFRESH_INTERVAL, |tp| tp / 3);
+            debug!(interval_secs = check_interval.as_secs(), "next client refresh check");
 
             let current_trusted = DstChain::<R>::client_latest_height(&client_state);
 

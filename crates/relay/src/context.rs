@@ -17,7 +17,7 @@ use mercury_telemetry::recorder::{
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::filter::PacketFilter;
 use crate::workers::clearing_worker::ClearingWorker;
@@ -137,6 +137,7 @@ where
                         () = tokio::time::sleep(backoff) => {}
                     }
 
+                    info!("relay pipeline restarting");
                     backoff = (backoff * 2).min(MAX_RESTART_BACKOFF);
                 }
             }
@@ -237,6 +238,8 @@ where
                 spawn_worker(misbehaviour_worker)
             },
         );
+
+        info!("relay pipeline started");
 
         let result = tokio::select! {
             res = event_watcher_handle => res,

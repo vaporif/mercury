@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use mercury_chain_traits::events::PacketEvents;
 use mercury_chain_traits::queries::ChainStatusQuery;
@@ -42,6 +42,7 @@ impl<R: Relay> Worker for EventWatcher<R> {
             None => src.query_latest_height().await?,
         };
         let mut last_block_at = Instant::now();
+        info!(start_height = %last_height, "event watcher started");
 
         loop {
             tokio::select! {
@@ -59,6 +60,7 @@ impl<R: Relay> Worker for EventWatcher<R> {
                 }
             };
             if latest <= last_height {
+                trace!(height = %last_height, "no new blocks");
                 continue;
             }
 
