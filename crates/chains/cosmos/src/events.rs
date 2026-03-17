@@ -120,7 +120,15 @@ impl<S: CosmosSigner> PacketEvents for CosmosChainInner<S> {
         &self,
         height: &tendermint::block::Height,
     ) -> Result<Vec<CosmosEvent>> {
-        let results = self.rpc_client.block_results(*height).await?;
+        let results = self
+            .rpc_guard
+            .guarded(|| async {
+                self.rpc_client
+                    .block_results(*height)
+                    .await
+                    .map_err(Into::into)
+            })
+            .await?;
 
         let events = results
             .finalize_block_events

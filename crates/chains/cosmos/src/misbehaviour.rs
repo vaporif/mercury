@@ -56,8 +56,13 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChainInner<S> {
             .map_err(|e| eyre::eyre!("invalid trusted_height + 1: {e}"))?;
 
         let on_chain_trusted_validators = self
-            .rpc_client
-            .validators(trusted_next_height, Paging::All)
+            .rpc_guard
+            .guarded(|| async {
+                self.rpc_client
+                    .validators(trusted_next_height, Paging::All)
+                    .await
+                    .map_err(Into::into)
+            })
             .await?;
 
         let on_chain_trusted_vs = ValidatorSet::new(on_chain_trusted_validators.validators, None);
@@ -72,20 +77,23 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChainInner<S> {
 
         let header_height = update_header.signed_header.header.height;
 
-        let (commit_response, validators_response) = tokio::try_join!(
-            async {
-                self.rpc_client
-                    .commit(header_height)
-                    .await
-                    .map_err(eyre::Report::from)
-            },
-            async {
-                self.rpc_client
-                    .validators(header_height, Paging::All)
-                    .await
-                    .map_err(eyre::Report::from)
-            },
-        )?;
+        let (commit_response, validators_response) = self
+            .rpc_guard
+            .guarded_pair(
+                || async {
+                    self.rpc_client
+                        .commit(header_height)
+                        .await
+                        .map_err(eyre::Report::from)
+                },
+                || async {
+                    self.rpc_client
+                        .validators(header_height, Paging::All)
+                        .await
+                        .map_err(eyre::Report::from)
+                },
+            )
+            .await?;
 
         let on_chain_header_hash = commit_response.signed_header.header.hash();
         let submitted_header_hash = update_header.signed_header.header.hash();
@@ -173,10 +181,16 @@ impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChainInner<S> {
             pagination,
         });
 
-        let response = IbcClientQueryClient::new(self.grpc_channel.clone())
-            .consensus_state_heights(request)
-            .await?
-            .into_inner();
+        let response = self
+            .rpc_guard
+            .guarded(|| async {
+                IbcClientQueryClient::new(self.grpc_channel.clone())
+                    .consensus_state_heights(request)
+                    .await
+                    .map(|r| r.into_inner())
+                    .map_err(Into::into)
+            })
+            .await?;
 
         let mut heights: Vec<TmHeight> = response
             .consensus_state_heights
@@ -212,8 +226,13 @@ impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChainInner<S> {
             .and_eq("update_client.consensus_heights", height_str.as_str());
 
         let response = self
-            .rpc_client
-            .tx_search(query, false, 1, 1, tendermint_rpc::Order::Descending)
+            .rpc_guard
+            .guarded(|| async {
+                self.rpc_client
+                    .tx_search(query, false, 1, 1, tendermint_rpc::Order::Descending)
+                    .await
+                    .map_err(Into::into)
+            })
             .await?;
 
         let Some(tx) = response.txs.first() else {

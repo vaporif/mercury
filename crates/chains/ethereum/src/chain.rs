@@ -51,6 +51,7 @@ pub struct EthereumChainInner {
     pub chain_id: EvmChainId,
     pub router_address: Address,
     pub provider: Arc<DynProvider>,
+    pub rpc_guard: mercury_core::rpc_guard::RpcGuard,
     pub payload_client: PayloadClient,
     #[cfg(feature = "sp1")]
     pub sp1: Option<Arc<crate::sp1::Sp1Instance<sp1_prover::components::CpuProverComponents>>>,
@@ -61,6 +62,7 @@ impl std::fmt::Debug for EthereumChainInner {
         f.debug_struct("EthereumChainInner")
             .field("chain_id", &self.chain_id)
             .field("router_address", &self.router_address)
+            .field("rpc_guard", &self.rpc_guard)
             .field("payload_client", &self.payload_client)
             .finish_non_exhaustive()
     }
@@ -78,10 +80,13 @@ impl EthereumChainInner {
             .connect_http(url)
             .erased();
 
-        let on_chain_id: u64 = provider
-            .get_chain_id()
-            .await
-            .wrap_err("querying chain ID")?;
+        let rpc_config = config.rpc_config();
+        rpc_config.validate().wrap_err("invalid RPC config")?;
+        let rpc_guard = mercury_core::rpc_guard::RpcGuard::new(&config.chain_id.to_string(), rpc_config);
+
+        let on_chain_id: u64 = rpc_guard
+            .guarded(|| async { provider.get_chain_id().await.wrap_err("querying chain ID") })
+            .await?;
 
         if on_chain_id != config.chain_id {
             eyre::bail!(
@@ -91,7 +96,9 @@ impl EthereumChainInner {
             );
         }
 
-        let sync_status = provider.syncing().await.wrap_err("querying sync status")?;
+        let sync_status = rpc_guard
+            .guarded(|| async { provider.syncing().await.wrap_err("querying sync status") })
+            .await?;
         if !matches!(sync_status, alloy::rpc::types::SyncStatus::None) {
             eyre::bail!(
                 "chain '{}': node is still syncing — wait for it to catch up before starting the relayer",
@@ -127,6 +134,7 @@ impl EthereumChainInner {
             config,
             router_address,
             provider: Arc::new(provider),
+            rpc_guard,
             payload_client,
             #[cfg(feature = "sp1")]
             sp1,

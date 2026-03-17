@@ -26,6 +26,7 @@ pub struct CosmosChainInner<S: CosmosSigner> {
     pub grpc_channel: tonic::transport::Channel,
     pub signer: S,
     pub block_time: Duration,
+    pub rpc_guard: mercury_core::rpc_guard::RpcGuard,
     pub dynamic_gas_backend: Arc<OnceLock<crate::gas::DynamicGasBackend>>,
 }
 
@@ -37,8 +38,12 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
         let rpc_client =
             HttpClient::new(config.rpc_addr.as_str()).wrap_err("creating RPC client")?;
 
-        let status = rpc_client
-            .status()
+        let rpc_config = config.rpc_config();
+        rpc_config.validate().wrap_err("invalid RPC config")?;
+        let rpc_guard = mercury_core::rpc_guard::RpcGuard::new(&config.chain_id, rpc_config);
+
+        let status = rpc_guard
+            .guarded(|| async { rpc_client.status().await.map_err(Into::into) })
             .await
             .wrap_err("querying chain status")?;
         let chain_id = ChainId::new(status.node_info.network.as_str())
@@ -67,7 +72,11 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
         } else {
             grpc_endpoint
         };
+        // Transport timeout is rpc_timeout + 5s safety buffer.
+        // RpcGuard fires first for clean error reporting; this is a safety net.
+        let transport_timeout = std::time::Duration::from_secs(config.rpc_timeout_secs + 5);
         let grpc_channel = grpc_endpoint
+            .timeout(transport_timeout)
             .connect()
             .await
             .wrap_err("connecting to gRPC")?;
@@ -81,6 +90,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
             rpc_client,
             grpc_channel,
             signer,
+            rpc_guard,
             dynamic_gas_backend: Arc::new(OnceLock::new()),
         })
     }

@@ -135,30 +135,47 @@ fn apply_dynamic_price(base_fee: f64, multiplier: f64, max: f64) -> f64 {
     adjusted.min(max)
 }
 
-async fn query_osmosis_base_fee(channel: tonic::transport::Channel) -> Result<f64> {
+async fn query_osmosis_base_fee(
+    channel: tonic::transport::Channel,
+    rpc_guard: &mercury_core::rpc_guard::RpcGuard,
+) -> Result<f64> {
     let request = tonic::Request::new(GetEipBaseFeeRequest {});
-    let response = grpc_unary::<GetEipBaseFeeRequest, GetEipBaseFeeResponse>(
-        channel,
-        "/osmosis.txfees.v1beta1.Query/GetEipBaseFee",
-        request,
-    )
-    .await?
-    .into_inner();
+    let response = rpc_guard
+        .guarded(|| async {
+            grpc_unary::<GetEipBaseFeeRequest, GetEipBaseFeeResponse>(
+                channel,
+                "/osmosis.txfees.v1beta1.Query/GetEipBaseFee",
+                request,
+            )
+            .await
+            .map(|r| r.into_inner())
+            .map_err(Into::into)
+        })
+        .await?;
 
     parse_decimal_price(&response.base_fee)
 }
 
-async fn query_feemarket_price(channel: tonic::transport::Channel, denom: &str) -> Result<f64> {
+async fn query_feemarket_price(
+    channel: tonic::transport::Channel,
+    denom: &str,
+    rpc_guard: &mercury_core::rpc_guard::RpcGuard,
+) -> Result<f64> {
     let request = tonic::Request::new(GasPricesRequest {
         denom: denom.to_string(),
     });
-    let response = grpc_unary::<GasPricesRequest, GasPricesResponse>(
-        channel,
-        "/feemarket.feemarket.v1.Query/GasPrices",
-        request,
-    )
-    .await?
-    .into_inner();
+    let response = rpc_guard
+        .guarded(|| async {
+            grpc_unary::<GasPricesRequest, GasPricesResponse>(
+                channel,
+                "/feemarket.feemarket.v1.Query/GasPrices",
+                request,
+            )
+            .await
+            .map(|r| r.into_inner())
+            .map_err(Into::into)
+        })
+        .await?;
 
     let price = response
         .prices
@@ -174,20 +191,25 @@ pub async fn resolve_gas_price(
     static_price: f64,
     dynamic_config: &crate::config::DynamicGasPrice,
     backend_cache: &OnceLock<DynamicGasBackend>,
+    rpc_guard: &mercury_core::rpc_guard::RpcGuard,
 ) -> f64 {
     let base_fee = match backend_cache.get() {
-        Some(DynamicGasBackend::Osmosis) => query_osmosis_base_fee(channel).await,
-        Some(DynamicGasBackend::Feemarket) => query_feemarket_price(channel, denom).await,
+        Some(DynamicGasBackend::Osmosis) => {
+            query_osmosis_base_fee(channel, rpc_guard).await
+        }
+        Some(DynamicGasBackend::Feemarket) => {
+            query_feemarket_price(channel, denom, rpc_guard).await
+        }
         Some(DynamicGasBackend::Unavailable) => {
             return static_price;
         }
-        None => match query_osmosis_base_fee(channel.clone()).await {
+        None => match query_osmosis_base_fee(channel.clone(), rpc_guard).await {
             Ok(price) => {
                 let _ = backend_cache.set(DynamicGasBackend::Osmosis);
                 debug!("detected osmosis txfees backend");
                 Ok(price)
             }
-            Err(_) => match query_feemarket_price(channel, denom).await {
+            Err(_) => match query_feemarket_price(channel, denom, rpc_guard).await {
                 Ok(price) => {
                     let _ = backend_cache.set(DynamicGasBackend::Feemarket);
                     debug!("detected skip feemarket backend");

@@ -27,10 +27,14 @@ impl EthereumChainInner {
             info!(idx, to = %msg.to, "sending transaction {}/{}", idx + 1, messages.len());
 
             let pending = self
-                .provider
-                .send_transaction(tx.clone())
-                .await
-                .wrap_err("sending transaction")?;
+                .rpc_guard
+                .guarded(|| async {
+                    self.provider
+                        .send_transaction(tx.clone())
+                        .await
+                        .wrap_err("sending transaction")
+                })
+                .await?;
 
             let tx_hash = *pending.tx_hash();
             info!(%tx_hash, "transaction sent, waiting for receipt");
@@ -42,7 +46,17 @@ impl EthereumChainInner {
 
             if !receipt.status() {
                 let block = receipt.block_number.unwrap_or(0);
-                let revert_reason = match self.provider.call(tx).block(block.into()).await {
+                let revert_reason = match self
+                    .rpc_guard
+                    .guarded(|| async {
+                        self.provider
+                            .call(tx)
+                            .block(block.into())
+                            .await
+                            .wrap_err("simulating reverted transaction")
+                    })
+                    .await
+                {
                     Err(e) => format!("{e}"),
                     Ok(output) => format!("call succeeded unexpectedly: {output}"),
                 };
@@ -89,10 +103,14 @@ impl MessageSender for EthereumChainInner {
             info!(idx, to = %msg.to, "sending transaction {}/{}", idx + 1, messages.len());
 
             let pending = self
-                .provider
-                .send_transaction(tx.clone())
-                .await
-                .wrap_err("sending transaction")?;
+                .rpc_guard
+                .guarded(|| async {
+                    self.provider
+                        .send_transaction(tx.clone())
+                        .await
+                        .wrap_err("sending transaction")
+                })
+                .await?;
 
             let tx_hash = *pending.tx_hash();
             info!(%tx_hash, "transaction sent, waiting for receipt");
@@ -104,7 +122,17 @@ impl MessageSender for EthereumChainInner {
 
             if !receipt.status() {
                 let block = receipt.block_number.unwrap_or(0);
-                let revert_reason = match self.provider.call(tx).block(block.into()).await {
+                let revert_reason = match self
+                    .rpc_guard
+                    .guarded(|| async {
+                        self.provider
+                            .call(tx)
+                            .block(block.into())
+                            .await
+                            .wrap_err("simulating reverted transaction")
+                    })
+                    .await
+                {
                     Err(e) => format!("{e}"),
                     Ok(output) => format!("call succeeded unexpectedly: {output}"),
                 };

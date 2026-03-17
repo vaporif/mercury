@@ -4,6 +4,8 @@
 pub mod encoding;
 /// Error types and result aliases.
 pub mod error;
+/// RPC rate-limiting and timeout guard.
+pub mod rpc_guard;
 /// Async worker trait and spawning utilities.
 pub mod worker;
 

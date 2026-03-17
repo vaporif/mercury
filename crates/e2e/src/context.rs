@@ -359,6 +359,8 @@ fn make_test_cosmos_config(handle: &CosmosDockerHandle, key_name: &str) -> Cosmo
         max_tx_size: None,
         wasm_checksum: None,
         mock_proofs: false,
+        rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
+        rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
     }
 }
 

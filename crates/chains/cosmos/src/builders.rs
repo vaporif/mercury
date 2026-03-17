@@ -63,7 +63,10 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChainInne
 
     #[instrument(skip_all, name = "build_create_client_payload")]
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
-        let latest_block = self.rpc_client.latest_block().await?;
+        let latest_block = self
+            .rpc_guard
+            .guarded(|| async { self.rpc_client.latest_block().await.map_err(Into::into) })
+            .await?;
 
         let latest_height = latest_block.block.header.height;
 
@@ -132,20 +135,23 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChainInne
             );
         }
 
-        let (trusted_validators_response, trusted_commit_response) = tokio::try_join!(
-            async {
-                self.rpc_client
-                    .validators(*trusted_height, Paging::All)
-                    .await
-                    .map_err(eyre::Report::from)
-            },
-            async {
-                self.rpc_client
-                    .commit(*trusted_height)
-                    .await
-                    .map_err(eyre::Report::from)
-            },
-        )?;
+        let (trusted_validators_response, trusted_commit_response) = self
+            .rpc_guard
+            .guarded_pair(
+                || async {
+                    self.rpc_client
+                        .validators(*trusted_height, Paging::All)
+                        .await
+                        .map_err(eyre::Report::from)
+                },
+                || async {
+                    self.rpc_client
+                        .commit(*trusted_height)
+                        .await
+                        .map_err(eyre::Report::from)
+                },
+            )
+            .await?;
 
         let trusted_proposer = find_proposer(
             &trusted_validators_response.validators,
@@ -166,20 +172,23 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChainInne
         // Only fetch the target header — the SP1 light client supports skip verification
         // (verifying a header directly from a non-adjacent trusted height via >1/3 validator overlap).
         let target_tm_height = TmHeight::try_from(target_height_value)?;
-        let (commit_response, validators_response) = tokio::try_join!(
-            async {
-                self.rpc_client
-                    .commit(target_tm_height)
-                    .await
-                    .map_err(eyre::Report::from)
-            },
-            async {
-                self.rpc_client
-                    .validators(target_tm_height, Paging::All)
-                    .await
-                    .map_err(eyre::Report::from)
-            },
-        )?;
+        let (commit_response, validators_response) = self
+            .rpc_guard
+            .guarded_pair(
+                || async {
+                    self.rpc_client
+                        .commit(target_tm_height)
+                        .await
+                        .map_err(eyre::Report::from)
+                },
+                || async {
+                    self.rpc_client
+                        .validators(target_tm_height, Paging::All)
+                        .await
+                        .map_err(eyre::Report::from)
+                },
+            )
+            .await?;
 
         let proposer = find_proposer(
             &validators_response.validators,

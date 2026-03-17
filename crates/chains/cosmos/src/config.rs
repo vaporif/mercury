@@ -56,6 +56,10 @@ pub struct CosmosChainConfig {
     /// `LatestHeight` pass the Go-level height gate in `08-wasm`.
     #[serde(default)]
     pub mock_proofs: bool,
+    #[serde(default = "mercury_core::rpc_guard::default_timeout_secs")]
+    pub rpc_timeout_secs: u64,
+    #[serde(default = "mercury_core::rpc_guard::default_rate_limit")]
+    pub rpc_rate_limit: u64,
 }
 
 /// Gas price amount and denomination for fee calculation.
@@ -66,6 +70,14 @@ pub struct GasPrice {
 }
 
 impl CosmosChainConfig {
+    #[must_use]
+    pub fn rpc_config(&self) -> mercury_core::rpc_guard::RpcConfig {
+        mercury_core::rpc_guard::RpcConfig {
+            rpc_timeout: Duration::from_secs(self.rpc_timeout_secs),
+            rate_limit: self.rpc_rate_limit,
+        }
+    }
+
     pub fn validate(&self) -> eyre::Result<()> {
         for (name, addr) in [("rpc_addr", &self.rpc_addr), ("grpc_addr", &self.grpc_addr)] {
             if !addr.starts_with("http://") && !addr.starts_with("https://") {
@@ -202,6 +214,8 @@ mod tests {
             max_tx_size: None,
             wasm_checksum: None,
             mock_proofs: false,
+            rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
+            rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
         }
     }
 
@@ -341,6 +355,70 @@ mod tests {
         cfg.trusting_period = Some(Duration::from_secs(86400 * 14));
         cfg.unbonding_period = Some(Duration::from_secs(86400 * 21));
         assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn rpc_config_defaults_from_toml() {
+        let toml_str = r#"
+            chain_id = "test-1"
+            rpc_addr = "http://localhost:26657"
+            grpc_addr = "http://localhost:9090"
+            account_prefix = "cosmos"
+            key_name = "default"
+            key_file = "key.toml"
+            [gas_price]
+            amount = 0.025
+            denom = "uatom"
+        "#;
+        let config: CosmosChainConfig = toml::from_str(toml_str).unwrap();
+        let rpc_config = config.rpc_config();
+        assert_eq!(
+            rpc_config.rpc_timeout,
+            Duration::from_secs(mercury_core::rpc_guard::RpcConfig::DEFAULT_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            rpc_config.rate_limit,
+            mercury_core::rpc_guard::RpcConfig::DEFAULT_RATE_LIMIT
+        );
+    }
+
+    #[test]
+    fn rpc_config_custom_from_toml() {
+        let toml_str = r#"
+            chain_id = "test-1"
+            rpc_addr = "http://localhost:26657"
+            grpc_addr = "http://localhost:9090"
+            account_prefix = "cosmos"
+            key_name = "default"
+            key_file = "key.toml"
+            rpc_timeout_secs = 60
+            rpc_rate_limit = 50
+            [gas_price]
+            amount = 0.025
+            denom = "uatom"
+        "#;
+        let config: CosmosChainConfig = toml::from_str(toml_str).unwrap();
+        let rpc_config = config.rpc_config();
+        assert_eq!(rpc_config.rpc_timeout, Duration::from_secs(60));
+        assert_eq!(rpc_config.rate_limit, 50);
+    }
+
+    #[test]
+    fn rpc_config_zero_rate_limit_rejected() {
+        let toml_str = r#"
+            chain_id = "test-1"
+            rpc_addr = "http://localhost:26657"
+            grpc_addr = "http://localhost:9090"
+            account_prefix = "cosmos"
+            key_name = "default"
+            key_file = "key.toml"
+            rpc_rate_limit = 0
+            [gas_price]
+            amount = 0.025
+            denom = "uatom"
+        "#;
+        let config: CosmosChainConfig = toml::from_str(toml_str).unwrap();
+        assert!(config.rpc_config().validate().is_err());
     }
 
     #[test]
