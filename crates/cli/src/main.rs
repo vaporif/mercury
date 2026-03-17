@@ -322,7 +322,7 @@ async fn connect_chain(
             let signer = mercury_ethereum_counterparties::keys::load_ethereum_signer(&key_path)
                 .map_err(|e| eyre::eyre!("loading signer for chain {}: {e}", eth_cfg.chain_id))?;
 
-            let chain = EthereumAdapter::new(eth_cfg.clone(), signer)
+            let chain = EthereumAdapter::new((**eth_cfg).clone(), signer)
                 .await
                 .map_err(|e| eyre::eyre!("connecting to chain {}: {e}", eth_cfg.chain_id))?;
 

@@ -187,7 +187,7 @@ impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChain<S> {
                 IbcClientQueryClient::new(self.grpc_channel.clone())
                     .consensus_state_heights(request)
                     .await
-                    .map(|r| r.into_inner())
+                    .map(tonic::Response::into_inner)
                     .map_err(Into::into)
             })
             .await?;

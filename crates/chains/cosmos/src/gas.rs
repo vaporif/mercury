@@ -148,7 +148,7 @@ async fn query_osmosis_base_fee(
                 request,
             )
             .await
-            .map(|r| r.into_inner())
+            .map(tonic::Response::into_inner)
             .map_err(Into::into)
         })
         .await?;
@@ -172,7 +172,7 @@ async fn query_feemarket_price(
                 request,
             )
             .await
-            .map(|r| r.into_inner())
+            .map(tonic::Response::into_inner)
             .map_err(Into::into)
         })
         .await?;
@@ -194,9 +194,7 @@ pub async fn resolve_gas_price(
     rpc_guard: &mercury_core::rpc_guard::RpcGuard,
 ) -> f64 {
     let base_fee = match backend_cache.get() {
-        Some(DynamicGasBackend::Osmosis) => {
-            query_osmosis_base_fee(channel, rpc_guard).await
-        }
+        Some(DynamicGasBackend::Osmosis) => query_osmosis_base_fee(channel, rpc_guard).await,
         Some(DynamicGasBackend::Feemarket) => {
             query_feemarket_price(channel, denom, rpc_guard).await
         }

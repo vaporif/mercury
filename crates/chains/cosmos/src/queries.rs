@@ -89,7 +89,7 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
                 IbcClientQueryClient::new(self.grpc_channel.clone())
                     .client_state(request)
                     .await
-                    .map(|r| r.into_inner())
+                    .map(tonic::Response::into_inner)
                     .map_err(Into::into)
             })
             .await?;
@@ -153,7 +153,7 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
                 IbcClientQueryClient::new(self.grpc_channel.clone())
                     .consensus_state(request)
                     .await
-                    .map(|r| r.into_inner())
+                    .map(tonic::Response::into_inner)
                     .map_err(Into::into)
             })
             .await?;

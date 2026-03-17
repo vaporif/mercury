@@ -84,7 +84,8 @@ impl EthereumChain {
 
         let rpc_config = config.rpc_config();
         rpc_config.validate().wrap_err("invalid RPC config")?;
-        let rpc_guard = mercury_core::rpc_guard::RpcGuard::new(&config.chain_id.to_string(), rpc_config);
+        let rpc_guard =
+            mercury_core::rpc_guard::RpcGuard::new(&config.chain_id.to_string(), rpc_config);
 
         let on_chain_id: u64 = rpc_guard
             .guarded(|| async { provider.get_chain_id().await.wrap_err("querying chain ID") })

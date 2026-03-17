@@ -226,7 +226,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
                 AuthQueryClient::new(self.grpc_channel.clone())
                     .account(request)
                     .await
-                    .map(|r| r.into_inner())
+                    .map(tonic::Response::into_inner)
                     .map_err(Into::into)
             })
             .await?;
@@ -465,7 +465,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
                         error = %e,
                         "transaction not yet found, retrying"
                     );
-                    last_err = e.into();
+                    last_err = e;
                 }
             }
         }
