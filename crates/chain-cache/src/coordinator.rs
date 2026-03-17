@@ -30,7 +30,7 @@ impl<M: Send + 'static> TxCoordinatorHandle<M> {
     }
 }
 
-/// Exits when all senders are dropped (channel closed).
+/// Exits when all senders are dropped
 pub fn spawn_coordinator<C>(chain: C) -> TxCoordinatorHandle<C::Message>
 where
     C: MessageSender + Send + 'static,

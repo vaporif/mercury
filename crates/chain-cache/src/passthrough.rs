@@ -13,6 +13,8 @@ use mercury_core::error::Result;
 
 use crate::CachedChain;
 
+// No macros for easier debugging/stacktraces
+
 impl<C: IbcTypes> ChainTypes for CachedChain<C> {
     type Height = C::Height;
     type Timestamp = C::Timestamp;
