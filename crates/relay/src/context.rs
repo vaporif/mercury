@@ -17,7 +17,7 @@ use mercury_telemetry::recorder::{
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::filter::PacketFilter;
 use crate::workers::clearing_worker::ClearingWorker;
@@ -255,7 +255,10 @@ where
 
         match result {
             Ok(worker_result) => worker_result,
-            Err(join_err) => Err(eyre::eyre!(join_err)),
+            Err(ref join_err) => {
+                error!(error = %join_err, "worker task panicked");
+                Err(eyre::eyre!("{join_err}"))
+            }
         }
     }
 
