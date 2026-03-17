@@ -43,6 +43,19 @@ pub struct CreateClientCmd {
 
 impl CreateClientCmd {
     pub async fn run(self) -> eyre::Result<()> {
-        todo!()
+        let registry = crate::registry::build_registry();
+        let cfg = crate::config::load_config(&self.config, &registry)?;
+        let config_dir = self
+            .config
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+
+        let host_cfg = cfg.find_chain(&registry, &self.host_chain)?;
+        let _ref_cfg = cfg.find_chain(&registry, &self.reference_chain)?;
+
+        let plugin = registry.chain(&host_cfg.chain_type)?;
+        let _chain = plugin.connect(&host_cfg.raw, config_dir).await?;
+
+        todo!("implement create client on chain '{}'", self.host_chain)
     }
 }

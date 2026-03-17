@@ -43,7 +43,10 @@ pub struct KeysAddCmd {
 
 impl KeysAddCmd {
     pub async fn run(self) -> eyre::Result<()> {
-        todo!()
+        let registry = crate::registry::build_registry();
+        let _cfg = crate::config::load_config(&self.config, &registry)?;
+
+        todo!("implement keys add for chain '{}'", self.chain)
     }
 }
 
@@ -62,7 +65,10 @@ pub struct KeysDeleteCmd {
 
 impl KeysDeleteCmd {
     pub async fn run(self) -> eyre::Result<()> {
-        todo!()
+        let registry = crate::registry::build_registry();
+        let _cfg = crate::config::load_config(&self.config, &registry)?;
+
+        todo!("implement keys delete for chain '{}'", self.chain)
     }
 }
 
@@ -78,7 +84,10 @@ pub struct KeysListCmd {
 
 impl KeysListCmd {
     pub async fn run(self) -> eyre::Result<()> {
-        todo!()
+        let registry = crate::registry::build_registry();
+        let _cfg = crate::config::load_config(&self.config, &registry)?;
+
+        todo!("implement keys list for chain '{}'", self.chain)
     }
 }
 
@@ -97,6 +106,9 @@ pub struct KeysBalanceCmd {
 
 impl KeysBalanceCmd {
     pub async fn run(self) -> eyre::Result<()> {
-        todo!()
+        let registry = crate::registry::build_registry();
+        let _cfg = crate::config::load_config(&self.config, &registry)?;
+
+        todo!("implement keys balance for chain '{}'", self.chain)
     }
 }

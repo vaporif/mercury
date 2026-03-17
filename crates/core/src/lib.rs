@@ -6,6 +6,8 @@ use std::sync::Arc;
 pub mod encoding;
 /// Error types and result aliases.
 pub mod error;
+pub mod plugin;
+pub mod registry;
 /// RPC rate-limiting and timeout guard.
 pub mod rpc_guard;
 /// Async worker trait and spawning utilities.

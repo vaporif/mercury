@@ -3,25 +3,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::Args;
-use futures::FutureExt;
-use mercury_chain_cache::CachedChain;
-use mercury_cosmos_counterparties::CosmosAdapter;
-use mercury_cosmos_counterparties::keys::{Secp256k1KeyPair, load_cosmos_signer};
-use mercury_ethereum::types::EvmClientId;
-use mercury_ethereum_counterparties::EthereumAdapter;
-use mercury_relay::context::{RelayContext, RelayWorkerConfig};
-use mercury_relay::filter::PacketFilter;
+use mercury_core::plugin::{AnyChain, DynRelay, DynRelayConfig};
+use mercury_core::registry::ChainRegistry;
 use tokio::task::JoinHandle;
 use tracing::instrument;
 
-use crate::config::{ChainConfig, RelayConfig};
+use crate::config::RelayConfig;
+use crate::registry::build_registry;
 
 #[derive(Args)]
 pub struct StartCmd {
     /// Path to config file
     #[arg(short, long)]
     config: PathBuf,
-    /// Optional health-check port — serves HTTP 200 once relays are running
+    /// Optional health-check port — serves HTTP endpoints once relays are running
     #[arg(long)]
     health_port: Option<u16>,
 }
@@ -32,89 +27,58 @@ impl StartCmd {
     }
 }
 
-type CosmosCached = CachedChain<CosmosAdapter<Secp256k1KeyPair>>;
-type EthCached = CachedChain<EthereumAdapter>;
-
-#[derive(Clone)]
-enum ConnectedChain {
-    Cosmos(Box<CosmosCached>),
-    Ethereum(Box<EthCached>),
-}
-
-trait DynRelay: Send + Sync {
-    fn run(
-        self: Arc<Self>,
-        token: tokio_util::sync::CancellationToken,
-        config: RelayWorkerConfig,
-    ) -> futures::future::BoxFuture<'static, mercury_core::error::Result<()>>;
-}
-
-impl DynRelay for RelayContext<CosmosCached, CosmosCached> {
-    fn run(
-        self: Arc<Self>,
-        token: tokio_util::sync::CancellationToken,
-        config: RelayWorkerConfig,
-    ) -> futures::future::BoxFuture<'static, mercury_core::error::Result<()>> {
-        self.run_with_token(token, config).boxed()
-    }
-}
-
-impl DynRelay for RelayContext<CosmosCached, EthCached> {
-    fn run(
-        self: Arc<Self>,
-        token: tokio_util::sync::CancellationToken,
-        config: RelayWorkerConfig,
-    ) -> futures::future::BoxFuture<'static, mercury_core::error::Result<()>> {
-        self.run_with_token(token, config).boxed()
-    }
-}
-
-impl DynRelay for RelayContext<EthCached, CosmosCached> {
-    fn run(
-        self: Arc<Self>,
-        token: tokio_util::sync::CancellationToken,
-        config: RelayWorkerConfig,
-    ) -> futures::future::BoxFuture<'static, mercury_core::error::Result<()>> {
-        self.run_with_token(token, config).boxed()
-    }
+struct ChainHandle {
+    chain_type: String,
+    chain: AnyChain,
 }
 
 #[instrument(skip_all, name = "run_start")]
 async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result<()> {
-    let cfg = crate::config::load_config(config_path)?;
+    let registry = build_registry();
+    let cfg = crate::config::load_config(config_path, &registry)?;
     mercury_telemetry::init(&cfg.telemetry)?;
     let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
 
     for relay in &cfg.relays {
-        if !cfg.chains.iter().any(|c| c.chain_id() == relay.src_chain) {
-            eyre::bail!("relay references unknown src_chain '{}'", relay.src_chain);
-        }
-        if !cfg.chains.iter().any(|c| c.chain_id() == relay.dst_chain) {
-            eyre::bail!("relay references unknown dst_chain '{}'", relay.dst_chain);
-        }
+        cfg.find_chain(&registry, &relay.src_chain)
+            .map_err(|_| eyre::eyre!("relay references unknown src_chain '{}'", relay.src_chain))?;
+        cfg.find_chain(&registry, &relay.dst_chain)
+            .map_err(|_| eyre::eyre!("relay references unknown dst_chain '{}'", relay.dst_chain))?;
     }
 
-    let mut chains: HashMap<String, ConnectedChain> = HashMap::new();
-    for chain_config in &cfg.chains {
-        let chain = connect_chain(chain_config, config_dir).await?;
-        let id = chain_config.chain_id();
-        tracing::info!(chain_id = %id, "connected to chain");
-        chains.insert(id, chain);
+    let mut chains: HashMap<String, ChainHandle> = HashMap::new();
+    for chain_cfg in &cfg.chains {
+        let plugin = registry.chain(&chain_cfg.chain_type)?;
+        let chain = plugin.connect(&chain_cfg.raw, config_dir).await?;
+        let id = plugin.chain_id_from_config(&chain_cfg.raw)?;
+        tracing::info!(chain_id = %id, chain_type = %chain_cfg.chain_type, "connected to chain");
+        chains.insert(
+            id,
+            ChainHandle {
+                chain_type: chain_cfg.chain_type.clone(),
+                chain,
+            },
+        );
     }
 
     let mut handles: Vec<JoinHandle<mercury_core::error::Result<()>>> = Vec::new();
     for relay in &cfg.relays {
         let src = chains
             .get(&relay.src_chain)
-            .ok_or_else(|| eyre::eyre!("chain '{}' not in cache", relay.src_chain))?
-            .clone();
+            .ok_or_else(|| eyre::eyre!("chain '{}' not in cache", relay.src_chain))?;
         let dst = chains
             .get(&relay.dst_chain)
-            .ok_or_else(|| eyre::eyre!("chain '{}' not in cache", relay.dst_chain))?
-            .clone();
+            .ok_or_else(|| eyre::eyre!("chain '{}' not in cache", relay.dst_chain))?;
 
-        let (fwd, rev) = build_relay_pair(src, dst, relay)?;
-        let handle = spawn_relay_pair(fwd, rev, relay)?;
+        let pair = registry.pair(&src.chain_type, &dst.chain_type)?;
+        let (fwd, rev) = pair.build_relay(
+            &src.chain,
+            &dst.chain,
+            &relay.src_client_id,
+            &relay.dst_client_id,
+        )?;
+
+        let handle = spawn_relay_pair(fwd, rev, relay);
         tracing::info!(
             src = %relay.src_chain,
             dst = %relay.dst_chain,
@@ -131,7 +95,11 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
     tracing::info!(count = handles.len(), "all relay pairs running");
 
     if let Some(port) = health_port {
-        tokio::spawn(serve_health(port));
+        let health_chains: Vec<_> = chains
+            .into_iter()
+            .map(|(id, h)| (id, h.chain_type, h.chain))
+            .collect();
+        tokio::spawn(serve_health(port, registry, health_chains));
     }
 
     tokio::select! {
@@ -153,196 +121,32 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
     Ok(())
 }
 
-#[cfg(unix)]
-fn warn_key_file_permissions(key_path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    if let Ok(meta) = std::fs::metadata(key_path) {
-        let mode = meta.permissions().mode();
-        if mode & 0o044 != 0 {
-            tracing::warn!(
-                path = %key_path.display(),
-                "key file is readable by group/others — consider chmod 600"
-            );
-        }
-    }
-}
-
-#[instrument(skip_all, name = "connect_chain")]
-async fn connect_chain(
-    chain_config: &ChainConfig,
-    config_dir: &Path,
-) -> eyre::Result<ConnectedChain> {
-    match chain_config {
-        ChainConfig::Cosmos(cosmos_cfg) => {
-            let key_path = config_dir.join(&cosmos_cfg.key_file);
-
-            #[cfg(unix)]
-            warn_key_file_permissions(&key_path);
-
-            let signer = load_cosmos_signer(&key_path, &cosmos_cfg.account_prefix)
-                .map_err(|e| eyre::eyre!("loading signer for '{}': {e}", cosmos_cfg.chain_id))?;
-
-            let chain = CosmosAdapter::new(cosmos_cfg.as_ref().clone(), signer)
-                .await
-                .map_err(|e| eyre::eyre!("connecting to '{}': {e}", cosmos_cfg.chain_id))?;
-
-            let on_chain_id = chain.chain_id.to_string();
-            if on_chain_id != cosmos_cfg.chain_id {
-                eyre::bail!(
-                    "chain_id mismatch: config says '{}', node reports '{on_chain_id}'",
-                    cosmos_cfg.chain_id,
-                );
-            }
-
-            Ok(ConnectedChain::Cosmos(Box::new(CachedChain::new(chain))))
-        }
-        ChainConfig::Ethereum(eth_cfg) => {
-            let key_path = config_dir.join(&eth_cfg.key_file);
-
-            #[cfg(unix)]
-            warn_key_file_permissions(&key_path);
-
-            let signer = mercury_ethereum_counterparties::keys::load_ethereum_signer(&key_path)
-                .map_err(|e| eyre::eyre!("loading signer for chain {}: {e}", eth_cfg.chain_id))?;
-
-            let chain = EthereumAdapter::new((**eth_cfg).clone(), signer)
-                .await
-                .map_err(|e| eyre::eyre!("connecting to chain {}: {e}", eth_cfg.chain_id))?;
-
-            Ok(ConnectedChain::Ethereum(Box::new(CachedChain::new(chain))))
-        }
-    }
-}
-
-async fn serve_health(port: u16) {
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpListener;
-
-    let addr = format!("127.0.0.1:{port}");
-    let listener = match TcpListener::bind(&addr).await {
-        Ok(l) => {
-            tracing::info!(port, "health endpoint listening");
-            l
-        }
-        Err(e) => {
-            tracing::error!(port, error = %e, "failed to bind health endpoint");
-            return;
-        }
-    };
-
-    let response = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
-    loop {
-        if let Ok((mut stream, _)) = listener.accept().await {
-            if let Err(e) = stream.write_all(response).await {
-                tracing::debug!(error = %e, "health check write failed");
-            }
-            if let Err(e) = stream.shutdown().await {
-                tracing::debug!(error = %e, "health check shutdown failed");
-            }
-        }
-    }
-}
-
-/// Build forward + reverse `RelayContext` from the given chains and client IDs.
-macro_rules! relay_pair {
-    ($src:expr, $dst:expr, $src_id:expr, $dst_id:expr) => {{
-        let fwd: Arc<dyn DynRelay> = Arc::new(RelayContext {
-            src_chain: $src.clone(),
-            dst_chain: $dst.clone(),
-            src_client_id: $src_id.clone(),
-            dst_client_id: $dst_id.clone(),
-        });
-        let rev: Arc<dyn DynRelay> = Arc::new(RelayContext {
-            src_chain: $dst,
-            dst_chain: $src,
-            src_client_id: $dst_id,
-            dst_client_id: $src_id,
-        });
-        (fwd, rev)
-    }};
-}
-
-fn parse_cosmos_client_id(
-    raw: &str,
-    label: &str,
-) -> eyre::Result<ibc::core::host::types::identifiers::ClientId> {
-    raw.parse()
-        .map_err(|e| eyre::eyre!("invalid {label} '{raw}': {e}"))
-}
-
-fn build_relay_pair(
-    src: ConnectedChain,
-    dst: ConnectedChain,
-    relay: &RelayConfig,
-) -> eyre::Result<(Arc<dyn DynRelay>, Arc<dyn DynRelay>)> {
-    match (src, dst) {
-        (ConnectedChain::Cosmos(src_chain), ConnectedChain::Cosmos(dst_chain)) => {
-            let src_id = parse_cosmos_client_id(&relay.src_client_id, "src_client_id")?;
-            let dst_id = parse_cosmos_client_id(&relay.dst_client_id, "dst_client_id")?;
-            Ok(relay_pair!(*src_chain, *dst_chain, src_id, dst_id))
-        }
-        (ConnectedChain::Cosmos(src_chain), ConnectedChain::Ethereum(dst_chain)) => {
-            let src_id = parse_cosmos_client_id(&relay.src_client_id, "src_client_id")?;
-            let dst_id = EvmClientId(relay.dst_client_id.clone());
-            Ok(relay_pair!(*src_chain, *dst_chain, src_id, dst_id))
-        }
-        (ConnectedChain::Ethereum(src_chain), ConnectedChain::Cosmos(dst_chain)) => {
-            let src_id = EvmClientId(relay.src_client_id.clone());
-            let dst_id = parse_cosmos_client_id(&relay.dst_client_id, "dst_client_id")?;
-            Ok(relay_pair!(*src_chain, *dst_chain, src_id, dst_id))
-        }
-        (ConnectedChain::Ethereum(_), ConnectedChain::Ethereum(_)) => {
-            eyre::bail!("Ethereum-to-Ethereum relay is not supported")
-        }
-    }
-}
-
 fn spawn_relay_pair(
     fwd: Arc<dyn DynRelay>,
     rev: Arc<dyn DynRelay>,
     relay: &RelayConfig,
-) -> eyre::Result<JoinHandle<mercury_core::error::Result<()>>> {
+) -> JoinHandle<mercury_core::error::Result<()>> {
     let src_name = relay.src_chain.clone();
     let dst_name = relay.dst_chain.clone();
-    let packet_filter = relay
-        .packet_filter
-        .as_ref()
-        .map(PacketFilter::new)
-        .transpose()
-        .map_err(|e| eyre::eyre!("relay {}->{}: {e}", relay.src_chain, relay.dst_chain))?;
 
-    if let Some(ref pf) = relay.packet_filter {
-        tracing::info!(
-            policy = ?pf.policy,
-            source_ports = ?pf.source_ports,
-            "packet filter configured"
-        );
-    }
-
-    let worker_config = RelayWorkerConfig {
-        lookback: relay
-            .lookback_window_secs
-            .map(std::time::Duration::from_secs),
-        clearing_interval: relay
-            .clearing_interval_secs
-            .map(std::time::Duration::from_secs),
-        misbehaviour_scan_interval: relay
-            .misbehaviour_scan_interval_secs
-            .map(std::time::Duration::from_secs),
-        packet_filter,
+    let config = DynRelayConfig {
+        lookback_secs: relay.lookback_window_secs,
+        clearing_interval_secs: relay.clearing_interval_secs,
+        misbehaviour_scan_interval_secs: relay.misbehaviour_scan_interval_secs,
+        packet_filter_config: relay.packet_filter.clone(),
     };
 
     let shared_token = tokio_util::sync::CancellationToken::new();
 
-    Ok(tokio::spawn(async move {
+    tokio::spawn(async move {
         tracing::info!(
             src = %src_name,
             dst = %dst_name,
             "running bidirectional relay"
         );
         let (res_a, res_b) = tokio::join!(
-            fwd.run(shared_token.clone(), worker_config.clone()),
-            rev.run(shared_token, worker_config),
+            fwd.run(shared_token.clone(), config.clone()),
+            rev.run(shared_token, config),
         );
         if let Err(ref e) = res_a {
             tracing::error!(direction = "a->b", error = %e, "relay direction failed");
@@ -357,5 +161,72 @@ fn spawn_relay_pair(
             (Err(e), _) | (_, Err(e)) => Err(e),
             _ => Ok(()),
         }
+    })
+}
+
+struct HealthState {
+    registry: ChainRegistry,
+    chains: Vec<(String, String, AnyChain)>,
+}
+
+async fn health_handler(
+    axum::extract::State(state): axum::extract::State<Arc<HealthState>>,
+) -> axum::response::Json<serde_json::Value> {
+    let mut chain_results = serde_json::Map::new();
+    let mut all_healthy = true;
+
+    for (chain_id, chain_type, chain) in &state.chains {
+        let status = match state.registry.chain(chain_type) {
+            Ok(plugin) => match plugin.query_status(chain).await {
+                Ok(info) => serde_json::json!({
+                    "status": "healthy",
+                    "height": info.height,
+                    "timestamp": info.timestamp,
+                }),
+                Err(e) => {
+                    all_healthy = false;
+                    serde_json::json!({
+                        "status": "unhealthy",
+                        "error": e.to_string(),
+                    })
+                }
+            },
+            Err(e) => {
+                all_healthy = false;
+                serde_json::json!({
+                    "status": "error",
+                    "error": e.to_string(),
+                })
+            }
+        };
+        chain_results.insert(chain_id.clone(), status);
+    }
+
+    axum::response::Json(serde_json::json!({
+        "healthy": all_healthy,
+        "chains": chain_results,
     }))
+}
+
+async fn serve_health(port: u16, registry: ChainRegistry, chains: Vec<(String, String, AnyChain)>) {
+    let state = Arc::new(HealthState { registry, chains });
+    let app = axum::Router::new()
+        .route("/health", axum::routing::get(health_handler))
+        .with_state(state);
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => {
+            tracing::info!(port, "health endpoint listening");
+            l
+        }
+        Err(e) => {
+            tracing::error!(port, error = %e, "failed to bind health endpoint");
+            return;
+        }
+    };
+
+    if let Err(e) = axum::serve(listener, app).await {
+        tracing::error!(error = %e, "health server error");
+    }
 }

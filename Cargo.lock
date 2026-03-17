@@ -1627,10 +1627,13 @@ checksum = "8b52af3cb4058c895d37317bb27508dccc8e5f2d39454016b297bf4a400597b8"
 dependencies = [
  "axum-core 0.5.6",
  "bytes",
+ "form_urlencoded",
  "futures-util",
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
+ "hyper 1.8.1",
+ "hyper-util",
  "itoa",
  "matchit 0.8.4",
  "memchr",
@@ -1638,10 +1641,15 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "serde_core",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_urlencoded",
  "sync_wrapper 1.0.2",
+ "tokio",
  "tower 0.5.3",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -1681,6 +1689,7 @@ dependencies = [
  "sync_wrapper 1.0.2",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -5035,26 +5044,22 @@ dependencies = [
 name = "mercury-cli"
 version = "0.1.0-alpha.2"
 dependencies = [
- "alloy",
+ "axum 0.8.8",
  "clap",
  "color-eyre",
  "eyre",
  "futures",
- "ibc",
- "mercury-chain-cache",
  "mercury-core",
  "mercury-cosmos-counterparties",
- "mercury-ethereum",
  "mercury-ethereum-counterparties",
- "mercury-relay",
  "mercury-telemetry",
  "serde",
+ "serde_json",
  "tokio",
  "tokio-util",
  "toml",
  "tracing",
  "tracing-subscriber",
- "url",
 ]
 
 [[package]]
@@ -5063,10 +5068,13 @@ version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
  "eyre",
+ "futures",
  "governor",
  "metrics",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
+ "toml",
  "tracing",
 ]
 
@@ -5110,19 +5118,25 @@ dependencies = [
  "async-trait",
  "ethereum-light-client",
  "eyre",
+ "futures",
  "hex",
  "ibc",
  "ibc-client-tendermint",
  "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
+ "mercury-chain-cache",
  "mercury-chain-traits",
  "mercury-core",
  "mercury-cosmos",
  "mercury-ethereum",
+ "mercury-relay",
  "prost 0.13.5",
+ "serde",
  "serde_json",
  "tendermint",
  "tendermint-rpc",
  "tokio",
+ "tokio-util",
+ "toml",
  "tracing",
 ]
 
@@ -5212,20 +5226,27 @@ dependencies = [
  "eyre",
  "futures",
  "hex",
+ "ibc",
  "ibc-client-tendermint",
  "ibc-eureka-solidity-types",
  "ibc-proto 0.51.1",
  "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
+ "mercury-chain-cache",
  "mercury-chain-traits",
  "mercury-core",
  "mercury-cosmos",
+ "mercury-cosmos-counterparties",
  "mercury-ethereum",
+ "mercury-relay",
  "prost 0.13.5",
+ "serde",
  "sha2 0.10.9",
  "sp1-ics07-tendermint-prover",
  "sp1-prover",
  "sp1-sdk",
  "tendermint",
+ "tokio-util",
+ "toml",
  "tracing",
 ]
 

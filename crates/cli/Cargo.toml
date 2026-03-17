@@ -18,12 +18,9 @@ name = "mercury-relayer"
 path = "src/main.rs"
 
 [dependencies]
-mercury-chain-cache = { workspace = true }
 mercury-core = { workspace = true }
 mercury-cosmos-counterparties = { workspace = true, features = ["ethereum-beacon"] }
-mercury-ethereum = { workspace = true }
 mercury-ethereum-counterparties = { workspace = true, features = ["cosmos-sp1"] }
-mercury-relay = { workspace = true }
 mercury-telemetry = { workspace = true }
 
 clap = { workspace = true }
@@ -33,9 +30,8 @@ tracing-subscriber = { workspace = true }
 eyre = { workspace = true }
 color-eyre = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 toml = { workspace = true }
-ibc = { workspace = true }
 futures = { workspace = true }
 tokio-util = { workspace = true }
-alloy = { workspace = true }
-url = { workspace = true }
+axum = { workspace = true }

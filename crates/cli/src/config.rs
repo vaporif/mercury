@@ -1,49 +1,48 @@
 use std::path::Path;
 
 use eyre::Context;
-use mercury_cosmos_counterparties::config::CosmosChainConfig;
-use mercury_ethereum_counterparties::config::EthereumChainConfig;
-use mercury_relay::filter::PacketFilterConfig;
+use mercury_core::registry::ChainRegistry;
 use serde::Deserialize;
 
-/// Top-level relayer configuration with chains and relay paths.
 #[derive(Debug, Deserialize)]
 pub struct RelayerConfig {
     #[serde(default)]
-    pub chains: Vec<ChainConfig>,
+    pub chains: Vec<RawChainConfig>,
     #[serde(default)]
     pub relays: Vec<RelayConfig>,
     #[serde(default)]
     pub telemetry: mercury_telemetry::TelemetryConfig,
 }
 
-/// Chain backend configuration, tagged by type.
+impl RelayerConfig {
+    pub fn find_chain<'a>(
+        &'a self,
+        registry: &ChainRegistry,
+        chain_id: &str,
+    ) -> eyre::Result<&'a RawChainConfig> {
+        self.chains
+            .iter()
+            .find(|c| c.chain_id(registry).is_ok_and(|id| id == chain_id))
+            .ok_or_else(|| eyre::eyre!("chain '{chain_id}' not found in config"))
+    }
+}
+
+/// `raw` will contain the `type` key — plugins should tolerate that.
 #[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-pub enum ChainConfig {
-    #[serde(rename = "cosmos")]
-    Cosmos(Box<CosmosChainConfig>),
-    #[serde(rename = "ethereum")]
-    Ethereum(Box<EthereumChainConfig>),
+pub struct RawChainConfig {
+    #[serde(rename = "type")]
+    pub chain_type: String,
+    #[serde(flatten)]
+    pub raw: toml::Table,
 }
 
-impl ChainConfig {
-    pub fn chain_id(&self) -> String {
-        match self {
-            Self::Cosmos(c) => c.chain_id.clone(),
-            Self::Ethereum(c) => c.chain_id_str(),
-        }
-    }
-
-    pub fn rpc_addr(&self) -> &str {
-        match self {
-            Self::Cosmos(c) => &c.rpc_addr,
-            Self::Ethereum(c) => &c.rpc_addr,
-        }
+impl RawChainConfig {
+    pub fn chain_id(&self, registry: &ChainRegistry) -> eyre::Result<String> {
+        let plugin = registry.chain(&self.chain_type)?;
+        plugin.chain_id_from_config(&self.raw)
     }
 }
 
-/// Defines a single relay path between two chains.
 #[derive(Debug, Deserialize)]
 pub struct RelayConfig {
     pub src_chain: String,
@@ -57,10 +56,10 @@ pub struct RelayConfig {
     #[serde(default)]
     pub misbehaviour_scan_interval_secs: Option<u64>,
     #[serde(default)]
-    pub packet_filter: Option<PacketFilterConfig>,
+    pub packet_filter: Option<toml::Value>,
 }
 
-pub fn load_config(path: &Path) -> eyre::Result<RelayerConfig> {
+pub fn load_config(path: &Path, registry: &ChainRegistry) -> eyre::Result<RelayerConfig> {
     let content = std::fs::read_to_string(path)
         .wrap_err_with(|| format!("reading config {}", path.display()))?;
     let config: RelayerConfig =
@@ -68,11 +67,10 @@ pub fn load_config(path: &Path) -> eyre::Result<RelayerConfig> {
 
     let mut seen_ids = std::collections::HashSet::new();
     for chain in &config.chains {
-        match chain {
-            ChainConfig::Cosmos(c) => c.validate()?,
-            ChainConfig::Ethereum(c) => c.validate()?,
-        }
-        let id = chain.chain_id();
+        let plugin = registry.chain(&chain.chain_type)?;
+        plugin.validate_config(&chain.raw)?;
+
+        let id = plugin.chain_id_from_config(&chain.raw)?;
         if !seen_ids.insert(id.clone()) {
             eyre::bail!("duplicate chain_id '{id}' in config");
         }

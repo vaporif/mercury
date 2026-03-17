@@ -5,6 +5,7 @@ use tracing_subscriber::EnvFilter;
 
 mod commands;
 mod config;
+mod registry;
 
 use commands::Commands;
 
