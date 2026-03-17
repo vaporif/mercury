@@ -33,13 +33,11 @@ impl RpcConfig {
     }
 }
 
-/// Serde default helper for `rpc_timeout_secs` fields.
 #[must_use]
 pub const fn default_timeout_secs() -> u64 {
     RpcConfig::DEFAULT_TIMEOUT_SECS
 }
 
-/// Serde default helper for `rpc_rate_limit` fields.
 #[must_use]
 pub const fn default_rate_limit() -> u64 {
     RpcConfig::DEFAULT_RATE_LIMIT

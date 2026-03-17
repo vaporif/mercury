@@ -8,11 +8,10 @@ pub mod registry;
 pub mod rpc_guard;
 pub mod worker;
 
-/// Marker trait for types that are `Send + Sync + 'static`.
 pub trait ThreadSafe: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> ThreadSafe for T {}
 
-/// Human-readable chain identifier for metrics and telemetry.
+/// Human-readable chain identifier
 #[derive(Clone, Debug)]
 pub struct ChainLabel {
     name: Arc<str>,

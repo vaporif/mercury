@@ -1,5 +1,3 @@
-//! Error handling — re-exports from `eyre` plus typed domain errors.
-
 pub use eyre::{Context, Report, Result, WrapErr, bail, eyre};
 
 /// Whether an error is safe to retry.
@@ -9,14 +7,10 @@ pub enum Retryability {
     Fatal,
 }
 
-/// Implemented by domain error types that carry a default retryability.
 pub trait HasRetryability {
     fn retryability(&self) -> Retryability;
 }
 
-/// Extension trait on `eyre::Report` for retryability checks.
-/// Uses `downcast_ref` (which walks the error chain internally)
-/// to find typed errors. Untyped errors default to `Retryable`.
 pub trait RetryableExt {
     fn retryability(&self) -> Retryability;
     fn is_retryable(&self) -> bool;
@@ -47,7 +41,6 @@ impl RetryableExt for eyre::Report {
     }
 }
 
-/// Transaction lifecycle errors.
 #[derive(Debug, thiserror::Error)]
 pub enum TxError {
     #[error("sequence mismatch: {details}")]
@@ -99,7 +92,6 @@ impl TxError {
     }
 }
 
-/// Chain state query errors.
 #[derive(Debug, thiserror::Error)]
 pub enum QueryError {
     #[error("query timed out: {reason}")]
@@ -125,7 +117,6 @@ impl HasRetryability for QueryError {
     }
 }
 
-/// Proof fetch, generation, and verification errors.
 #[derive(Debug, thiserror::Error)]
 pub enum ProofError {
     #[error("proof fetch failed: {reason}")]
@@ -149,7 +140,6 @@ impl HasRetryability for ProofError {
     }
 }
 
-/// Light client state errors.
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     #[error("client {client_id} expired")]
@@ -166,7 +156,6 @@ impl HasRetryability for ClientError {
     }
 }
 
-/// RPC transport errors (timeout, rate limit exceeded).
 #[derive(Debug, thiserror::Error)]
 pub enum RpcError {
     #[error("RPC timed out after {0:?}")]

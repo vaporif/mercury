@@ -23,7 +23,6 @@ pub type AnyChain = Arc<dyn Any + Send + Sync>;
 
 pub type AnyClientId = Box<dyn Any + Send + Sync>;
 
-/// Chain identifier (e.g. "cosmoshub-4", "1" for Ethereum mainnet).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ChainId(pub String);
 

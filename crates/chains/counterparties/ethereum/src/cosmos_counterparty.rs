@@ -1,6 +1,3 @@
-//! Cross-chain trait implementations for Cosmos → EVM client relay.
-//! Gated behind the `cosmos-sp1` feature.
-
 use std::time::Duration;
 
 use alloy::consensus::Transaction as _;
@@ -253,8 +250,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for EthereumAdapter {
 }
 
 // TODO: refactor — use a macro to collapse the repetitive decode/inject/encode branches
-/// Decode the calldata of a packet message, set its proof field to the
-/// combined membership proof, and re-encode.
+// or forget about it...
 fn inject_membership_proof(msg: &mut EvmMessage, proof_bytes: &[u8]) {
     if let Ok(mut call) = ICS26Router::recvPacketCall::abi_decode(&msg.calldata) {
         call.msg_.proofCommitment = proof_bytes.to_vec().into();

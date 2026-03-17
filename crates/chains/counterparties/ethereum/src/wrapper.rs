@@ -6,8 +6,6 @@ use mercury_core::error::Result;
 use mercury_ethereum::chain::EthereumChain;
 use mercury_ethereum::config::EthereumChainConfig;
 
-/// Wrapper around `EthereumChain` that is local to this crate,
-/// enabling cross-chain trait impls without orphan rule violations.
 #[derive(Clone, Debug)]
 pub struct EthereumAdapter(pub EthereumChain);
 

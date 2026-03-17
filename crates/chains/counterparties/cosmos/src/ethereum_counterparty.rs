@@ -1,9 +1,3 @@
-//! Cross-chain trait impls for `CosmosAdapter<S>` with `EthereumChain` counterparty.
-//!
-//! Implements: `ClientQuery`, `ClientMessageBuilder`, `PacketMessageBuilder`,
-//! `MisbehaviourDetector`, `MisbehaviourQuery`, `MisbehaviourMessageBuilder`.
-//! Gated behind the `ethereum-beacon` feature.
-
 use std::time::Duration;
 
 use async_trait::async_trait;
