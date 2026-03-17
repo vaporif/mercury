@@ -44,17 +44,18 @@ In your counterparty crate (e.g., `mercury-mychain-counterparties/src/plugin.rs`
 
 1. **`ChainPlugin`** — implement `chain_type()`, `validate_config()`, `connect()`, `parse_client_id()`, `query_status()`, `chain_id_from_config()`, `rpc_addr_from_config()`. The `connect()` method creates your chain, wraps it in `CachedChain`, and returns it as `AnyChain` (`Arc<dyn Any + Send + Sync>`).
 
-2. **`register()` function** — register your chain plugin with the `ChainRegistry`:
+2. **`register()` function** — register your chain plugin and same-chain relay pair with the `ChainRegistry`:
 
 ```rust
 pub fn register(registry: &mut ChainRegistry) {
     registry.register_chain(MyChainPlugin);
+    registry.register_pair(MyChainToMyChainRelay);
 }
 ```
 
-### Relay pair plugin
+### Cross-chain relay pair plugin
 
-Cross-chain relay pairs live in dedicated relay crates (e.g., `crates/chains/cosmos-ethereum-relay/`), separate from the counterparty crates. This keeps counterparty crates focused on trait impls and avoids pulling relay construction logic into them.
+Cross-chain relay pairs live in dedicated relay crates (e.g., `crates/chains/cosmos-ethereum-relay/`), separate from the counterparty crates. This keeps counterparty crates focused on trait impls and avoids pulling cross-chain relay construction logic into them.
 
 1. **`RelayPairPlugin`** — for each supported relay direction, implement `src_type()`, `dst_type()`, and `build_relay()`. The `build_relay()` method downcasts `AnyChain` back to your concrete types, creates a `RelayContext`, and returns forward + reverse `DynRelay` instances.
 
