@@ -18,27 +18,30 @@ impl<T: Send + Sync + 'static> ThreadSafe for T {}
 /// Human-readable chain identifier for metrics and telemetry.
 #[derive(Clone, Debug)]
 pub struct ChainLabel {
-    name: &'static str,
+    name: Arc<str>,
     id: Option<Arc<str>>,
 }
 
 impl ChainLabel {
     #[must_use]
-    pub const fn new(name: &'static str) -> Self {
-        Self { name, id: None }
+    pub fn new(name: impl Into<Arc<str>>) -> Self {
+        Self {
+            name: name.into(),
+            id: None,
+        }
     }
 
     #[must_use]
-    pub fn with_id(name: &'static str, id: impl Into<Arc<str>>) -> Self {
+    pub fn with_id(name: impl Into<Arc<str>>, id: impl Into<Arc<str>>) -> Self {
         Self {
-            name,
+            name: name.into(),
             id: Some(id.into()),
         }
     }
 
     #[must_use]
-    pub const fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     #[must_use]
@@ -48,9 +51,19 @@ impl ChainLabel {
 
     #[must_use]
     pub fn metric_labels(&self) -> Vec<(&'static str, String)> {
-        let mut labels = vec![("chain_name", self.name.to_owned())];
+        let mut labels = vec![("chain_name", self.name.to_string())];
         if let Some(id) = &self.id {
             labels.push(("chain_id", id.to_string()));
+        }
+        labels
+    }
+
+    /// Returns metric labels prefixed with `counterparty_`.
+    #[must_use]
+    pub fn counterparty_metric_labels(&self) -> Vec<(&'static str, String)> {
+        let mut labels = vec![("counterparty_chain_name", self.name.to_string())];
+        if let Some(id) = &self.id {
+            labels.push(("counterparty_chain_id", id.to_string()));
         }
         labels
     }
@@ -60,7 +73,7 @@ impl std::fmt::Display for ChainLabel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.id {
             Some(id) => write!(f, "{}/{id}", self.name),
-            None => f.write_str(self.name),
+            None => f.write_str(&self.name),
         }
     }
 }

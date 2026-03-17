@@ -18,6 +18,8 @@ const fn default_dynamic_gas_multiplier() -> f64 {
 /// Configuration for connecting to a Cosmos SDK chain.
 #[derive(Clone, Debug, Deserialize)]
 pub struct CosmosChainConfig {
+    #[serde(default)]
+    pub chain_name: Option<String>,
     pub chain_id: String,
     pub rpc_addr: String,
     pub grpc_addr: String,
@@ -191,6 +193,7 @@ mod tests {
 
     fn valid_config() -> CosmosChainConfig {
         CosmosChainConfig {
+            chain_name: None,
             chain_id: "cosmoshub-4".to_string(),
             rpc_addr: "http://localhost:26657".to_string(),
             grpc_addr: "http://localhost:9090".to_string(),

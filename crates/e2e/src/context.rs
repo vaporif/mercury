@@ -336,6 +336,7 @@ fn build_signer_from_wallet(
 
 fn make_test_cosmos_config(handle: &CosmosDockerHandle, key_name: &str) -> CosmosChainConfig {
     CosmosChainConfig {
+        chain_name: None,
         chain_id: handle.chain_id().to_string(),
         rpc_addr: handle.rpc_endpoint().to_string(),
         grpc_addr: handle.grpc_endpoint().to_string(),
