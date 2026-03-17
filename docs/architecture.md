@@ -200,6 +200,37 @@ pub struct UpdateClientOutput<M> {
 
 These hooks are no-ops for Cosmos↔Cosmos relaying. The Ethereum bridge uses them to combine client updates with membership proofs into a single ZK proof, reducing on-chain verification cost — but the relay pipeline doesn't need to know that.
 
+## Plugin Architecture
+
+Mercury uses a plugin-based architecture to wire chains into the CLI. Instead of enum-based dispatch with match arms for each chain type, chains register themselves into a `ChainRegistry` via plugin traits. Adding a new chain requires no modifications to the CLI — just implement the plugin traits and call `register()`.
+
+### Core Traits
+
+Three traits in `mercury-core` define the plugin interface:
+
+- **`ChainPlugin`** — per-chain operations: config validation, connection, status queries, client ID parsing. Keyed by a `chain_type()` string (e.g., `"cosmos"`, `"ethereum"`).
+- **`RelayPairPlugin`** — relay construction for a `(src_type, dst_type)` pair. Takes two type-erased chains and returns forward + reverse `DynRelay` instances.
+- **`DynRelay`** — type-erased relay runner with a single `run()` method.
+
+### Type Erasure
+
+Chains are type-erased via `AnyChain = Arc<dyn Any + Send + Sync>`. Each plugin wraps its concrete chain (e.g., `CachedChain<CosmosAdapter<S>>`) in an `Arc` and registers it. Relay pair plugins downcast back to the concrete types when building relays. Config is passed as `toml::Table` — each plugin deserializes its own config format.
+
+### Registry
+
+`ChainRegistry` stores plugins in two maps: chain plugins by type string, relay pair plugins by `(src_type, dst_type)` tuple. The CLI builds the registry at startup:
+
+```rust
+pub fn build_registry() -> ChainRegistry {
+    let mut r = ChainRegistry::new();
+    mercury_cosmos_counterparties::plugin::register(&mut r);
+    mercury_ethereum_counterparties::plugin::register(&mut r);
+    r
+}
+```
+
+Each counterparty crate's `register()` function registers both its `ChainPlugin` and all supported `RelayPairPlugin` combinations. The CLI then uses the registry to validate config, connect chains, query status, and build relays — all without knowing concrete chain types.
+
 ## Crate Layout
 
 ```mermaid
