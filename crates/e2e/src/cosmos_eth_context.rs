@@ -76,6 +76,7 @@ impl CosmosEthTestContext {
             .map_err(|e| eyre::eyre!("parsing anvil private key: {e}"))?;
 
         let eth_config = EthereumChainConfig {
+            chain_name: None,
             chain_id: anvil_handle.chain_id,
             rpc_addr: anvil_handle.rpc_endpoint.clone(),
             ics26_router: format!("{:#x}", anvil_handle.ics26_router),
@@ -580,6 +581,7 @@ fn make_cosmos_config(
     wasm_checksum: Option<&str>,
 ) -> CosmosChainConfig {
     CosmosChainConfig {
+        chain_name: None,
         chain_id: handle.chain_id().to_string(),
         rpc_addr: handle.rpc_endpoint().to_string(),
         grpc_addr: handle.grpc_endpoint().to_string(),

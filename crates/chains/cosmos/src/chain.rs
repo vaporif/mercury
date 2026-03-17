@@ -85,7 +85,8 @@ impl<S: CosmosSigner> CosmosChain<S> {
         check_min_gas_price(grpc_channel.clone(), &config).await;
         info!(chain_id = %chain_id, "cosmos chain initialized");
 
-        let label = mercury_core::ChainLabel::with_id("cosmos", chain_id.to_string());
+        let name = config.chain_name.as_deref().unwrap_or("cosmos");
+        let label = mercury_core::ChainLabel::with_id(name, chain_id.to_string());
         Ok(Self {
             block_time: config.block_time,
             config,

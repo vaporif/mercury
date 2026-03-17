@@ -12,6 +12,7 @@ use mercury_chain_traits::relay::{Relay, RelayChain};
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
+use mercury_telemetry::guard::WorkerGuard;
 use mercury_telemetry::recorder::{
     ClearingMetrics, ClientMetrics, EventMetrics, MisbehaviourMetrics, PacketMetrics, TxDirection,
     TxMetrics,
@@ -175,14 +176,17 @@ where
             token: pipeline_token.clone(),
             start_height,
             packet_filter: config.packet_filter.clone(),
-            metrics: EventMetrics::new(src_label.clone()),
+            metrics: EventMetrics::new(src_label.clone())
+                .with_counterparty(dst_label.clone()),
         };
 
         let client_refresh = ClientRefreshWorker {
             relay: Arc::clone(self),
             sender: tx_req_tx.clone(),
             token: pipeline_token.clone(),
-            metrics: ClientMetrics::new(src_label.clone()),
+            metrics: ClientMetrics::new(src_label.clone())
+                .with_counterparty(dst_label.clone())
+                .with_client_id(self.dst_client_id.to_string()),
         };
 
         let packet_worker = PacketWorker {
@@ -191,21 +195,24 @@ where
             sender: tx_req_tx,
             src_sender: src_tx_req_tx,
             token: pipeline_token.clone(),
-            metrics: PacketMetrics::new(src_label.clone()),
+            metrics: PacketMetrics::new(src_label.clone())
+                .with_counterparty(dst_label.clone()),
         };
 
         let tx_worker = TxWorker {
             relay: Arc::clone(self),
             receiver: tx_req_rx,
             token: pipeline_token.clone(),
-            metrics: TxMetrics::new(TxDirection::Dst, dst_label.clone()),
+            metrics: TxMetrics::new(TxDirection::Dst, dst_label.clone())
+                .with_counterparty(src_label.clone()),
         };
 
         let src_tx_worker = SrcTxWorker {
             relay: Arc::clone(self),
             receiver: src_tx_req_rx,
             token: pipeline_token.clone(),
-            metrics: TxMetrics::new(TxDirection::Src, src_label.clone()),
+            metrics: TxMetrics::new(TxDirection::Src, src_label.clone())
+                .with_counterparty(dst_label.clone()),
         };
 
         let event_watcher_handle = spawn_worker(event_watcher);
@@ -223,7 +230,8 @@ where
                     token: pipeline_token.clone(),
                     interval,
                     packet_filter: config.packet_filter.clone(),
-                    metrics: ClearingMetrics::new(src_label.clone()),
+                    metrics: ClearingMetrics::new(src_label.clone())
+                        .with_counterparty(dst_label.clone()),
                 };
                 spawn_worker(clearing_worker)
             },
@@ -236,11 +244,28 @@ where
                     relay: Arc::clone(self),
                     token: pipeline_token.clone(),
                     scan_interval: interval,
-                    metrics: MisbehaviourMetrics::new(src_label.clone()),
+                    metrics: MisbehaviourMetrics::new(src_label.clone())
+                        .with_counterparty(dst_label.clone())
+                        .with_client_id(self.dst_client_id.to_string()),
                 };
                 spawn_worker(misbehaviour_worker)
             },
         );
+
+        // RAII guards: gauge increments on creation, decrements on drop.
+        let mut _guards = vec![
+            WorkerGuard::with_chain_labels("event_watcher", &src_label, Some(&dst_label)),
+            WorkerGuard::with_chain_labels("packet_worker", &src_label, Some(&dst_label)),
+            WorkerGuard::with_chain_labels("tx_worker", &dst_label, Some(&src_label)),
+            WorkerGuard::with_chain_labels("src_tx_worker", &src_label, Some(&dst_label)),
+            WorkerGuard::with_chain_labels("client_refresh", &src_label, Some(&dst_label)),
+        ];
+        if config.clearing_interval.is_some() {
+            _guards.push(WorkerGuard::with_chain_labels("clearing_worker", &src_label, Some(&dst_label)));
+        }
+        if config.misbehaviour_scan_interval.is_some() {
+            _guards.push(WorkerGuard::with_chain_labels("misbehaviour_worker", &src_label, Some(&dst_label)));
+        }
 
         info!("relay pipeline started");
 

@@ -58,6 +58,8 @@ pub enum ClientPayloadMode {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct EthereumChainConfig {
+    #[serde(default)]
+    pub chain_name: Option<String>,
     pub chain_id: u64,
     pub rpc_addr: String,
     pub ics26_router: String,
@@ -234,6 +236,7 @@ mod tests {
     #[test]
     fn validate_rejects_empty_rpc() {
         let config = EthereumChainConfig {
+            chain_name: None,
             chain_id: 1,
             rpc_addr: String::new(),
             ics26_router: "0x0000000000000000000000000000000000000001".to_string(),
@@ -252,6 +255,7 @@ mod tests {
     #[test]
     fn validate_rejects_ws_rpc() {
         let config = EthereumChainConfig {
+            chain_name: None,
             chain_id: 1,
             rpc_addr: "ws://localhost:8545".to_string(),
             ics26_router: "0x0000000000000000000000000000000000000001".to_string(),
@@ -270,6 +274,7 @@ mod tests {
     #[test]
     fn validate_rejects_bad_address() {
         let config = EthereumChainConfig {
+            chain_name: None,
             chain_id: 1,
             rpc_addr: "http://localhost:8545".to_string(),
             ics26_router: "not-an-address".to_string(),
