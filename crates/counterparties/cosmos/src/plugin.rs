@@ -116,8 +116,8 @@ pub fn dyn_to_worker_config(config: &DynRelayConfig) -> eyre::Result<RelayWorker
 
     Ok(RelayWorkerConfig {
         lookback: config.lookback_secs.map(std::time::Duration::from_secs),
-        clearing_interval: config
-            .clearing_interval_secs
+        sweep_interval: config
+            .sweep_interval_secs
             .map(std::time::Duration::from_secs),
         misbehaviour_scan_interval: config
             .misbehaviour_scan_interval_secs

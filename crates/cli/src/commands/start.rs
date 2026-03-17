@@ -150,7 +150,7 @@ fn spawn_relay_pair(
 
     let config = DynRelayConfig {
         lookback_secs: relay.lookback_window_secs,
-        clearing_interval_secs: relay.clearing_interval_secs,
+        sweep_interval_secs: relay.sweep_interval_secs,
         misbehaviour_scan_interval_secs: relay.misbehaviour_scan_interval_secs,
         packet_filter_config: relay.packet_filter.clone(),
     };

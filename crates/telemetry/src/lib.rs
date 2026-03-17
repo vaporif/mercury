@@ -125,8 +125,8 @@ fn register() {
     );
     describe_counter!(metric::event::ACK_EVENTS, "WriteAck events extracted");
     describe_counter!(
-        metric::event::CLEARED_EVENTS,
-        "Packets found during clearing scan"
+        metric::event::SWEPT_EVENTS,
+        "Packets found during sweep scan"
     );
     describe_gauge!(
         metric::event::EVENT_WATCHER_LAG_SECS,

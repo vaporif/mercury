@@ -8,7 +8,7 @@ Production readiness tasks ordered by priority. Each item is scoped as an indepe
 
 ### ~~1. Packet Clearing / Flushing~~
 
-Implemented in `packet_sweeper.rs`. Periodically scans source chain for unrelayed packet commitments, cross-references against destination receipts, and feeds recovered `SendPacket` events into the event pipeline. Enabled via `clearing_interval` config.
+Implemented in `packet_sweeper.rs`. Periodically scans source chain for unrelayed packet commitments, cross-references against destination receipts, and feeds recovered `SendPacket` events into the event pipeline. Enabled via `sweep_interval` config.
 
 ---
 

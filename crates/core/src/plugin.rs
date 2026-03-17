@@ -75,7 +75,7 @@ pub trait DynRelay: Send + Sync {
 #[derive(Clone, Default)]
 pub struct DynRelayConfig {
     pub lookback_secs: Option<u64>,
-    pub clearing_interval_secs: Option<u64>,
+    pub sweep_interval_secs: Option<u64>,
     pub misbehaviour_scan_interval_secs: Option<u64>,
     pub packet_filter_config: Option<toml::Value>,
 }

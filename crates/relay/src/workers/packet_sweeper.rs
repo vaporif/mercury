@@ -14,7 +14,7 @@ use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
-use mercury_telemetry::recorder::ClearingMetrics;
+use mercury_telemetry::recorder::SweepMetrics;
 
 use crate::filter::PacketFilter;
 
@@ -27,7 +27,7 @@ pub struct PacketSweeper<R: Relay> {
     pub token: CancellationToken,
     pub interval: Duration,
     pub packet_filter: Option<PacketFilter>,
-    pub metrics: ClearingMetrics,
+    pub metrics: SweepMetrics,
 }
 
 #[async_trait]
@@ -45,7 +45,7 @@ impl<R: Relay> Worker for PacketSweeper<R> {
             }
 
             if let Err(e) = self.scan().await {
-                warn!(error = %e, "clearing scan failed, will retry next interval");
+                warn!(error = %e, "sweep scan failed, will retry next interval");
             }
         }
 
@@ -55,7 +55,7 @@ impl<R: Relay> Worker for PacketSweeper<R> {
 
 impl<R: Relay> PacketSweeper<R> {
     async fn scan(&self) -> Result<()> {
-        debug!("starting clearing scan");
+        debug!("starting sweep scan");
         let src = self.relay.src_chain();
         let dst = self.relay.dst_chain();
 
@@ -68,7 +68,7 @@ impl<R: Relay> PacketSweeper<R> {
 
         let total = commitment_seqs.len();
         if total == 0 {
-            debug!("clearing scan complete: no commitments found");
+            debug!("sweep scan complete: no commitments found");
             return Ok(());
         }
 
@@ -98,7 +98,7 @@ impl<R: Relay> PacketSweeper<R> {
             .await;
 
         if unrelayed.is_empty() {
-            info!(found = total, unrelayed = 0, "clearing scan complete");
+            info!(found = total, unrelayed = 0, "sweep scan complete");
             return Ok(());
         }
 
@@ -112,7 +112,7 @@ impl<R: Relay> PacketSweeper<R> {
                             <R::SrcChain as PacketEvents>::packet_from_send_event(&send_event);
                         let ports = <R::SrcChain as IbcTypes>::packet_source_ports(packet);
                         if !filter.allows(&ports) {
-                            debug!(seq, ?ports, "cleared packet filtered out");
+                            debug!(seq, ?ports, "swept packet filtered out");
                             continue;
                         }
                     }
@@ -127,7 +127,7 @@ impl<R: Relay> PacketSweeper<R> {
             }
         }
 
-        self.metrics.record_cleared(events.len());
+        self.metrics.record_swept(events.len());
 
         if !events.is_empty() && self.sender.send(events).await.is_err() {
             warn!("packet_worker channel closed, cancelling relay");
@@ -138,7 +138,7 @@ impl<R: Relay> PacketSweeper<R> {
         info!(
             found = total,
             unrelayed = unrelayed.len(),
-            "clearing scan complete"
+            "sweep scan complete"
         );
         Ok(())
     }
