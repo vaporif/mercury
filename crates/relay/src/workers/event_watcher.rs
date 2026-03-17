@@ -66,7 +66,10 @@ impl<R: Relay> Worker for EventWatcher<R> {
 
             let mut maybe_h = R::SrcChain::increment_height(&last_height);
             while let Some(h) = maybe_h {
-                // Stay 1 block behind tip so proof queries at (height - 1) see the commitment.
+                // TODO: investigate whether we need to stay 1 block behind tip.
+                // The `>=` check processes up to `latest - 1`, which means proof
+                // queries run against `h - 1` (two behind tip). Confirm whether
+                // processing `h == latest` (one behind for proofs) would be safe.
                 if h >= latest {
                     break;
                 }

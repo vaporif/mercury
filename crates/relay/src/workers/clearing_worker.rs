@@ -39,13 +39,13 @@ impl<R: Relay> Worker for ClearingWorker<R> {
     #[instrument(skip_all, name = "clearing_worker", fields(src_chain = %self.relay.src_chain().chain_id(), dst_chain = %self.relay.dst_chain().chain_id()))]
     async fn run(self) -> Result<()> {
         loop {
-            if let Err(e) = self.scan().await {
-                warn!(error = %e, "clearing scan failed, will retry next interval");
-            }
-
             tokio::select! {
                 () = self.token.cancelled() => break,
                 () = tokio::time::sleep(self.interval) => {}
+            }
+
+            if let Err(e) = self.scan().await {
+                warn!(error = %e, "clearing scan failed, will retry next interval");
             }
         }
 

@@ -35,6 +35,20 @@ const PROOF_FETCH_RETRY_DELAY: Duration = Duration::from_millis(500);
 const PENDING_RECHECK_INTERVAL: Duration = Duration::from_secs(5);
 const RECV_GRACE_PERIOD: Duration = Duration::from_secs(15);
 
+async fn send_or_cancel<T>(
+    sender: &mpsc::Sender<T>,
+    request: T,
+    token: &CancellationToken,
+    label: &str,
+) -> bool {
+    if sender.send(request).await.is_err() {
+        warn!("{label} channel closed, cancelling relay");
+        token.cancel();
+        return true;
+    }
+    false
+}
+
 /// Receives IBC events and builds relay messages (recv, ack, timeout).
 pub struct PacketWorker<R: Relay> {
     pub relay: Arc<R>,
@@ -523,7 +537,7 @@ where
             }
 
             self.metrics
-                .record_backlog(pending.len() + deliverable.len() + timed_out.len());
+                .record_backlog(in_flight.len() + deliverable.len() + timed_out.len());
 
             if !deliverable.is_empty() || !write_acks.is_empty() {
                 match self.build_dst_update_client_payload().await {
@@ -547,6 +561,8 @@ where
 
                         if packet_msgs.is_empty() {
                             if let Some(payload) = maybe_payload {
+                                // Intentionally log-and-continue rather than propagate:
+                                // transient build failures shouldn't kill the worker.
                                 let Ok(update_output) = self
                                     .build_dst_update_client_message(payload, &[])
                                     .await
@@ -555,17 +571,17 @@ where
                                     continue;
                                 };
                                 if !update_output.messages.is_empty()
-                                    && self
-                                        .sender
-                                        .send(DstTxRequest {
+                                    && send_or_cancel(
+                                        &self.sender,
+                                        DstTxRequest {
                                             messages: update_output.messages,
                                             created_at: std::time::Instant::now(),
-                                        })
-                                        .await
-                                        .is_err()
+                                        },
+                                        &self.token,
+                                        "tx_worker",
+                                    )
+                                    .await
                                 {
-                                    warn!("tx_worker channel closed, cancelling relay");
-                                    self.token.cancel();
                                     return Ok(());
                                 }
                             }
@@ -609,17 +625,17 @@ where
                                 packet = messages.len() - update_msg_count,
                                 "sending batch to tx_worker"
                             );
-                            if self
-                                .sender
-                                .send(DstTxRequest {
+                            if send_or_cancel(
+                                &self.sender,
+                                DstTxRequest {
                                     messages,
                                     created_at: std::time::Instant::now(),
-                                })
-                                .await
-                                .is_err()
+                                },
+                                &self.token,
+                                "tx_worker",
+                            )
+                            .await
                             {
-                                warn!("tx_worker channel closed, cancelling relay");
-                                self.token.cancel();
                                 return Ok(());
                             }
                         } else {
@@ -627,17 +643,17 @@ where
                                 count = packet_msgs.len(),
                                 "client up to date, sending packet messages only"
                             );
-                            if self
-                                .sender
-                                .send(DstTxRequest {
+                            if send_or_cancel(
+                                &self.sender,
+                                DstTxRequest {
                                     messages: packet_msgs,
                                     created_at: std::time::Instant::now(),
-                                })
-                                .await
-                                .is_err()
+                                },
+                                &self.token,
+                                "tx_worker",
+                            )
+                            .await
                             {
-                                warn!("tx_worker channel closed, cancelling relay");
-                                self.token.cancel();
                                 return Ok(());
                             }
                         }
@@ -664,17 +680,17 @@ where
                             let mut messages = src_update_msgs;
                             messages.extend(timeout_msgs);
 
-                            if self
-                                .src_sender
-                                .send(SrcTxRequest {
+                            if send_or_cancel(
+                                &self.src_sender,
+                                SrcTxRequest {
                                     messages,
                                     created_at: std::time::Instant::now(),
-                                })
-                                .await
-                                .is_err()
+                                },
+                                &self.token,
+                                "src_tx_worker",
+                            )
+                            .await
                             {
-                                warn!("src_tx_worker channel closed, cancelling relay");
-                                self.token.cancel();
                                 return Ok(());
                             }
                         }

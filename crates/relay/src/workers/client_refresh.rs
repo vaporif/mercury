@@ -9,7 +9,7 @@ use tracing::{debug, info, instrument, warn};
 use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery};
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::ChainTypes;
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -25,6 +25,26 @@ pub struct ClientRefreshWorker<R: Relay> {
     pub sender: mpsc::Sender<DstTxRequest<R>>,
     pub token: CancellationToken,
     pub metrics: ClientMetrics,
+}
+
+impl<R: Relay> ClientRefreshWorker<R> {
+    async fn query_dst_client_state(
+        &self,
+    ) -> eyre::Result<(
+        <R::DstChain as ChainTypes>::Height,
+        <R::DstChain as IbcTypes>::ClientState,
+    )> {
+        type DstChain<R> = <R as Relay>::DstChain;
+
+        let dst_status = self.relay.dst_chain().query_chain_status().await?;
+        let dst_height = DstChain::<R>::chain_status_height(&dst_status).clone();
+        let cs = self
+            .relay
+            .dst_chain()
+            .query_client_state(self.relay.dst_client_id(), &dst_height)
+            .await?;
+        Ok((dst_height, cs))
+    }
 }
 
 #[async_trait]
@@ -47,19 +67,10 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
                 () = tokio::time::sleep(check_interval) => {}
             }
 
-            // Query client state to determine next check interval
-            let Ok((_dst_height, client_state)) = async {
-                let dst_status = self.relay.dst_chain().query_chain_status().await?;
-                let dst_height = DstChain::<R>::chain_status_height(&dst_status).clone();
-                let cs = self
-                    .relay
-                    .dst_chain()
-                    .query_client_state(self.relay.dst_client_id(), &dst_height)
-                    .await?;
-                Ok::<_, eyre::Report>((dst_height, cs))
-            }
-            .await
-            .inspect_err(|e| warn!(error = %e, "client refresh: failed to query chain/client state, will retry"))
+            let Ok((_dst_height, client_state)) = self
+                .query_dst_client_state()
+                .await
+                .inspect_err(|e| warn!(error = %e, "client refresh: failed to query chain/client state, will retry"))
             else {
                 continue;
             };

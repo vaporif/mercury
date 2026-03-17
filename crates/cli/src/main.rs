@@ -266,6 +266,20 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
     Ok(())
 }
 
+#[cfg(unix)]
+fn warn_key_file_permissions(key_path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(key_path) {
+        let mode = meta.permissions().mode();
+        if mode & 0o044 != 0 {
+            tracing::warn!(
+                path = %key_path.display(),
+                "key file is readable by group/others — consider chmod 600"
+            );
+        }
+    }
+}
+
 #[instrument(skip_all, name = "connect_chain")]
 async fn connect_chain(
     chain_config: &ChainConfig,
@@ -276,18 +290,7 @@ async fn connect_chain(
             let key_path = config_dir.join(&cosmos_cfg.key_file);
 
             #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if let Ok(meta) = std::fs::metadata(&key_path) {
-                    let mode = meta.permissions().mode();
-                    if mode & 0o044 != 0 {
-                        tracing::warn!(
-                            path = %key_path.display(),
-                            "key file is readable by group/others — consider chmod 600"
-                        );
-                    }
-                }
-            }
+            warn_key_file_permissions(&key_path);
 
             let signer = load_cosmos_signer(&key_path, &cosmos_cfg.account_prefix)
                 .map_err(|e| eyre::eyre!("loading signer for '{}': {e}", cosmos_cfg.chain_id))?;
@@ -310,18 +313,7 @@ async fn connect_chain(
             let key_path = config_dir.join(&eth_cfg.key_file);
 
             #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if let Ok(meta) = std::fs::metadata(&key_path) {
-                    let mode = meta.permissions().mode();
-                    if mode & 0o044 != 0 {
-                        tracing::warn!(
-                            path = %key_path.display(),
-                            "key file is readable by group/others — consider chmod 600"
-                        );
-                    }
-                }
-            }
+            warn_key_file_permissions(&key_path);
 
             let signer = mercury_ethereum_counterparties::keys::load_ethereum_signer(&key_path)
                 .map_err(|e| eyre::eyre!("loading signer for chain {}: {e}", eth_cfg.chain_id))?;
@@ -364,6 +356,33 @@ async fn serve_health(port: u16) {
     }
 }
 
+/// Build forward + reverse `RelayContext` from the given chains and client IDs.
+macro_rules! relay_pair {
+    ($src:expr, $dst:expr, $src_id:expr, $dst_id:expr) => {{
+        let fwd: Arc<dyn DynRelay> = Arc::new(RelayContext {
+            src_chain: $src.clone(),
+            dst_chain: $dst.clone(),
+            src_client_id: $src_id.clone(),
+            dst_client_id: $dst_id.clone(),
+        });
+        let rev: Arc<dyn DynRelay> = Arc::new(RelayContext {
+            src_chain: $dst,
+            dst_chain: $src,
+            src_client_id: $dst_id,
+            dst_client_id: $src_id,
+        });
+        (fwd, rev)
+    }};
+}
+
+fn parse_cosmos_client_id(
+    raw: &str,
+    label: &str,
+) -> eyre::Result<ibc::core::host::types::identifiers::ClientId> {
+    raw.parse()
+        .map_err(|e| eyre::eyre!("invalid {label} '{raw}': {e}"))
+}
+
 fn build_relay_pair(
     src: ConnectedChain,
     dst: ConnectedChain,
@@ -371,76 +390,19 @@ fn build_relay_pair(
 ) -> eyre::Result<(Arc<dyn DynRelay>, Arc<dyn DynRelay>)> {
     match (src, dst) {
         (ConnectedChain::Cosmos(src_chain), ConnectedChain::Cosmos(dst_chain)) => {
-            let src_chain = *src_chain;
-            let dst_chain = *dst_chain;
-            let src_client_id: ibc::core::host::types::identifiers::ClientId = relay
-                .src_client_id
-                .parse()
-                .map_err(|e| eyre::eyre!("invalid src_client_id '{}': {e}", relay.src_client_id))?;
-            let dst_client_id: ibc::core::host::types::identifiers::ClientId = relay
-                .dst_client_id
-                .parse()
-                .map_err(|e| eyre::eyre!("invalid dst_client_id '{}': {e}", relay.dst_client_id))?;
-
-            let fwd: Arc<dyn DynRelay> = Arc::new(RelayContext {
-                src_chain: src_chain.clone(),
-                dst_chain: dst_chain.clone(),
-                src_client_id: src_client_id.clone(),
-                dst_client_id: dst_client_id.clone(),
-            });
-            let rev: Arc<dyn DynRelay> = Arc::new(RelayContext {
-                src_chain: dst_chain,
-                dst_chain: src_chain,
-                src_client_id: dst_client_id,
-                dst_client_id: src_client_id,
-            });
-            Ok((fwd, rev))
+            let src_id = parse_cosmos_client_id(&relay.src_client_id, "src_client_id")?;
+            let dst_id = parse_cosmos_client_id(&relay.dst_client_id, "dst_client_id")?;
+            Ok(relay_pair!(*src_chain, *dst_chain, src_id, dst_id))
         }
         (ConnectedChain::Cosmos(src_chain), ConnectedChain::Ethereum(dst_chain)) => {
-            let src_chain = *src_chain;
-            let dst_chain = *dst_chain;
-            let src_client_id: ibc::core::host::types::identifiers::ClientId = relay
-                .src_client_id
-                .parse()
-                .map_err(|e| eyre::eyre!("invalid src_client_id '{}': {e}", relay.src_client_id))?;
-            let dst_client_id = EvmClientId(relay.dst_client_id.clone());
-
-            let fwd: Arc<dyn DynRelay> = Arc::new(RelayContext {
-                src_chain: src_chain.clone(),
-                dst_chain: dst_chain.clone(),
-                src_client_id: src_client_id.clone(),
-                dst_client_id: dst_client_id.clone(),
-            });
-            let rev: Arc<dyn DynRelay> = Arc::new(RelayContext {
-                src_chain: dst_chain,
-                dst_chain: src_chain,
-                src_client_id: dst_client_id,
-                dst_client_id: src_client_id,
-            });
-            Ok((fwd, rev))
+            let src_id = parse_cosmos_client_id(&relay.src_client_id, "src_client_id")?;
+            let dst_id = EvmClientId(relay.dst_client_id.clone());
+            Ok(relay_pair!(*src_chain, *dst_chain, src_id, dst_id))
         }
         (ConnectedChain::Ethereum(src_chain), ConnectedChain::Cosmos(dst_chain)) => {
-            let src_chain = *src_chain;
-            let dst_chain = *dst_chain;
-            let src_client_id = EvmClientId(relay.src_client_id.clone());
-            let dst_client_id: ibc::core::host::types::identifiers::ClientId = relay
-                .dst_client_id
-                .parse()
-                .map_err(|e| eyre::eyre!("invalid dst_client_id '{}': {e}", relay.dst_client_id))?;
-
-            let fwd: Arc<dyn DynRelay> = Arc::new(RelayContext {
-                src_chain: src_chain.clone(),
-                dst_chain: dst_chain.clone(),
-                src_client_id: src_client_id.clone(),
-                dst_client_id: dst_client_id.clone(),
-            });
-            let rev: Arc<dyn DynRelay> = Arc::new(RelayContext {
-                src_chain: dst_chain,
-                dst_chain: src_chain,
-                src_client_id: dst_client_id,
-                dst_client_id: src_client_id,
-            });
-            Ok((fwd, rev))
+            let src_id = EvmClientId(relay.src_client_id.clone());
+            let dst_id = parse_cosmos_client_id(&relay.dst_client_id, "dst_client_id")?;
+            Ok(relay_pair!(*src_chain, *dst_chain, src_id, dst_id))
         }
         (ConnectedChain::Ethereum(_), ConnectedChain::Ethereum(_)) => {
             eyre::bail!("Ethereum-to-Ethereum relay is not supported")
@@ -501,6 +463,12 @@ fn spawn_relay_pair(
         if let Err(ref e) = res_b {
             tracing::error!(direction = "b->a", error = %e, "relay direction failed");
         }
-        res_a.and(res_b)
+        match (res_a, res_b) {
+            (Err(a), Err(b)) => Err(eyre::eyre!(
+                "{src_name}->{dst_name}: {a}; {dst_name}->{src_name}: {b}"
+            )),
+            (Err(e), _) | (_, Err(e)) => Err(e),
+            _ => Ok(()),
+        }
     }))
 }
