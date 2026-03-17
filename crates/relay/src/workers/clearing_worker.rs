@@ -10,7 +10,7 @@ use tracing::{debug, info, instrument, warn};
 use mercury_chain_traits::events::PacketEvents;
 use mercury_chain_traits::queries::{ChainStatusQuery, PacketStateQuery};
 use mercury_chain_traits::relay::{IbcEvent, Relay};
-use mercury_chain_traits::types::IbcTypes;
+use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -36,7 +36,7 @@ impl<R: Relay> Worker for ClearingWorker<R> {
         "clearing_worker"
     }
 
-    #[instrument(skip_all, name = "clearing_worker")]
+    #[instrument(skip_all, name = "clearing_worker", fields(src_chain = %self.relay.src_chain().chain_id(), dst_chain = %self.relay.dst_chain().chain_id()))]
     async fn run(self) -> Result<()> {
         loop {
             if let Err(e) = self.scan().await {

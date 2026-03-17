@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, instrument, warn};
 
 use mercury_chain_traits::relay::Relay;
-use mercury_chain_traits::types::MessageSender;
+use mercury_chain_traits::types::{ChainTypes, MessageSender};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 use mercury_telemetry::recorder::TxMetrics;
@@ -111,7 +111,7 @@ impl<R: Relay> Worker for TxWorker<R> {
         "tx_worker"
     }
 
-    #[instrument(skip_all, name = "tx_worker")]
+    #[instrument(skip_all, name = "tx_worker", fields(chain = %self.relay.dst_chain().chain_id()))]
     async fn run(mut self) -> Result<()> {
         let metrics = self.metrics.clone();
         let (mut msg_rx, fwd_task) = forward_requests(self.receiver, metrics.clone());
@@ -168,7 +168,7 @@ impl<R: Relay> Worker for SrcTxWorker<R> {
         "src_tx_worker"
     }
 
-    #[instrument(skip_all, name = "src_tx_worker")]
+    #[instrument(skip_all, name = "src_tx_worker", fields(chain = %self.relay.src_chain().chain_id()))]
     async fn run(mut self) -> Result<()> {
         let metrics = self.metrics.clone();
         let (mut msg_rx, fwd_task) = forward_requests(self.receiver, metrics.clone());

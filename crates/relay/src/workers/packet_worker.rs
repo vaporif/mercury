@@ -418,7 +418,7 @@ where
         "packet_worker"
     }
 
-    #[instrument(skip_all, name = "packet_worker")]
+    #[instrument(skip_all, name = "packet_worker", fields(src_chain = %self.relay.src_chain().chain_id(), dst_chain = %self.relay.dst_chain().chain_id()))]
     async fn run(mut self) -> Result<()> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;

@@ -43,7 +43,7 @@ where
         "misbehaviour_worker"
     }
 
-    #[instrument(skip_all, name = "misbehaviour_worker")]
+    #[instrument(skip_all, name = "misbehaviour_worker", fields(src_chain = %self.relay.src_chain().chain_id(), dst_chain = %self.relay.dst_chain().chain_id()))]
     async fn run(self) -> Result<()> {
         let mut last_scanned_height: Option<<R::SrcChain as ChainTypes>::Height> = None;
 

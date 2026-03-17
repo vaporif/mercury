@@ -125,8 +125,9 @@ impl ChainTypes for MockChain {
         Duration::from_secs(1)
     }
     fn chain_id(&self) -> &Self::ChainId {
-        static MOCK_CHAIN_ID: &str = "mock-chain";
-        MOCK_CHAIN_ID
+        static MOCK_CHAIN_ID: std::sync::LazyLock<String> =
+            std::sync::LazyLock::new(|| "mock-chain".to_owned());
+        &MOCK_CHAIN_ID
     }
 }
 
