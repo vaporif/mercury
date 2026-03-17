@@ -6,7 +6,7 @@ use tendermint::Time as TmTime;
 use tendermint::block::Height as TmHeight;
 use tendermint::node::info::TxIndexStatus;
 use tendermint_rpc::HttpClient;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::client_types::{CosmosClientState, CosmosConsensusState};
 use crate::config::CosmosChainConfig;
@@ -19,7 +19,7 @@ use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 
 /// A Cosmos SDK chain connected via RPC and gRPC.
 #[derive(Clone, Debug)]
-pub struct CosmosChainInner<S: CosmosSigner> {
+pub struct CosmosChain<S: CosmosSigner> {
     pub config: CosmosChainConfig,
     pub chain_id: ChainId,
     pub rpc_client: HttpClient,
@@ -30,7 +30,7 @@ pub struct CosmosChainInner<S: CosmosSigner> {
     pub dynamic_gas_backend: Arc<OnceLock<crate::gas::DynamicGasBackend>>,
 }
 
-impl<S: CosmosSigner> CosmosChainInner<S> {
+impl<S: CosmosSigner> CosmosChain<S> {
     pub async fn new(config: CosmosChainConfig, signer: S) -> mercury_core::error::Result<Self> {
         use mercury_core::error::WrapErr;
         use tendermint_rpc::Client;
@@ -82,6 +82,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
             .wrap_err("connecting to gRPC")?;
 
         check_min_gas_price(grpc_channel.clone(), &config).await;
+        info!(chain_id = %chain_id, "cosmos chain initialized");
 
         Ok(Self {
             block_time: config.block_time,
@@ -96,7 +97,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
     }
 }
 
-impl<S: CosmosSigner> ChainTypes for CosmosChainInner<S> {
+impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
     type Height = TmHeight;
     type Timestamp = TmTime;
     type ChainId = ChainId;
@@ -137,9 +138,13 @@ impl<S: CosmosSigner> ChainTypes for CosmosChainInner<S> {
     fn block_time(&self) -> Duration {
         self.block_time
     }
+
+    fn chain_id(&self) -> &Self::ChainId {
+        &self.chain_id
+    }
 }
 
-impl<S: CosmosSigner> IbcTypes for CosmosChainInner<S> {
+impl<S: CosmosSigner> IbcTypes for CosmosChain<S> {
     type ClientState = CosmosClientState;
     type ConsensusState = CosmosConsensusState;
     type CommitmentProof = MerkleProof;
@@ -211,7 +216,7 @@ mod tests {
     use crate::keys::Secp256k1KeyPair;
     use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 
-    type TestChain = CosmosChainInner<Secp256k1KeyPair>;
+    type TestChain = CosmosChain<Secp256k1KeyPair>;
 
     #[test]
     fn increment_height_normal() {

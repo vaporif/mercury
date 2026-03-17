@@ -5,8 +5,8 @@ use ibc::core::host::types::identifiers::ClientId;
 use ibc_proto::ibc::core::channel::v2::{MsgSendPacket, Payload};
 use mercury_chain_traits::builders::ClientMessageBuilder;
 use mercury_chain_traits::prelude::*;
-use mercury_cosmos_counterparties::CosmosChain;
-use mercury_cosmos_counterparties::chain::CosmosChainInner;
+use mercury_cosmos_counterparties::CosmosAdapter;
+use mercury_cosmos_counterparties::chain::CosmosChain;
 use mercury_cosmos_counterparties::config::{CosmosChainConfig, GasPrice};
 use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
 use mercury_cosmos_counterparties::types::{CosmosMessage, CosmosTxResponse};
@@ -18,13 +18,13 @@ use tracing::info;
 use crate::bootstrap::cosmos_docker::CosmosDockerHandle;
 use crate::bootstrap::traits::ChainHandle;
 
-type Cosmos = CosmosChain<Secp256k1KeyPair>;
+type Cosmos = CosmosAdapter<Secp256k1KeyPair>;
 
 pub struct TestContext {
     pub handle_a: CosmosDockerHandle,
     pub handle_b: CosmosDockerHandle,
-    pub cosmos_a: CosmosChain<Secp256k1KeyPair>,
-    pub cosmos_b: CosmosChain<Secp256k1KeyPair>,
+    pub cosmos_a: CosmosAdapter<Secp256k1KeyPair>,
+    pub cosmos_b: CosmosAdapter<Secp256k1KeyPair>,
     pub client_id_a: ClientId,
     pub client_id_b: ClientId,
 }
@@ -39,7 +39,7 @@ impl TestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let msg_create_b =
-            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_create_client_message(
+            ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_message(
                 &cosmos_b, payload_a,
             )
             .await
@@ -56,7 +56,7 @@ impl TestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let msg_create_a =
-            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_create_client_message(
+            ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_message(
                 &cosmos_a, payload_b,
             )
             .await
@@ -70,7 +70,7 @@ impl TestContext {
 
         info!("registering counterparties");
         let msg_register_a =
-            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_register_counterparty_message(
+            ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_register_counterparty_message(
                 &cosmos_a,
                 &client_id_a,
                 &client_id_b,
@@ -84,7 +84,7 @@ impl TestContext {
             .map_err(|e| eyre::eyre!("{e}"))?;
 
         let msg_register_b =
-            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_register_counterparty_message(
+            ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_register_counterparty_message(
                 &cosmos_b,
                 &client_id_b,
                 &client_id_a,
@@ -367,16 +367,18 @@ fn make_test_cosmos_config(handle: &CosmosDockerHandle, key_name: &str) -> Cosmo
 async fn build_cosmos_chain_with_wallet(
     handle: &CosmosDockerHandle,
     wallet: &crate::bootstrap::traits::Wallet,
-) -> Result<CosmosChain<Secp256k1KeyPair>> {
+) -> Result<CosmosAdapter<Secp256k1KeyPair>> {
     let signer = build_signer_from_wallet(wallet, "cosmos")?;
-    CosmosChain::new(make_test_cosmos_config(handle, "user"), signer)
+    CosmosAdapter::new(make_test_cosmos_config(handle, "user"), signer)
         .await
         .map_err(|e| eyre::eyre!("{e}"))
 }
 
-async fn build_cosmos_chain(handle: &CosmosDockerHandle) -> Result<CosmosChain<Secp256k1KeyPair>> {
+async fn build_cosmos_chain(
+    handle: &CosmosDockerHandle,
+) -> Result<CosmosAdapter<Secp256k1KeyPair>> {
     let signer = build_signer_from_wallet(handle.relayer_wallet(), "cosmos")?;
-    CosmosChain::new(make_test_cosmos_config(handle, "relayer"), signer)
+    CosmosAdapter::new(make_test_cosmos_config(handle, "relayer"), signer)
         .await
         .map_err(|e| eyre::eyre!("{e}"))
 }

@@ -6,7 +6,7 @@ Mercury is an IBC relayer built with plain Rust traits and generics. No macro fr
 
 - **Direct trait impls.** Every chain operation is a trait method with a direct `impl` block on the concrete type. No provider indirection.
 - **Few, focused traits.** ~21 traits grouped by concern instead of 250+ component traits. Type traits are consolidated — `ChainTypes` carries all chain-level types (height, timestamp, client ID, messages, chain status) and `IbcTypes` carries all IBC-specific types (client state, packets, proofs, acknowledgements). This keeps where clauses short and avoids the "trait per associated type" proliferation that CGP requires.
-- **Plain `eyre` errors.** `eyre::Result<T>` everywhere. No generic error parameters on traits, no custom error wrapper.
+- **Typed errors with retryability.** `eyre::Result<T>` everywhere with four typed error enums (`TxError`, `QueryError`, `ProofError`, `ClientError`) for domain-specific retryability classification. No generic error parameters on traits.
 - **Struct fields, not trait getters.** Configuration and RPC clients are struct fields accessed via methods. Not abstracted behind traits.
 
 ## Trait Hierarchy
@@ -58,17 +58,35 @@ pub trait IbcTypes: ChainTypes {
 
 Making `IbcTypes` non-generic is a deliberate choice. In the generic approach (`IbcTypes<Counterparty>`), adding a new counterparty chain requires implementing `IbcTypes<NewChain>` — which in practice always uses the same types. Cosmos IBC types don't change based on whether the counterparty is another Cosmos chain or an EVM chain. Removing the generic parameter eliminates this redundancy and, critically, eliminates the circular dependency problem entirely (see [Cross-Chain Architecture](#cross-chain-architecture)).
 
-### Wrapper Pattern: HasInner
+### Adapter Pattern: HasCore + `delegate_chain!`
 
-Cross-chain relaying between different chain types (Cosmos↔EVM) hits Rust's orphan rule: the EVM counterparty crate can't implement Cosmos traits for the Cosmos type, and vice versa. Mercury solves this with a wrapper pattern.
+Cross-chain relaying between different chain types (Cosmos↔EVM) hits Rust's orphan rule: the EVM counterparty crate can't implement Cosmos traits for the Cosmos type, and vice versa. Mercury solves this with an adapter pattern.
 
 Each chain has two types:
-- **Inner type** (e.g., `CosmosChainInner<S>`) — lives in the chain's core crate, implements `ChainTypes` + `IbcTypes` + operational traits
-- **Wrapper type** (e.g., `CosmosChain<S>`) — lives in the counterparty crate, wraps the inner type, and adds cross-chain trait impls
+- **Core type** (e.g., `CosmosChain<S>`) — lives in the chain's core crate, implements `ChainTypes` + `IbcTypes` + operational traits
+- **Adapter type** (e.g., `CosmosAdapter<S>`) — lives in the counterparty crate, wraps the core type, and adds cross-chain trait impls
+
+The `delegate_chain!` macro generates all boilerplate delegation from adapter to core type — `Deref`, `HasCore`, `ChainTypes`, `IbcTypes`, and all operational trait impls (`MessageSender`, `ChainStatusQuery`, `PacketStateQuery`, `PacketEvents`, `ClientQuery`, `ClientMessageBuilder`, `PacketMessageBuilder`, `MisbehaviourDetector`, `MisbehaviourMessageBuilder`, `MisbehaviourQuery`). It also generates a blanket `ClientPayloadBuilder<C>` delegation by default.
 
 ```rust
-pub trait HasInner: ChainTypes + IbcTypes {
-    type Inner: ChainTypes<
+// With generics — generates all delegating impls including blanket ClientPayloadBuilder<C>:
+mercury_chain_traits::delegate_chain! {
+    impl[S: CosmosSigner] CosmosAdapter<S> => CosmosChain<S>
+}
+
+// Without generics, skip_cpb — skips ClientPayloadBuilder delegation for manual cross-chain impl:
+mercury_chain_traits::delegate_chain! {
+    impl[] EthereumAdapter => EthereumChain; skip_cpb
+}
+```
+
+Use `skip_cpb` when the adapter needs a custom `ClientPayloadBuilder` impl (e.g., Ethereum's self-referential `ClientPayloadBuilder<EthereumChain>`). Cross-chain traits (`ClientMessageBuilder<CosmosChain>`, `PacketMessageBuilder<CosmosChain>`) are still implemented manually on the adapter in the counterparty crate.
+
+The underlying `HasCore` trait guarantees that the adapter and core types share identical associated types:
+
+```rust
+pub trait HasCore: ChainTypes + IbcTypes {
+    type Core: ChainTypes<
             Height = Self::Height,
             Timestamp = Self::Timestamp,
             ClientId = Self::ClientId,
@@ -80,9 +98,7 @@ pub trait HasInner: ChainTypes + IbcTypes {
 }
 ```
 
-`HasInner` guarantees that the wrapper and inner types share identical associated types. Relay code works with wrappers but can pass values through to inner types seamlessly. The wrapper forwards operational traits (queries, message sending) to the inner type via blanket-style impls, while cross-chain traits (`ClientMessageBuilder<CosmosChainInner>`, `PacketMessageBuilder<CosmosChainInner>`) are implemented directly on the wrapper.
-
-**Why wrappers exist.** The wrapper layer is the cost of splitting chain implementations into separate crates. Rust's orphan rule forbids implementing a foreign trait on a foreign type — so `mercury-ethereum-counterparties` can't implement `ClientMessageBuilder<CosmosChainInner<S>>` directly on `EthereumChainInner` (defined in `mercury-ethereum`). The wrapper (`EthereumChain`, local to the counterparty crate) exists solely to satisfy the orphan rule. A single-crate design wouldn't need wrappers, but would lose independent compilation, feature gating, and the ability to add new chain pairs without touching existing chain crates.
+**Why adapters exist.** The adapter layer is the cost of splitting chain implementations into separate crates. Rust's orphan rule forbids implementing a foreign trait on a foreign type — so `mercury-ethereum-counterparties` can't implement `ClientMessageBuilder<CosmosChain<S>>` directly on `EthereumChain` (defined in `mercury-ethereum`). The adapter (`EthereumAdapter`, local to the counterparty crate) exists solely to satisfy the orphan rule. A single-crate design wouldn't need adapters, but would lose independent compilation, feature gating, and the ability to add new chain pairs without touching existing chain crates. The `delegate_chain!` macro eliminates the manual boilerplate cost of maintaining these adapters.
 
 ### RelayChain Supertrait
 
@@ -90,7 +106,7 @@ pub trait HasInner: ChainTypes + IbcTypes {
 
 ```rust
 pub trait RelayChain:
-    HasInner + ChainStatusQuery + MessageSender + PacketStateQuery + PacketEvents
+    HasCore + ChainStatusQuery + MessageSender + PacketStateQuery + PacketEvents
 {}
 ```
 
@@ -104,7 +120,7 @@ Mercury consolidates co-occurring types into two traits: `ChainTypes` (all chain
 
 ### Trait Groups (~21 total)
 
-- **Type traits** (3) — `ChainTypes`, `IbcTypes`, `HasInner`
+- **Type traits** (3) — `ChainTypes`, `IbcTypes`, `HasCore`
 - **Query traits** (4) — `ChainStatusQuery`, `ClientQuery<C>`, `PacketStateQuery`, `MisbehaviourQuery<C>`
 - **Builder traits** (5) — `ClientPayloadBuilder<C>`, `ClientMessageBuilder<C>`, `PacketMessageBuilder<C>`, `MisbehaviourDetector<C>`, `MisbehaviourMessageBuilder<C>`
 - **Events** (1) — `PacketEvents`
@@ -112,7 +128,7 @@ Mercury consolidates co-occurring types into two traits: `ChainTypes` (all chain
 - **Relay traits** (5) — `Relay`, `BiRelay`, `RelayChain`, `ClientUpdater`, `RelayPacketBuilder`
 - **Infrastructure** (2) — `Worker`, `ThreadSafe`
 
-Transaction details (fee estimation, nonce management, tx submission, polling) are concrete methods on `CosmosChainInner`, not abstract traits — they're implementation details of `MessageSender`, not part of the generic chain abstraction. The gas pipeline: simulate tx → apply multiplier → optionally cap at `max_gas` → resolve gas price (static or dynamic via osmosis/feemarket auto-detection) → build fee. Message batches are split by `max_msg_num` and `max_tx_size`, then submitted in parallel (semaphore-bounded, max 3 concurrent) with pre-incremented nonces.
+Transaction details (fee estimation, nonce management, tx submission, polling) are concrete methods on `CosmosChain`, not abstract traits — they're implementation details of `MessageSender`, not part of the generic chain abstraction. The gas pipeline: simulate tx → apply multiplier → optionally cap at `max_gas` → resolve gas price (static or dynamic via osmosis/feemarket auto-detection) → build fee. Message batches are split by `max_msg_num` and `max_tx_size`, then submitted in parallel (semaphore-bounded, max 3 concurrent) with pre-incremented nonces.
 
 ## Cross-Chain Architecture
 
@@ -126,7 +142,7 @@ When implementing Cosmos→EVM relay, the EVM crate needs to know about Cosmos t
 
 **Non-generic IbcTypes.** By removing the counterparty generic from `IbcTypes`, each chain declares its IBC types once. The Cosmos crate doesn't need to know about Ethereum at all — its `IbcTypes` impl is the same regardless of counterparty.
 
-**Wrapper pattern with HasInner.** Counterparty crates define local wrapper types that can implement cross-chain traits without violating the orphan rule. `EthereumChain` (in `mercury-ethereum-counterparties`) wraps `EthereumChainInner` and implements `ClientMessageBuilder<CosmosChainInner<S>>`. The wrapper is local to the counterparty crate, so the orphan rule is satisfied.
+**Adapter pattern with HasCore.** Counterparty crates define local adapter types that can implement cross-chain traits without violating the orphan rule. `EthereumAdapter` (in `mercury-ethereum-counterparties`) wraps `EthereumChain` and implements `ClientMessageBuilder<CosmosChain<S>>`. The adapter is local to the counterparty crate, so the orphan rule is satisfied.
 
 **Weakened counterparty bounds on most builders.** `ClientPayloadBuilder` and `ClientMessageBuilder` require only `Counterparty: ChainTypes`, not `Counterparty: IbcTypes`. `PacketMessageBuilder` requires `Counterparty: IbcTypes` since it needs the counterparty's packet and proof types. Types that cross the chain boundary (payload types, counterparty client IDs) become associated types on the consuming trait:
 
@@ -144,27 +160,27 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
 pub trait Relay: ThreadSafe {
     type SrcChain: RelayChain
         + ClientPayloadBuilder<
-            <Self::DstChain as HasInner>::Inner,
+            <Self::DstChain as HasCore>::Core,
             UpdateClientPayload = <Self::DstChain as ClientMessageBuilder<
-                <Self::SrcChain as HasInner>::Inner,
+                <Self::SrcChain as HasCore>::Core,
             >>::UpdateClientPayload,
             CreateClientPayload = <Self::DstChain as ClientMessageBuilder<
-                <Self::SrcChain as HasInner>::Inner,
+                <Self::SrcChain as HasCore>::Core,
             >>::CreateClientPayload,
         >;
 
     type DstChain: RelayChain
-        + ClientQuery<<Self::SrcChain as HasInner>::Inner>
-        + ClientMessageBuilder<<Self::SrcChain as HasInner>::Inner>
-        + PacketMessageBuilder<<Self::SrcChain as HasInner>::Inner>
-        + ClientPayloadBuilder<<Self::SrcChain as HasInner>::Inner>;
+        + ClientQuery<<Self::SrcChain as HasCore>::Core>
+        + ClientMessageBuilder<<Self::SrcChain as HasCore>::Core>
+        + PacketMessageBuilder<<Self::SrcChain as HasCore>::Core>
+        + ClientPayloadBuilder<<Self::SrcChain as HasCore>::Core>;
     // ...
 }
 ```
 
 The source chain produces payloads (`ClientPayloadBuilder`), the destination chain consumes them and builds messages (`ClientMessageBuilder`, `PacketMessageBuilder`). The source never needs to know the destination's IBC types. Cross-chain impls live in the destination chain's counterparty crate behind a feature flag, and the source chain crate remains independent.
 
-**Feature-gated cross-chain impls.** Cross-chain trait impls (e.g., `ClientMessageBuilder<CosmosChainInner<S>> for EthereumChain`) live in the counterparty crate (`mercury-ethereum-counterparties`) behind the `cosmos-sp1` feature flag. The core chain crate (`mercury-ethereum`) remains independent of Cosmos.
+**Feature-gated cross-chain impls.** Cross-chain trait impls (e.g., `ClientMessageBuilder<CosmosChain<S>> for EthereumAdapter`) live in the counterparty crate (`mercury-ethereum-counterparties`) behind the `cosmos-sp1` feature flag. The core chain crate (`mercury-ethereum`) remains independent of Cosmos.
 
 ## Builder Extensibility
 
@@ -250,11 +266,30 @@ graph LR
 
 ## Error Handling
 
-Mercury uses `eyre` directly — `eyre::Result<T>` everywhere, context added via `.wrap_err()`. No custom error wrapper, no generic error parameters on traits.
+Mercury uses `eyre::Result<T>` everywhere with typed domain errors for retryability classification. No generic error parameters on traits.
+
+### Typed Error Hierarchy
+
+Four domain-specific error enums, each implementing `HasRetryability`:
+
+- **`TxError`** — transaction lifecycle: `SequenceMismatch` (retryable), `SimulationFailed` (retryable), `BroadcastFailed` (retryable), `Reverted` (fatal), `NotConfirmed` (retryable), `InsufficientFunds` (fatal), `OutOfGas` (retryable). Includes `.metric_label()` for observability.
+- **`QueryError`** — chain queries: `Timeout` (retryable), `StaleState` (retryable), `NotFound` (fatal), `Deserialization` (fatal), `UnsupportedType` (fatal)
+- **`ProofError`** — proof operations: `FetchFailed` (retryable), `ZkProvingFailed` (retryable), `VerificationFailed` (fatal), `Missing` (retryable)
+- **`ClientError`** — light client state: `Expired` (fatal), `Frozen` (fatal), `NotFound` (fatal)
+
+### Retryability
+
+The `HasRetryability` trait classifies each error variant as `Retryable` or `Fatal`. The `RetryableExt` trait extends `eyre::Report` to check retryability through the error chain via `downcast_ref()`. Untyped errors (plain `eyre!`/`bail!`) default to retryable — conservative: assume it's worth trying again.
 
 ```rust
-// mercury-core re-exports
-pub use eyre::{Result, Context, bail, eyre};
+// Typed error — retryability determined by variant
+Err(TxError::SequenceMismatch { details }.into())
+
+// Untyped error — defaults to retryable
+eyre::bail!("RPC timeout")
+
+// Context wrapping preserves retryability
+.wrap_err("querying client state")?
 ```
 
 ## What's Not Abstracted

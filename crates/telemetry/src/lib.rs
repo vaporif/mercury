@@ -67,6 +67,18 @@ pub fn init(config: &TelemetryConfig) -> eyre::Result<()> {
         .wrap_err("failed to install Prometheus exporter")?;
 
     register();
+
+    let process_collector = metrics_process::Collector::default();
+    process_collector.describe();
+    process_collector.collect();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+        loop {
+            interval.tick().await;
+            process_collector.collect();
+        }
+    });
+
     tracing::info!(port, %host, "telemetry enabled");
     Ok(())
 }

@@ -6,10 +6,10 @@ use mercury_chain_traits::types::{MessageSender, TxReceipt};
 use mercury_core::error::{Result, TxError};
 use tracing::{info, warn};
 
-use crate::chain::EthereumChainInner;
+use crate::chain::EthereumChain;
 use crate::types::{EvmEvent, EvmMessage, EvmTxResponse};
 
-impl EthereumChainInner {
+impl EthereumChain {
     /// Send messages and return raw chain responses (for e2e / setup code that
     /// needs to inspect events). Relay workers should use `MessageSender::send_messages` instead.
     pub async fn send_messages_with_responses(
@@ -90,7 +90,7 @@ impl EthereumChainInner {
 }
 
 #[async_trait]
-impl MessageSender for EthereumChainInner {
+impl MessageSender for EthereumChain {
     async fn send_messages(&self, messages: Vec<EvmMessage>) -> Result<TxReceipt> {
         let mut total_gas: u64 = 0;
 

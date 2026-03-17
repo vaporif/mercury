@@ -11,7 +11,7 @@ use tracing::instrument;
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_core::error::{ProofError, QueryError, Result};
 
-use crate::chain::EthereumChainInner;
+use crate::chain::EthereumChain;
 use crate::contracts::sp1_ics07;
 use crate::contracts::{ICS26Router, SP1ICS07Tendermint};
 use crate::ics24;
@@ -21,7 +21,7 @@ use crate::types::{
 };
 
 #[async_trait]
-impl ChainStatusQuery for EthereumChainInner {
+impl ChainStatusQuery for EthereumChain {
     async fn query_chain_status(&self) -> Result<EvmChainStatus> {
         let block_number = self
             .rpc_guard
@@ -54,7 +54,7 @@ impl ChainStatusQuery for EthereumChainInner {
 }
 
 pub async fn resolve_light_client(
-    chain: &EthereumChainInner,
+    chain: &EthereumChain,
     client_id: &EvmClientId,
 ) -> Result<Address> {
     let router = ICS26Router::new(chain.router_address, &*chain.provider);
@@ -104,7 +104,7 @@ pub fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
 }
 
 #[async_trait]
-impl ClientQuery<Self> for EthereumChainInner {
+impl ClientQuery<Self> for EthereumChain {
     #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
@@ -175,7 +175,7 @@ impl ClientQuery<Self> for EthereumChainInner {
 }
 
 async fn get_storage_proof(
-    chain: &EthereumChainInner,
+    chain: &EthereumChain,
     storage_slot: U256,
     height: &EvmHeight,
 ) -> Result<EvmCommitmentProof> {
@@ -205,7 +205,7 @@ async fn get_storage_proof(
 }
 
 async fn get_commitment_at_height(
-    chain: &EthereumChainInner,
+    chain: &EthereumChain,
     hashed_path: B256,
     height: &EvmHeight,
 ) -> Result<B256> {
@@ -226,7 +226,7 @@ async fn get_commitment_at_height(
 
 /// Fetch commitment value + storage proof for a given ICS24 path key.
 async fn query_commitment_with_proof(
-    chain: &EthereumChainInner,
+    chain: &EthereumChain,
     hashed_path: B256,
     height: &EvmHeight,
 ) -> Result<(B256, EvmCommitmentProof)> {
@@ -237,7 +237,7 @@ async fn query_commitment_with_proof(
 }
 
 #[async_trait]
-impl PacketStateQuery for EthereumChainInner {
+impl PacketStateQuery for EthereumChain {
     #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
     async fn query_packet_commitment(
         &self,

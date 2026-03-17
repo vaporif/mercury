@@ -4,6 +4,7 @@ resolver = "2"
 members = [
   "crates/core",
   "crates/chain-traits",
+  "crates/chain-cache",
   "crates/chains/cosmos",
   "crates/chains/cosmos-counterparties",
   "crates/chains/ethereum",
@@ -47,10 +48,11 @@ futures = "0.3"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 mercury-core = { path = "crates/core" }
 mercury-chain-traits = { path = "crates/chain-traits" }
+mercury-chain-cache = { path = "crates/chain-cache" }
 mercury-cosmos = { path = "crates/chains/cosmos" }
 mercury-cosmos-counterparties = { path = "crates/chains/cosmos-counterparties" }
 mercury-ethereum = { path = "crates/chains/ethereum" }
@@ -103,4 +105,5 @@ ibc-eureka-solidity-types = { git = "https://github.com/cosmos/solidity-ibc-eure
 governor = "0.7"
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.16", default-features = false, features = ["http-listener"] }
+metrics-process = "2.4"
 mercury-telemetry = { path = "crates/telemetry" }

@@ -8,4 +8,4 @@ pub mod wrapper;
 pub mod cosmos_counterparty;
 
 pub use mercury_ethereum::*;
-pub use wrapper::EthereumChain;
+pub use wrapper::EthereumAdapter;

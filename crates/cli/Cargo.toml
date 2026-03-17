@@ -18,6 +18,7 @@ name = "mercury-relayer"
 path = "src/main.rs"
 
 [dependencies]
+mercury-chain-cache = { workspace = true }
 mercury-core = { workspace = true }
 mercury-cosmos-counterparties = { workspace = true, features = ["ethereum-beacon"] }
 mercury-ethereum = { workspace = true }

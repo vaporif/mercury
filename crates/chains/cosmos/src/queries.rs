@@ -14,7 +14,7 @@ use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQu
 use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::{ProofError, QueryError, Result};
 
-use crate::chain::CosmosChainInner;
+use crate::chain::CosmosChain;
 use crate::client_types::{
     CosmosClientState, CosmosConsensusState, TENDERMINT_CLIENT_STATE_TYPE_URL,
     TENDERMINT_CONSENSUS_STATE_TYPE_URL, WASM_CLIENT_STATE_TYPE_URL, WASM_CONSENSUS_STATE_TYPE_URL,
@@ -53,7 +53,7 @@ pub async fn query_cosmos_status(rpc_addr: &str) -> Result<CosmosChainStatus> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> ChainStatusQuery for CosmosChainInner<S> {
+impl<S: CosmosSigner> ChainStatusQuery for CosmosChain<S> {
     #[instrument(skip_all, name = "query_chain_status")]
     async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
         let status = self
@@ -68,7 +68,7 @@ impl<S: CosmosSigner> ChainStatusQuery for CosmosChainInner<S> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> ClientQuery<Self> for CosmosChainInner<S> {
+impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
     #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
     async fn query_client_state(
         &self,
@@ -268,7 +268,7 @@ fn extract_proof(
 }
 
 #[async_trait]
-impl<S: CosmosSigner> PacketStateQuery for CosmosChainInner<S> {
+impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
     #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
     async fn query_packet_commitment(
         &self,

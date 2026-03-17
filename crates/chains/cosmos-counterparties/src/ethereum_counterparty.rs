@@ -1,4 +1,4 @@
-//! Cross-chain trait impls for `CosmosChain<S>` with `EthereumChainInner` counterparty.
+//! Cross-chain trait impls for `CosmosAdapter<S>` with `EthereumChain` counterparty.
 //!
 //! Implements: `ClientQuery`, `ClientMessageBuilder`, `PacketMessageBuilder`,
 //! `MisbehaviourDetector`, `MisbehaviourQuery`, `MisbehaviourMessageBuilder`.
@@ -20,7 +20,7 @@ use mercury_cosmos::types::{CosmosMessage, CosmosPacket, to_any};
 
 use mercury_ethereum::builders::encode_evm_proof;
 use mercury_ethereum::builders::{CreateClientPayload, UpdateClientPayload};
-use mercury_ethereum::chain::EthereumChainInner;
+use mercury_ethereum::chain::EthereumChain;
 use mercury_ethereum::types::{
     EvmAcknowledgement, EvmClientState, EvmCommitmentProof, EvmHeight, EvmPacket,
 };
@@ -36,9 +36,9 @@ use ibc_proto::ibc::lightclients::wasm::v1::{
 };
 use prost::Message as _;
 
-use crate::wrapper::CosmosChain;
+use crate::wrapper::CosmosAdapter;
 
-impl<S: CosmosSigner> CosmosChain<S> {
+impl<S: CosmosSigner> CosmosAdapter<S> {
     const fn effective_proof_height(&self, proof_height: &EvmHeight) -> u64 {
         if self.0.config.mock_proofs {
             0
@@ -49,7 +49,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> ClientQuery<EthereumChainInner> for CosmosChain<S> {
+impl<S: CosmosSigner> ClientQuery<EthereumChain> for CosmosAdapter<S> {
     async fn query_client_state(
         &self,
         client_id: &Self::ClientId,
@@ -104,7 +104,7 @@ impl<S: CosmosSigner> ClientQuery<EthereumChainInner> for CosmosChain<S> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> ClientMessageBuilder<EthereumChainInner> for CosmosChain<S> {
+impl<S: CosmosSigner> ClientMessageBuilder<EthereumChain> for CosmosAdapter<S> {
     type CreateClientPayload = CreateClientPayload;
     type UpdateClientPayload = UpdateClientPayload;
 
@@ -180,7 +180,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<EthereumChainInner> for CosmosChain<S
     async fn build_register_counterparty_message(
         &self,
         client_id: &Self::ClientId,
-        counterparty_client_id: &<EthereumChainInner as mercury_chain_traits::types::ChainTypes>::ClientId,
+        counterparty_client_id: &<EthereumChain as mercury_chain_traits::types::ChainTypes>::ClientId,
         counterparty_merkle_prefix: mercury_core::MerklePrefix,
     ) -> Result<CosmosMessage> {
         let signer = self.0.signer.account_address()?;
@@ -217,7 +217,7 @@ fn evm_packet_to_v2(packet: &EvmPacket) -> V2Packet {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> PacketMessageBuilder<EthereumChainInner> for CosmosChain<S> {
+impl<S: CosmosSigner> PacketMessageBuilder<EthereumChain> for CosmosAdapter<S> {
     async fn build_receive_packet_message(
         &self,
         packet: &EvmPacket,
@@ -289,12 +289,12 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChainInner> for CosmosChain<S
     }
 }
 
-// -- Misbehaviour: CosmosChain as Src, EthereumChain as Dst --
+// -- Misbehaviour: CosmosAdapter as Src, EthereumChain as Dst --
 // Cosmos detects Tendermint misbehaviour for headers submitted to Ethereum's SP1 light client.
 // Same detection logic as Cosmos→Cosmos — compares submitted header against on-chain commit.
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourDetector<EthereumChainInner> for CosmosChain<S> {
+impl<S: CosmosSigner> MisbehaviourDetector<EthereumChain> for CosmosAdapter<S> {
     type UpdateHeader = ibc_client_tendermint::types::Header;
     type MisbehaviourEvidence = mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence;
     type CounterpartyClientState = EvmClientState;
@@ -302,7 +302,7 @@ impl<S: CosmosSigner> MisbehaviourDetector<EthereumChainInner> for CosmosChain<S
     #[tracing::instrument(skip_all, name = "cosmos_check_misbehaviour_for_eth")]
     async fn check_for_misbehaviour(
         &self,
-        client_id: &<EthereumChainInner as mercury_chain_traits::types::ChainTypes>::ClientId,
+        client_id: &<EthereumChain as mercury_chain_traits::types::ChainTypes>::ClientId,
         update_header: &ibc_client_tendermint::types::Header,
         _client_state: &EvmClientState,
     ) -> Result<Option<mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence>> {
@@ -375,11 +375,11 @@ impl<S: CosmosSigner> MisbehaviourDetector<EthereumChainInner> for CosmosChain<S
     }
 }
 
-// -- Misbehaviour: CosmosChain as Dst, EthereumChain as Src (beacon chain) --
+// -- Misbehaviour: CosmosAdapter as Dst, EthereumChain as Src (beacon chain) --
 // Cosmos can't yet detect beacon chain misbehaviour or query Ethereum headers from its wasm LC.
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourQuery<EthereumChainInner> for CosmosChain<S> {
+impl<S: CosmosSigner> MisbehaviourQuery<EthereumChain> for CosmosAdapter<S> {
     type CounterpartyUpdateHeader = ();
 
     async fn query_consensus_state_heights(
@@ -399,7 +399,7 @@ impl<S: CosmosSigner> MisbehaviourQuery<EthereumChainInner> for CosmosChain<S> {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> MisbehaviourMessageBuilder<EthereumChainInner> for CosmosChain<S> {
+impl<S: CosmosSigner> MisbehaviourMessageBuilder<EthereumChain> for CosmosAdapter<S> {
     type MisbehaviourEvidence = ();
 
     async fn build_misbehaviour_message(
