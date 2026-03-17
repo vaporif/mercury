@@ -3,15 +3,15 @@ use tracing::{debug, instrument};
 
 use crate::context::RelayContext;
 use mercury_chain_traits::builders::PacketMessageBuilder;
-use mercury_chain_traits::inner::HasCore;
+use mercury_chain_traits::inner::Core;
 use mercury_chain_traits::relay::{PacketBuildResult, Relay, RelayChain, RelayPacketBuilder};
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 
 #[async_trait]
 impl<Src, Dst> RelayPacketBuilder for RelayContext<Src, Dst>
 where
-    Src: RelayChain + PacketMessageBuilder<<Dst as HasCore>::Core>,
-    Dst: RelayChain + PacketMessageBuilder<<Src as HasCore>::Core>,
+    Src: RelayChain + PacketMessageBuilder<Core<Dst>>,
+    Dst: RelayChain + PacketMessageBuilder<Core<Src>>,
     Self: Relay<SrcChain = Src, DstChain = Dst>,
 {
     #[instrument(skip_all, name = "build_receive_packet", fields(src_chain = %self.src_chain.chain_label(), seq = Src::packet_sequence(packet)))]

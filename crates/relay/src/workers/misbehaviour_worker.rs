@@ -5,8 +5,10 @@ use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, instrument, warn};
 
-use mercury_chain_traits::prelude::*;
-use mercury_chain_traits::relay::Relay;
+use mercury_chain_traits::builders::{MisbehaviourDetector, MisbehaviourMessageBuilder};
+use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, MisbehaviourQuery};
+use mercury_chain_traits::relay::{DstCore, Relay, SrcCore};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes, MessageSender};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 use mercury_telemetry::recorder::MisbehaviourMetrics;
@@ -24,19 +26,15 @@ impl<R> Worker for MisbehaviourWorker<R>
 where
     R: Relay,
     R::SrcChain: MisbehaviourDetector<
-            <R::DstChain as HasCore>::Core,
+            DstCore<R>,
             CounterpartyClientState = <R::DstChain as IbcTypes>::ClientState,
         >,
     R::DstChain: MisbehaviourQuery<
-            <R::SrcChain as HasCore>::Core,
-            CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<
-                <R::DstChain as HasCore>::Core,
-            >>::UpdateHeader,
+            SrcCore<R>,
+            CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<DstCore<R>>>::UpdateHeader,
         > + MisbehaviourMessageBuilder<
-            <R::SrcChain as HasCore>::Core,
-            MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<
-                <R::DstChain as HasCore>::Core,
-            >>::MisbehaviourEvidence,
+            SrcCore<R>,
+            MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<DstCore<R>>>::MisbehaviourEvidence,
         >,
 {
     fn name(&self) -> &'static str {
@@ -73,19 +71,15 @@ impl<R> MisbehaviourWorker<R>
 where
     R: Relay,
     R::SrcChain: MisbehaviourDetector<
-            <R::DstChain as HasCore>::Core,
+            DstCore<R>,
             CounterpartyClientState = <R::DstChain as IbcTypes>::ClientState,
         >,
     R::DstChain: MisbehaviourQuery<
-            <R::SrcChain as HasCore>::Core,
-            CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<
-                <R::DstChain as HasCore>::Core,
-            >>::UpdateHeader,
+            SrcCore<R>,
+            CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<DstCore<R>>>::UpdateHeader,
         > + MisbehaviourMessageBuilder<
-            <R::SrcChain as HasCore>::Core,
-            MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<
-                <R::DstChain as HasCore>::Core,
-            >>::MisbehaviourEvidence,
+            SrcCore<R>,
+            MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<DstCore<R>>>::MisbehaviourEvidence,
         >,
 {
     /// Scan for misbehaviour. Returns `true` if misbehaviour was found and submitted.
