@@ -26,8 +26,7 @@ pub fn downcast_cosmos(chain: &AnyChain) -> eyre::Result<&CosmosCached> {
 }
 
 fn table_to_cosmos_config(raw: &toml::Table) -> eyre::Result<CosmosChainConfig> {
-    let value = toml::Value::Table(raw.clone());
-    value
+    raw.clone()
         .try_into()
         .map_err(|e| eyre::eyre!("invalid cosmos config: {e}"))
 }

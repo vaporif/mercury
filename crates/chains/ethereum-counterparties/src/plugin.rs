@@ -24,8 +24,7 @@ fn downcast_eth(chain: &AnyChain) -> eyre::Result<&EthCached> {
 }
 
 fn table_to_eth_config(raw: &toml::Table) -> eyre::Result<EthereumChainConfig> {
-    let value = toml::Value::Table(raw.clone());
-    value
+    raw.clone()
         .try_into()
         .map_err(|e| eyre::eyre!("invalid ethereum config: {e}"))
 }
@@ -56,13 +55,20 @@ impl ChainPlugin for EthereumPlugin {
             #[cfg(unix)]
             plugin::warn_key_file_permissions(&key_path);
 
-            let chain_id_display = cfg.chain_id;
+            let expected_chain_id = cfg.chain_id;
             let signer = load_ethereum_signer(&key_path)
-                .map_err(|e| eyre::eyre!("loading signer for chain {chain_id_display}: {e}"))?;
+                .map_err(|e| eyre::eyre!("loading signer for chain {expected_chain_id}: {e}"))?;
 
             let chain = EthereumAdapter::new(cfg, signer)
                 .await
-                .map_err(|e| eyre::eyre!("connecting to chain {chain_id_display}: {e}"))?;
+                .map_err(|e| eyre::eyre!("connecting to chain {expected_chain_id}: {e}"))?;
+
+            let on_chain_id = chain.chain_id().0;
+            if on_chain_id != expected_chain_id {
+                eyre::bail!(
+                    "chain_id mismatch: config says '{expected_chain_id}', node reports '{on_chain_id}'"
+                );
+            }
 
             Ok(Arc::new(CachedChain::new(chain)) as AnyChain)
         })
@@ -75,8 +81,7 @@ impl ChainPlugin for EthereumPlugin {
     fn query_status(&self, chain: &AnyChain) -> BoxFuture<'_, eyre::Result<ChainStatusInfo>> {
         let chain = chain.clone();
         Box::pin(async move {
-            let chain = &chain;
-            let chain = downcast_eth(chain)?;
+            let chain = downcast_eth(&chain)?;
             let status = chain.query_chain_status().await?;
             let height = EthCached::chain_status_height(&status);
             let timestamp = EthCached::chain_status_timestamp(&status);
