@@ -6,13 +6,10 @@ use mercury_core::{MerklePrefix, ThreadSafe};
 
 use crate::types::{ChainTypes, IbcTypes};
 
-/// Result of `build_update_client_message`, carrying both update messages
-/// and an optional combined membership proof for injection into packet messages.
 pub struct UpdateClientOutput<M> {
     pub messages: Vec<M>,
-    /// ABI-encoded combined membership proof. When present, the client update
-    /// happens implicitly during on-chain membership verification, so
-    /// `messages` may be empty for the header covered by the combined proof.
+    /// ABI-encoded combined membership proof. Includes implicit client
+    /// update, so `messages` may be empty for that header.
     pub membership_proof: Option<Vec<u8>>,
 }
 
