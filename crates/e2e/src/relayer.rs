@@ -81,14 +81,14 @@ impl SubprocessHandle {
                 );
             }
 
-            if let Ok(resp) = client.get(&url).send().await {
-                if resp.status().is_success() {
-                    info!(
-                        elapsed = ?start.elapsed(),
-                        "binary relayer ready (health check passed)"
-                    );
-                    return Ok(());
-                }
+            if let Ok(resp) = client.get(&url).send().await
+                && resp.status().is_success()
+            {
+                info!(
+                    elapsed = ?start.elapsed(),
+                    "binary relayer ready (health check passed)"
+                );
+                return Ok(());
             }
 
             tokio::time::sleep(poll_interval).await;
