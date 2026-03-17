@@ -80,7 +80,7 @@ just check-toml   # TOML lint
 
 ### AI-Assisted Contributions
 
-AI assistants are welcome as tools. The human contributor bears full responsibility for every line submitted — correctness, licensing, and review. If you used AI to generate code, you must have read and verified it yourself before opening a PR. Unreviewed AI output will be declined.
+AI assistants are welcome as tools. The human contributor bears full responsibility for every line submitted — correctness, licensing, and review. If you used AI to generate code, you must have read and verified it yourself before opening a PR. **Unreviewed AI output will be declined.**
 
 ## Understanding the Codebase
 
