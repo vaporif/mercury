@@ -4993,6 +4993,7 @@ dependencies = [
  "async-trait",
  "eyre",
  "mercury-core",
+ "tokio",
 ]
 
 [[package]]
@@ -5005,6 +5006,7 @@ dependencies = [
  "eyre",
  "futures",
  "ibc",
+ "mercury-chain-traits",
  "mercury-core",
  "mercury-cosmos-counterparties",
  "mercury-ethereum",

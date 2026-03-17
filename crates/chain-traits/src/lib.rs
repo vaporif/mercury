@@ -1,4 +1,5 @@
 pub mod builders;
+pub mod cached;
 pub mod delegate;
 pub mod events;
 pub mod inner;

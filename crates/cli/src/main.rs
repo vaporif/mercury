@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use futures::FutureExt;
+use mercury_chain_traits::cached::CachedChain;
 use mercury_cosmos_counterparties::CosmosChain;
 use mercury_cosmos_counterparties::keys::{Secp256k1KeyPair, load_cosmos_signer};
 use mercury_ethereum::types::EvmClientId;
@@ -148,10 +149,13 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
     Ok(())
 }
 
+type CosmosCached = CachedChain<CosmosChain<Secp256k1KeyPair>>;
+type EthCached = CachedChain<EthereumChain>;
+
 #[derive(Clone)]
 enum ConnectedChain {
-    Cosmos(Box<CosmosChain<Secp256k1KeyPair>>),
-    Ethereum(Box<EthereumChain>),
+    Cosmos(Box<CosmosCached>),
+    Ethereum(Box<EthCached>),
 }
 
 trait DynRelay: Send + Sync {
@@ -162,7 +166,7 @@ trait DynRelay: Send + Sync {
     ) -> futures::future::BoxFuture<'static, mercury_core::error::Result<()>>;
 }
 
-impl DynRelay for RelayContext<CosmosChain<Secp256k1KeyPair>, CosmosChain<Secp256k1KeyPair>> {
+impl DynRelay for RelayContext<CosmosCached, CosmosCached> {
     fn run(
         self: Arc<Self>,
         token: tokio_util::sync::CancellationToken,
@@ -172,7 +176,7 @@ impl DynRelay for RelayContext<CosmosChain<Secp256k1KeyPair>, CosmosChain<Secp25
     }
 }
 
-impl DynRelay for RelayContext<CosmosChain<Secp256k1KeyPair>, EthereumChain> {
+impl DynRelay for RelayContext<CosmosCached, EthCached> {
     fn run(
         self: Arc<Self>,
         token: tokio_util::sync::CancellationToken,
@@ -182,7 +186,7 @@ impl DynRelay for RelayContext<CosmosChain<Secp256k1KeyPair>, EthereumChain> {
     }
 }
 
-impl DynRelay for RelayContext<EthereumChain, CosmosChain<Secp256k1KeyPair>> {
+impl DynRelay for RelayContext<EthCached, CosmosCached> {
     fn run(
         self: Arc<Self>,
         token: tokio_util::sync::CancellationToken,
@@ -307,7 +311,7 @@ async fn connect_chain(
                 );
             }
 
-            Ok(ConnectedChain::Cosmos(Box::new(chain)))
+            Ok(ConnectedChain::Cosmos(Box::new(CachedChain::new(chain))))
         }
         ChainConfig::Ethereum(eth_cfg) => {
             let key_path = config_dir.join(&eth_cfg.key_file);
@@ -322,7 +326,7 @@ async fn connect_chain(
                 .await
                 .map_err(|e| eyre::eyre!("connecting to chain {}: {e}", eth_cfg.chain_id))?;
 
-            Ok(ConnectedChain::Ethereum(Box::new(chain)))
+            Ok(ConnectedChain::Ethereum(Box::new(CachedChain::new(chain))))
         }
     }
 }
