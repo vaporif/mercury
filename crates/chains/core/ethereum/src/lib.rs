@@ -1,5 +1,3 @@
-//! Core Ethereum chain implementation (chain-intrinsic impls only).
-
 pub mod aggregator;
 pub mod builders;
 pub mod chain;

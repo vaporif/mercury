@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-/// Dynamic gas price configuration (e.g. osmosis txfees, skip feemarket).
 #[derive(Clone, Debug, Deserialize)]
 pub struct DynamicGasPrice {
     #[serde(default = "default_dynamic_gas_multiplier")]
@@ -15,7 +14,6 @@ const fn default_dynamic_gas_multiplier() -> f64 {
     1.1
 }
 
-/// Configuration for connecting to a Cosmos SDK chain.
 #[derive(Clone, Debug, Deserialize)]
 pub struct CosmosChainConfig {
     #[serde(default)]
@@ -50,7 +48,6 @@ pub struct CosmosChainConfig {
     #[serde(default)]
     pub max_tx_size: Option<usize>,
     /// SHA-256 checksum of the WASM light client module (hex-encoded, 32 bytes).
-    /// Required when this chain hosts WASM light clients (e.g., Ethereum Beacon).
     #[serde(default)]
     pub wasm_checksum: Option<String>,
     /// When true, packet message builders use `proof_height` (0, 0) instead of the

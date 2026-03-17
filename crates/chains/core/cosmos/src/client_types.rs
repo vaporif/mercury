@@ -3,20 +3,17 @@ use ibc_client_tendermint::types::ConsensusState as TendermintConsensusState;
 use ibc_proto::ibc::lightclients::wasm::v1::ClientState as WasmClientState;
 use ibc_proto::ibc::lightclients::wasm::v1::ConsensusState as WasmConsensusState;
 
-/// Client state stored on a Cosmos chain. Tendermint for native IBC clients,
-/// Wasm for light clients implemented as `CosmWasm` contracts (Beacon, Solana, etc.).
+/// Client state on a Cosmos chain. Tendermint for native IBC, Wasm for
+/// `CosmWasm` light clients (Beacon, Solana, etc.).
 ///
-/// Cross-chain bridge impls match on this enum to extract the inner light client
-/// state (e.g., `Wasm.data` contains the beacon client state bytes for Ethereum).
-/// Adding a new variant will cause a compile error in all bridge crates, ensuring
-/// explicit handling. See `docs/adding-a-chain.md` for the full cross-chain wiring guide.
+/// Adding a variant causes compile errors in all bridge crates —
+/// see `docs/adding-a-chain.md`.
 #[derive(Clone, Debug)]
 pub enum CosmosClientState {
     Tendermint(TendermintClientState),
     Wasm(WasmClientState),
 }
 
-/// Consensus state stored on a Cosmos chain.
 #[derive(Clone, Debug)]
 pub enum CosmosConsensusState {
     Tendermint(TendermintConsensusState),

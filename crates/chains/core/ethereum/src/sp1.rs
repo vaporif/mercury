@@ -29,7 +29,7 @@ use ibc_eureka_solidity_types::msgs::{
     IUpdateClientMsgs::MsgUpdateClient,
 };
 use ibc_eureka_solidity_types::sp1_ics07::sp1_ics07_tendermint;
-// Renamed ibc-proto 0.51 to match the prover's expected Header type (Mercury uses 0.52 from git).
+// Renamed ibc-proto 0.51 to match the prover's expected Header type (we use 0.52 from git).
 use ibc_proto_eureka::ibc::lightclients::tendermint::v1::Header as EurekaHeader;
 use ibc_proto_eureka::ibc::lightclients::tendermint::v1::Misbehaviour as EurekaMisbehaviour;
 

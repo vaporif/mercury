@@ -1,5 +1,3 @@
-//! ICS24 path and EVM storage slot computation for Ethereum IBC commitments.
-
 use alloy::primitives::{B256, U256, keccak256};
 
 const COMMITMENT_DISCRIMINATOR: u8 = 0x01;
@@ -24,24 +22,20 @@ fn ics24_path(client_id: &str, discriminator: u8, sequence: u64) -> Vec<u8> {
     path
 }
 
-/// Keccak256 hash of the ICS24 path — the key into the `commitments` mapping.
 fn hashed_path(client_id: &str, discriminator: u8, sequence: u64) -> B256 {
     keccak256(ics24_path(client_id, discriminator, sequence))
 }
 
-/// Packet commitment path hash for a given client and sequence.
 #[must_use]
 pub fn packet_commitment_key(client_id: &str, sequence: u64) -> B256 {
     hashed_path(client_id, COMMITMENT_DISCRIMINATOR, sequence)
 }
 
-/// Packet receipt commitment path hash.
 #[must_use]
 pub fn packet_receipt_key(client_id: &str, sequence: u64) -> B256 {
     hashed_path(client_id, RECEIPT_DISCRIMINATOR, sequence)
 }
 
-/// Ack commitment path hash.
 #[must_use]
 pub fn ack_commitment_key(client_id: &str, sequence: u64) -> B256 {
     hashed_path(client_id, ACK_DISCRIMINATOR, sequence)

@@ -22,13 +22,13 @@ use crate::client_types::CosmosClientState;
 use crate::keys::CosmosSigner;
 use crate::types::{CosmosMessage, to_any};
 
-/// Evidence of light client misbehaviour on a Cosmos chain.
 #[derive(Clone, Debug)]
 pub struct CosmosMisbehaviourEvidence {
     pub misbehaviour: TmMisbehaviour,
     pub supporting_headers: Vec<TmIbcHeader>,
 }
 
+// TODO: break and refactor
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
     type UpdateHeader = TmIbcHeader;
@@ -51,7 +51,6 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
             return Ok(None);
         }
 
-        // Validate trusted validator set against source chain to prevent fabricated headers
         let trusted_height_value = update_header.trusted_height.revision_height();
         let trusted_next_height = TmHeight::try_from(trusted_height_value + 1)
             .map_err(|e| eyre::eyre!("invalid trusted_height + 1: {e}"))?;

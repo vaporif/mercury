@@ -10,6 +10,7 @@ use crate::chain::EthereumChain;
 use crate::types::{EvmEvent, EvmMessage, EvmTxResponse};
 
 impl EthereumChain {
+    // TODO: remove
     /// Send messages and return raw chain responses (for e2e / setup code that
     /// needs to inspect events). Relay workers should use `MessageSender::send_messages` instead.
     pub async fn send_messages_with_responses(

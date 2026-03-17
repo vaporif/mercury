@@ -1,14 +1,14 @@
 use prost::Message;
 use tendermint::block::Height as TmHeight;
 
-/// An ABCI event with a type string and key-value attributes.
+/// ABCI event
 #[derive(Clone, Debug)]
 pub struct CosmosEvent {
     pub kind: String,
     pub attributes: Vec<(String, String)>,
 }
 
-/// A protobuf-encoded Cosmos SDK message (type URL + bytes).
+/// Protobuf-encoded message
 #[derive(Clone, Debug)]
 pub struct CosmosMessage {
     pub type_url: String,
@@ -24,7 +24,6 @@ pub fn to_any<M: prost::Name + Message>(msg: &M) -> CosmosMessage {
     }
 }
 
-/// Result of a confirmed transaction including hash, height, and events.
 #[derive(Clone, Debug)]
 pub struct CosmosTxResponse {
     pub hash: String,
@@ -32,24 +31,19 @@ pub struct CosmosTxResponse {
     pub events: Vec<CosmosEvent>,
 }
 
-/// Latest block height and timestamp of a Cosmos chain.
 #[derive(Clone, Debug)]
 pub struct CosmosChainStatus {
     pub height: TmHeight,
     pub timestamp: tendermint::Time,
 }
 
-/// Raw Merkle proof bytes for IBC state verification.
 #[derive(Clone, Debug)]
 pub struct MerkleProof {
     pub proof_bytes: Vec<u8>,
 }
 
-/// Unvalidated client identifier from an on-chain packet.
-///
-/// Unlike `ibc::ClientId` this accepts any string, which is necessary for
-/// cross-chain packets where the counterparty may use identifiers that don't
-/// satisfy IBC's 9–64 character validation (e.g. Ethereum's `client-0`).
+/// Raw client identifier from an on-chain packet. Accepts any string,
+/// unlike `ibc::ClientId` which enforces 9–64 char validation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RawClientId(pub String);
 

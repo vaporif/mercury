@@ -19,7 +19,6 @@ const PROTOBUF_ANY_OVERHEAD: usize = 10;
 const MAX_PARALLEL_BATCHES: usize = 3;
 const MAX_TX_POLL_RETRIES: u32 = 10;
 
-/// Transaction fee with gas limit and token denomination.
 #[derive(Clone, Debug)]
 pub struct CosmosFee {
     pub amount: u64,
@@ -27,7 +26,6 @@ pub struct CosmosFee {
     pub gas_limit: u64,
 }
 
-/// Account number and sequence for transaction replay protection.
 #[derive(Clone, Debug)]
 pub struct CosmosNonce {
     pub account_number: u64,
@@ -69,6 +67,7 @@ fn is_sequence_mismatch(err: &eyre::Report) -> bool {
         .is_some_and(|te| matches!(te, TxError::SequenceMismatch { .. }))
 }
 
+// Cosmos errors are so bad
 fn is_simulation_recoverable(msg: &str) -> bool {
     msg.contains("account sequence mismatch")
         || msg.contains("client state height")
@@ -773,7 +772,7 @@ mod tests {
         let mut msgs = vec![make_msg(100); 3];
         msgs.insert(1, make_msg(200_000));
         let batches = split_batches(msgs, 10, 1000);
-        let total: usize = batches.iter().map(|b| b.len()).sum();
+        let total: usize = batches.iter().map(std::vec::Vec::len).sum();
         assert_eq!(total, 3);
     }
 }
@@ -799,7 +798,7 @@ mod proptest_tests {
         ) {
             let input_count = msgs.len();
             let batches = split_batches(msgs, max_msg_num, max_tx_size);
-            let output_count: usize = batches.iter().map(|b| b.len()).sum();
+            let output_count: usize = batches.iter().map(std::vec::Vec::len).sum();
             prop_assert!(output_count <= input_count);
             for batch in &batches {
                 prop_assert!(!batch.is_empty());

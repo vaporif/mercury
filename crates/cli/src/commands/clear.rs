@@ -4,7 +4,6 @@ use clap::{Args, Subcommand};
 
 #[derive(Subcommand)]
 pub enum ClearCmd {
-    /// Clear pending packets
     Packets(ClearPacketsCmd),
 }
 

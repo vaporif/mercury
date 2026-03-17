@@ -6,7 +6,6 @@ use crate::registry::build_registry;
 
 #[derive(Subcommand)]
 pub enum ConfigCmd {
-    /// Validate the relayer configuration
     Validate(ConfigValidateCmd),
 }
 

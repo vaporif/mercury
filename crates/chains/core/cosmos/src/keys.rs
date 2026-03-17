@@ -13,8 +13,6 @@ struct CosmosKeyFile {
     secret_key: String,
 }
 
-/// Load a Cosmos signer from a TOML key file.
-///
 /// The key file must contain a `secret_key` field with a hex-encoded
 /// secp256k1 secret key.
 pub fn load_cosmos_signer(key_file: &Path, account_prefix: &str) -> Result<Secp256k1KeyPair> {
@@ -40,9 +38,6 @@ pub fn load_cosmos_signer(key_file: &Path, account_prefix: &str) -> Result<Secp2
 }
 
 /// Trait for Cosmos transaction signing backends.
-///
-/// Implementations can range from in-memory keys to HSM devices or cloud KMS.
-/// `sign` is async to support I/O-bound backends (PKCS#11, AWS KMS, etc.).
 #[async_trait]
 pub trait CosmosSigner: ThreadSafe + fmt::Debug + Clone {
     /// Sign a SHA-256 digest and return the compact ECDSA signature bytes.
@@ -55,7 +50,6 @@ pub trait CosmosSigner: ThreadSafe + fmt::Debug + Clone {
     fn account_address(&self) -> Result<String>;
 }
 
-/// An in-memory secp256k1 signing key pair with bech32 address derivation.
 #[derive(Clone)]
 pub struct Secp256k1KeyPair {
     secret_key: SecretKey,

@@ -4,7 +4,6 @@ use clap::{Args, Subcommand};
 
 #[derive(Subcommand)]
 pub enum CreateCmd {
-    /// Create a light client
     Client(CreateClientCmd),
 }
 

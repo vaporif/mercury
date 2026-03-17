@@ -42,7 +42,6 @@ pub(crate) async fn query_abci(
         .await
 }
 
-/// Query chain status via RPC only. No keys, no gRPC — lightweight health check.
 pub async fn query_cosmos_status(rpc_addr: &str) -> Result<CosmosChainStatus> {
     let client = HttpClient::new(rpc_addr)?;
     let status = client.status().await?;
@@ -220,9 +219,8 @@ const COMMITMENT_DISCRIMINATOR: u8 = 0x01;
 const RECEIPT_DISCRIMINATOR: u8 = 0x02;
 const ACK_DISCRIMINATOR: u8 = 0x03;
 
-/// ABCI state at height H is committed in block `H+1`'s `app_hash`.
-/// When the light client is updated to height H, proofs must be
-/// queried at `H-1` to match the `app_hash` the client holds.
+/// ABCI commits state at H in block H+1's `app_hash`, so proofs
+/// must be queried at H-1 to match the client's known root.
 fn proof_query_height(height: TmHeight) -> Result<TmHeight> {
     let prev = height
         .value()
@@ -323,6 +321,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         Ok((receipt, proof))
     }
 
+    // TODO: break and refactor
     #[instrument(skip_all, name = "query_commitment_sequences", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_commitment_sequences(
         &self,
