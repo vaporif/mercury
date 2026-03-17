@@ -92,7 +92,7 @@ Read the [Architecture](./docs/architecture.md) doc before diving into the code.
 |-------|-------------|
 | `mercury-cli` (`crates/cli`) | CLI binary — entry point, config parsing, worker orchestration |
 | `mercury-core` (`crates/core`) | Error types, encoding, plugin traits, worker trait, membership proofs |
-| `mercury-chain-traits` (`crates/chain-traits`) | Chain types, messaging, queries, relay traits (~21 traits) |
+| `mercury-chain-traits` (`crates/chain-traits`) | Chain types, messaging, queries, relay traits (traits) |
 | `mercury-relay` (`crates/relay`) | Worker pipeline, generic over chain traits |
 | `mercury-chain-cache` (`crates/chain-cache`) | Query result caching + tx coordination (deduplication) |
 | `mercury-telemetry` (`crates/telemetry`) | Metrics, logging, worker gauges |
@@ -113,6 +113,7 @@ Read the [Architecture](./docs/architecture.md) doc before diving into the code.
 ### Design Principles
 
 - **Plain traits, no frameworks.** Direct `impl` blocks, no provider indirection or macro-heavy abstractions
-- **Few, focused traits.** ~16 traits grouped by concern — `ChainTypes` and `IbcTypes<C>` carry associated types, not one trait per type
+- **Few, focused traits.** traits grouped by concern — `ChainTypes` and `IbcTypes` carry associated types, not one trait per type
 - **Concrete error type.** One `eyre`-based error with retryability tracking, no generic error parameters
+- **Plugin-based chain extensibility.** Chains register via `ChainPlugin` + `RelayPairPlugin` traits into a `ChainRegistry`. Adding a new chain requires no CLI changes — implement the plugin traits and call `register()`
 - **Don't abstract implementation details.** Transaction internals (fees, nonces, signing) are concrete methods on chain types, not traits
