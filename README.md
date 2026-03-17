@@ -10,7 +10,7 @@
 
 A cross-chain IBC v2 relayer in Rust. Plain traits, no frameworks.
 
-Mercury relays packets between IBC-connected blockchains, including across fundamentally different chain types. Cosmos↔Cosmos works today; Cosmos→EVM is in progress. Unlike [hermes](https://github.com/informalsystems/hermes) (primarily Cosmos/Tendermint chains, sync architecture) and [hermes-sdk](https://github.com/informalsystems/hermes-sdk) (correct cross-chain approach buried under 250+ component traits), Mercury shares all relay logic across chain pairs through ~21 plain Rust traits with a wrapper pattern for orphan rule avoidance.
+Mercury relays packets between IBC-connected blockchains, including across fundamentally different chain types. Cosmos↔Cosmos works today; Cosmos→EVM is in progress. Unlike [hermes](https://github.com/informalsystems/hermes) (primarily Cosmos/Tendermint chains, sync architecture) and [hermes-sdk](https://github.com/informalsystems/hermes-sdk) (correct cross-chain approach buried under 250+ component traits), Mercury shares all relay logic across chain pairs through ~21 plain Rust traits with an adapter pattern for orphan rule avoidance.
 
 ## Status
 
@@ -41,7 +41,7 @@ Each relay direction (A→B, B→A) runs its own set of workers connected by `to
 | `mercury-ethereum-counterparties` | Ethereum — supported counterparties (currently: Cosmos) |
 | `mercury-relay` | Worker pipeline, generic over chain traits |
 | `mercury-chain-traits` | Chain types, messaging, queries, relay traits |
-| `mercury-core` | Error types, encoding, worker trait, membership proofs |
+| `mercury-core` | Typed error hierarchy (TxError, QueryError, ProofError, ClientError) with retryability, encoding, worker trait, membership proofs |
 
 ## Docs
 

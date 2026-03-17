@@ -52,36 +52,36 @@ To relay between your chain and an existing chain, you need cross-chain trait im
 For a new chain `MyChain` relaying against Cosmos:
 
 **In `mercury-mychain-counterparties/`** (your counterparty crate):
-- `ClientPayloadBuilder<CosmosChainInner<S>>` — builds your chain's light client payloads. `build_create_client_payload` is typically counterparty-agnostic. `build_update_client_payload` receives `CosmosClientState`, which is an enum — match on the variant that wraps your light client (usually `Wasm` for non-Tendermint clients).
-- `ClientMessageBuilder<CosmosChainInner<S>>` — builds on-chain messages from Cosmos payloads
-- `PacketMessageBuilder<CosmosChainInner<S>>` — builds recv/ack/timeout messages
-- `ClientQuery<CosmosChainInner<S>>` — queries your chain for Cosmos client/consensus state
-- `MisbehaviourDetector<CosmosChainInner<S>>` + `MisbehaviourQuery` + `MisbehaviourMessageBuilder` — can be no-op stubs initially
+- `ClientPayloadBuilder<CosmosChain<S>>` — builds your chain's light client payloads. `build_create_client_payload` is typically counterparty-agnostic. `build_update_client_payload` receives `CosmosClientState`, which is an enum — match on the variant that wraps your light client (usually `Wasm` for non-Tendermint clients).
+- `ClientMessageBuilder<CosmosChain<S>>` — builds on-chain messages from Cosmos payloads
+- `PacketMessageBuilder<CosmosChain<S>>` — builds recv/ack/timeout messages
+- `ClientQuery<CosmosChain<S>>` — queries your chain for Cosmos client/consensus state
+- `MisbehaviourDetector<CosmosChain<S>>` + `MisbehaviourQuery` + `MisbehaviourMessageBuilder` — can be no-op stubs initially
 
 **In `mercury-cosmos-counterparties/`** (the Cosmos counterparty crate):
-- `ClientPayloadBuilder<MyChainInner>` — Cosmos's impl is fully generic (`impl<C: ChainTypes> ClientPayloadBuilder<C>`), so this is automatic via the blanket forward
-- `ClientMessageBuilder<MyChainInner>` — builds `MsgCreateClient`/`MsgUpdateClient` on Cosmos targeting your chain's light client
-- `PacketMessageBuilder<MyChainInner>` — builds Cosmos packet messages from your chain's proof types
-- `ClientQuery<MyChainInner>` — queries Cosmos for your chain's client state (dispatches on `CosmosClientState` enum)
+- `ClientPayloadBuilder<MyChain>` — Cosmos's impl is fully generic (`impl<C: ChainTypes> ClientPayloadBuilder<C>`), so this is automatic via the blanket forward
+- `ClientMessageBuilder<MyChain>` — builds `MsgCreateClient`/`MsgUpdateClient` on Cosmos targeting your chain's light client
+- `PacketMessageBuilder<MyChain>` — builds Cosmos packet messages from your chain's proof types
+- `ClientQuery<MyChain>` — queries Cosmos for your chain's client state (dispatches on `CosmosClientState` enum)
 
-### Wrapper forwarding pattern
+### Adapter forwarding pattern
 
-Each chain has a wrapper type (`MyChain`) in its counterparty crate that forwards same-chain traits from the inner type and adds cross-chain impls. The `delegate_chain_inner!` macro handles all boilerplate delegation:
+Each chain has an adapter type (`MyChainAdapter`) in its counterparty crate that forwards same-chain traits from the core type and adds cross-chain impls. The `delegate_chain!` macro handles all boilerplate delegation:
 
 ```rust
-// Generates Deref, HasInner, ChainTypes, IbcTypes, and all operational trait delegations.
+// Generates Deref, HasCore, ChainTypes, IbcTypes, and all operational trait delegations.
 // Also generates a blanket ClientPayloadBuilder<C> delegation by default.
-mercury_chain_traits::delegate_chain_inner! {
-    impl[S: MySigner] MyChain<S> => MyChainInner<S>
+mercury_chain_traits::delegate_chain! {
+    impl[S: MySigner] MyChainAdapter<S> => MyChain<S>
 }
 
-// Use skip_cpb if your wrapper needs a custom ClientPayloadBuilder impl:
-mercury_chain_traits::delegate_chain_inner! {
-    impl[] MyChain => MyChainInner; skip_cpb
+// Use skip_cpb if your adapter needs a custom ClientPayloadBuilder impl:
+mercury_chain_traits::delegate_chain! {
+    impl[] MyChainAdapter => MyChain; skip_cpb
 }
 ```
 
-Cross-chain trait impls (`ClientMessageBuilder<OtherChainInner>`, `PacketMessageBuilder<OtherChainInner>`) are still written manually on the wrapper, since they contain counterparty-specific logic (e.g., Ethereum must unwrap `CosmosClientState::Wasm` to extract beacon bytes).
+Cross-chain trait impls (`ClientMessageBuilder<OtherChain>`, `PacketMessageBuilder<OtherChain>`) are still written manually on the adapter, since they contain counterparty-specific logic (e.g., Ethereum must unwrap `CosmosClientState::Wasm` to extract beacon bytes).
 
 ### CosmosClientState enum
 
@@ -91,5 +91,5 @@ Non-native light clients on Cosmos are deployed as CosmWasm contracts, so their 
 
 In `crates/cli/src/main.rs`:
 - Add a `ConnectedChain` variant for your chain
-- Add `DynRelay` impl for each relay direction (`RelayContext<MyChain, OtherChain>` and vice versa)
+- Add `DynRelay` impl for each relay direction (`RelayContext<MyChainAdapter, OtherChainAdapter>` and vice versa)
 - Add match arms in `build_relay_pair` and `connect_chain`
