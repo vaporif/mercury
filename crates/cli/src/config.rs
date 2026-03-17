@@ -24,7 +24,7 @@ pub enum ChainConfig {
     #[serde(rename = "cosmos")]
     Cosmos(Box<CosmosChainConfig>),
     #[serde(rename = "ethereum")]
-    Ethereum(EthereumChainConfig),
+    Ethereum(Box<EthereumChainConfig>),
 }
 
 impl ChainConfig {

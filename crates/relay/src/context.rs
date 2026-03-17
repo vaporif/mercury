@@ -13,7 +13,8 @@ use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
 use mercury_telemetry::recorder::{
-    ClearingMetrics, ClientMetrics, EventMetrics, MisbehaviourMetrics, PacketMetrics, TxMetrics,
+    ClearingMetrics, ClientMetrics, EventMetrics, MisbehaviourMetrics, PacketMetrics, TxDirection,
+    TxMetrics,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -165,20 +166,23 @@ where
         let (tx_req_tx, tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
         let (src_tx_req_tx, src_tx_req_rx) = mpsc::channel(CHANNEL_BUFFER);
 
+        let src_label = self.src_chain.chain_label();
+        let dst_label = self.dst_chain.chain_label();
+
         let event_watcher = EventWatcher {
             relay: Arc::clone(self),
             sender: event_tx.clone(),
             token: pipeline_token.clone(),
             start_height,
             packet_filter: config.packet_filter.clone(),
-            metrics: EventMetrics,
+            metrics: EventMetrics::new(src_label.clone()),
         };
 
         let client_refresh = ClientRefreshWorker {
             relay: Arc::clone(self),
             sender: tx_req_tx.clone(),
             token: pipeline_token.clone(),
-            metrics: ClientMetrics,
+            metrics: ClientMetrics::new(src_label.clone()),
         };
 
         let packet_worker = PacketWorker {
@@ -187,21 +191,21 @@ where
             sender: tx_req_tx,
             src_sender: src_tx_req_tx,
             token: pipeline_token.clone(),
-            metrics: PacketMetrics,
+            metrics: PacketMetrics::new(src_label.clone()),
         };
 
         let tx_worker = TxWorker {
             relay: Arc::clone(self),
             receiver: tx_req_rx,
             token: pipeline_token.clone(),
-            metrics: TxMetrics::new("dst".to_owned()),
+            metrics: TxMetrics::new(TxDirection::Dst, dst_label.clone()),
         };
 
         let src_tx_worker = SrcTxWorker {
             relay: Arc::clone(self),
             receiver: src_tx_req_rx,
             token: pipeline_token.clone(),
-            metrics: TxMetrics::new("src".to_owned()),
+            metrics: TxMetrics::new(TxDirection::Src, src_label.clone()),
         };
 
         let event_watcher_handle = spawn_worker(event_watcher);
@@ -219,7 +223,7 @@ where
                     token: pipeline_token.clone(),
                     interval,
                     packet_filter: config.packet_filter.clone(),
-                    metrics: ClearingMetrics,
+                    metrics: ClearingMetrics::new(src_label.clone()),
                 };
                 spawn_worker(clearing_worker)
             },
@@ -232,7 +236,7 @@ where
                     relay: Arc::clone(self),
                     token: pipeline_token.clone(),
                     scan_interval: interval,
-                    metrics: MisbehaviourMetrics,
+                    metrics: MisbehaviourMetrics::new(src_label.clone()),
                 };
                 spawn_worker(misbehaviour_worker)
             },

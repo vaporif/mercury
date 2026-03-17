@@ -8,7 +8,7 @@ use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter};
 use metrics::{Counter, Histogram, counter, histogram};
 
-use crate::error::{RpcError, Result};
+use crate::error::{Result, RpcError};
 
 pub const RPC_REQUESTS_TOTAL: &str = "rpc_requests_total";
 pub const RPC_REQUEST_DURATION_MS: &str = "rpc_request_duration_ms";
@@ -91,10 +91,13 @@ impl RpcGuard {
 
     #[must_use]
     pub fn noop(chain_id: &str) -> Self {
-        Self::new(chain_id, RpcConfig {
-            rpc_timeout: Duration::from_secs(3600),
-            rate_limit: u64::from(u32::MAX),
-        })
+        Self::new(
+            chain_id,
+            RpcConfig {
+                rpc_timeout: Duration::from_secs(3600),
+                rate_limit: u64::from(u32::MAX),
+            },
+        )
     }
 
     pub async fn guarded<F, Fut, T>(&self, f: F) -> Result<T>
@@ -135,11 +138,7 @@ impl RpcGuard {
 
     /// Run two futures concurrently under a single timeout.
     /// Consumes one rate-limit token (the pair is one logical operation).
-    pub async fn guarded_pair<F1, Fut1, T1, F2, Fut2, T2>(
-        &self,
-        f1: F1,
-        f2: F2,
-    ) -> Result<(T1, T2)>
+    pub async fn guarded_pair<F1, Fut1, T1, F2, Fut2, T2>(&self, f1: F1, f2: F2) -> Result<(T1, T2)>
     where
         F1: FnOnce() -> Fut1,
         Fut1: Future<Output = Result<T1>>,
@@ -252,10 +251,12 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .downcast_ref::<crate::error::RpcError>()
-            .is_some());
+        assert!(
+            result
+                .unwrap_err()
+                .downcast_ref::<crate::error::RpcError>()
+                .is_some()
+        );
         assert!(start.elapsed() < Duration::from_secs(1));
     }
 

@@ -54,7 +54,7 @@ pub async fn query_cosmos_status(rpc_addr: &str) -> Result<CosmosChainStatus> {
 
 #[async_trait]
 impl<S: CosmosSigner> ChainStatusQuery for CosmosChain<S> {
-    #[instrument(skip_all, name = "query_chain_status")]
+    #[instrument(skip_all, name = "query_chain_status", fields(chain = %self.chain_label()))]
     async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
         let status = self
             .rpc_guard
@@ -69,7 +69,7 @@ impl<S: CosmosSigner> ChainStatusQuery for CosmosChain<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
-    #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
+    #[instrument(skip_all, name = "query_client_state", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_client_state(
         &self,
         client_id: &Self::ClientId,
@@ -89,7 +89,7 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
                 IbcClientQueryClient::new(self.grpc_channel.clone())
                     .client_state(request)
                     .await
-                    .map(|r| r.into_inner())
+                    .map(tonic::Response::into_inner)
                     .map_err(Into::into)
             })
             .await?;
@@ -125,7 +125,7 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
         Ok(client_state)
     }
 
-    #[instrument(skip_all, name = "query_consensus_state", fields(client_id = %client_id))]
+    #[instrument(skip_all, name = "query_consensus_state", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_consensus_state(
         &self,
         client_id: &Self::ClientId,
@@ -153,7 +153,7 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
                 IbcClientQueryClient::new(self.grpc_channel.clone())
                     .consensus_state(request)
                     .await
-                    .map(|r| r.into_inner())
+                    .map(tonic::Response::into_inner)
                     .map_err(Into::into)
             })
             .await?;
@@ -269,7 +269,7 @@ fn extract_proof(
 
 #[async_trait]
 impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
-    #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_commitment", fields(chain = %self.chain_label(), seq = sequence))]
     async fn query_packet_commitment(
         &self,
         client_id: &Self::ClientId,
@@ -296,7 +296,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         Ok((commitment, proof))
     }
 
-    #[instrument(skip_all, name = "query_packet_receipt", fields(seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_receipt", fields(chain = %self.chain_label(), seq = sequence))]
     async fn query_packet_receipt(
         &self,
         client_id: &Self::ClientId,
@@ -323,7 +323,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         Ok((receipt, proof))
     }
 
-    #[instrument(skip_all, name = "query_commitment_sequences", fields(client_id = %client_id))]
+    #[instrument(skip_all, name = "query_commitment_sequences", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_commitment_sequences(
         &self,
         client_id: &Self::ClientId,
@@ -390,7 +390,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         Ok(result)
     }
 
-    #[instrument(skip_all, name = "query_packet_ack", fields(seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_ack", fields(chain = %self.chain_label(), seq = sequence))]
     async fn query_packet_acknowledgement(
         &self,
         client_id: &Self::ClientId,

@@ -5,7 +5,7 @@ use prost::Message;
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, instrument, warn};
 
-use mercury_chain_traits::types::{MessageSender, TxReceipt};
+use mercury_chain_traits::types::{ChainTypes, MessageSender, TxReceipt};
 use mercury_core::error::{Result, TxError};
 
 use crate::chain::CosmosChain;
@@ -207,7 +207,7 @@ async fn build_tx_bytes(
 }
 
 impl<S: CosmosSigner> CosmosChain<S> {
-    #[instrument(skip_all, name = "query_nonce")]
+    #[instrument(skip_all, name = "query_nonce", fields(chain = %self.chain_label()))]
     pub async fn query_nonce(&self, signer: &S) -> Result<CosmosNonce> {
         use ibc_proto::cosmos::auth::v1beta1::{
             BaseAccount, QueryAccountRequest, query_client::QueryClient as AuthQueryClient,
@@ -226,7 +226,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
                 AuthQueryClient::new(self.grpc_channel.clone())
                     .account(request)
                     .await
-                    .map(|r| r.into_inner())
+                    .map(tonic::Response::into_inner)
                     .map_err(Into::into)
             })
             .await?;
@@ -243,7 +243,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
         })
     }
 
-    #[instrument(skip_all, name = "estimate_fee", fields(msg_count = messages.len()))]
+    #[instrument(skip_all, name = "estimate_fee", fields(chain = %self.chain_label(), msg_count = messages.len()))]
     pub async fn estimate_fee_with_nonce(
         &self,
         signer: &S,
@@ -333,7 +333,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
         })
     }
 
-    #[instrument(skip_all, name = "submit_tx", fields(seq = nonce.sequence, gas = fee.gas_limit))]
+    #[instrument(skip_all, name = "submit_tx", fields(chain = %self.chain_label(), seq = nonce.sequence, gas = fee.gas_limit))]
     pub async fn submit_tx(
         &self,
         signer: &S,
@@ -390,7 +390,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
         Ok(tx_hash)
     }
 
-    #[instrument(skip_all, name = "poll_tx_response", fields(tx_hash = %tx_hash))]
+    #[instrument(skip_all, name = "poll_tx_response", fields(chain = %self.chain_label(), tx_hash = %tx_hash))]
     pub async fn poll_tx_response(&self, tx_hash: &str) -> Result<CosmosTxResponse> {
         use tendermint::Hash;
         use tendermint_rpc::Client;
@@ -465,7 +465,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
                         error = %e,
                         "transaction not yet found, retrying"
                     );
-                    last_err = e.into();
+                    last_err = e;
                 }
             }
         }
@@ -634,7 +634,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
-    #[instrument(skip_all, name = "send_messages", fields(count = messages.len()))]
+    #[instrument(skip_all, name = "send_messages", fields(chain = %self.chain_label(), count = messages.len()))]
     async fn send_messages(&self, messages: Vec<Self::Message>) -> Result<TxReceipt> {
         if messages.is_empty() {
             return Ok(TxReceipt {

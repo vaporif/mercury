@@ -77,6 +77,9 @@ macro_rules! delegate_chain {
             fn chain_id(&self) -> &Self::ChainId {
                 self.0.chain_id()
             }
+            fn chain_label(&self) -> $crate::_mercury_core::ChainLabel {
+                self.0.chain_label()
+            }
         }
 
         impl<$($gen)*> $crate::IbcTypes for $Wrapper {

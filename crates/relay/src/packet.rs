@@ -14,7 +14,7 @@ where
     Dst: RelayChain + PacketMessageBuilder<<Src as HasCore>::Core>,
     Self: Relay<SrcChain = Src, DstChain = Dst>,
 {
-    #[instrument(skip_all, name = "build_receive_packet", fields(seq = Src::packet_sequence(packet)))]
+    #[instrument(skip_all, name = "build_receive_packet", fields(src_chain = %self.src_chain.chain_label(), seq = Src::packet_sequence(packet)))]
     async fn build_receive_packet_messages(
         &self,
         packet: &<Src as IbcTypes>::Packet,
@@ -52,7 +52,7 @@ where
         Ok((vec![msg], membership_entries))
     }
 
-    #[instrument(skip_all, name = "build_ack_packet", fields(seq = Src::packet_sequence(packet)))]
+    #[instrument(skip_all, name = "build_ack_packet", fields(src_chain = %self.src_chain.chain_label(), seq = Src::packet_sequence(packet)))]
     async fn build_ack_packet_messages(
         &self,
         packet: &<Src as IbcTypes>::Packet,
@@ -91,7 +91,7 @@ where
         Ok((vec![msg], membership_entries))
     }
 
-    #[instrument(skip_all, name = "build_timeout_packet", fields(seq = Src::packet_sequence(packet)))]
+    #[instrument(skip_all, name = "build_timeout_packet", fields(src_chain = %self.src_chain.chain_label(), seq = Src::packet_sequence(packet)))]
     async fn build_timeout_packet_messages(
         &self,
         packet: &<Src as IbcTypes>::Packet,

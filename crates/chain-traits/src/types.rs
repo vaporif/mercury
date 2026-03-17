@@ -2,8 +2,8 @@ use std::fmt::{Debug, Display};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
+use mercury_core::{ChainLabel, ThreadSafe};
 
 /// Core associated types for a chain: identity, messages, status, and revision.
 pub trait ChainTypes: ThreadSafe {
@@ -24,6 +24,7 @@ pub trait ChainTypes: ThreadSafe {
     fn sub_height(height: &Self::Height, n: u64) -> Option<Self::Height>;
     fn block_time(&self) -> Duration;
     fn chain_id(&self) -> &Self::ChainId;
+    fn chain_label(&self) -> ChainLabel;
 }
 
 /// IBC-specific types relative to a counterparty chain (client, proofs, packets).

@@ -88,7 +88,7 @@ const fn default_block_time_secs() -> u64 {
 
 impl EthereumChainConfig {
     #[must_use]
-    pub fn rpc_config(&self) -> mercury_core::rpc_guard::RpcConfig {
+    pub const fn rpc_config(&self) -> mercury_core::rpc_guard::RpcConfig {
         mercury_core::rpc_guard::RpcConfig {
             rpc_timeout: Duration::from_secs(self.rpc_timeout_secs),
             rate_limit: self.rpc_rate_limit,

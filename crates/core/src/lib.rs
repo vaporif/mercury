@@ -13,6 +13,69 @@ pub mod worker;
 pub trait ThreadSafe: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> ThreadSafe for T {}
 
+/// A generic metric label with a name and value.
+#[derive(Clone, Debug)]
+pub struct MetricLabel {
+    pub name: &'static str,
+    pub value: String,
+}
+
+/// Human-readable chain identifier for metrics and telemetry.
+#[derive(Clone, Debug)]
+pub struct ChainLabel {
+    name: &'static str,
+    id: Option<String>,
+}
+
+impl ChainLabel {
+    #[must_use]
+    pub const fn new(name: &'static str) -> Self {
+        Self { name, id: None }
+    }
+
+    #[must_use]
+    pub fn with_id(name: &'static str, id: impl Into<String>) -> Self {
+        Self {
+            name,
+            id: Some(id.into()),
+        }
+    }
+
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    #[must_use]
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    #[must_use]
+    pub fn metric_labels(&self) -> Vec<MetricLabel> {
+        let mut labels = vec![MetricLabel {
+            name: "chain_name",
+            value: self.name.to_owned(),
+        }];
+        if let Some(id) = &self.id {
+            labels.push(MetricLabel {
+                name: "chain_id",
+                value: id.clone(),
+            });
+        }
+        labels
+    }
+}
+
+impl std::fmt::Display for ChainLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.id {
+            Some(id) => write!(f, "{}/{id}", self.name),
+            None => f.write_str(self.name),
+        }
+    }
+}
+
 /// IBC merkle prefix representing the key path in nested merkle trees.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MerklePrefix(pub Vec<Vec<u8>>);

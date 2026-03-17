@@ -14,6 +14,7 @@ use tracing::instrument;
 
 use mercury_chain_traits::builders::{MisbehaviourDetector, MisbehaviourMessageBuilder};
 use mercury_chain_traits::queries::MisbehaviourQuery;
+use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::Result;
 
 use crate::chain::CosmosChain;
@@ -34,7 +35,7 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
     type MisbehaviourEvidence = CosmosMisbehaviourEvidence;
     type CounterpartyClientState = CosmosClientState;
 
-    #[instrument(skip_all, name = "check_for_misbehaviour")]
+    #[instrument(skip_all, name = "check_for_misbehaviour", fields(chain = %self.chain_label()))]
     async fn check_for_misbehaviour(
         &self,
         client_id: &Self::ClientId,
@@ -138,7 +139,7 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
 impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChain<S> {
     type MisbehaviourEvidence = CosmosMisbehaviourEvidence;
 
-    #[instrument(skip_all, name = "build_misbehaviour_message")]
+    #[instrument(skip_all, name = "build_misbehaviour_message", fields(chain = %self.chain_label()))]
     async fn build_misbehaviour_message(
         &self,
         client_id: &ClientId,
@@ -165,7 +166,7 @@ const CONSENSUS_HEIGHTS_LIMIT: u64 = 1000;
 impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChain<S> {
     type CounterpartyUpdateHeader = TmIbcHeader;
 
-    #[instrument(skip_all, name = "query_consensus_state_heights", fields(client_id = %client_id))]
+    #[instrument(skip_all, name = "query_consensus_state_heights", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_consensus_state_heights(
         &self,
         client_id: &Self::ClientId,
@@ -187,7 +188,7 @@ impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChain<S> {
                 IbcClientQueryClient::new(self.grpc_channel.clone())
                     .consensus_state_heights(request)
                     .await
-                    .map(|r| r.into_inner())
+                    .map(tonic::Response::into_inner)
                     .map_err(Into::into)
             })
             .await?;
@@ -207,7 +208,7 @@ impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChain<S> {
         Ok(heights)
     }
 
-    #[instrument(skip_all, name = "query_update_client_header", fields(client_id = %client_id, height = %consensus_height))]
+    #[instrument(skip_all, name = "query_update_client_header", fields(chain = %self.chain_label(), client_id = %client_id, height = %consensus_height))]
     async fn query_update_client_header(
         &self,
         client_id: &ClientId,

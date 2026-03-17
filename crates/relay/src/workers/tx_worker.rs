@@ -115,7 +115,7 @@ impl<R: Relay> Worker for TxWorker<R> {
         "tx_worker"
     }
 
-    #[instrument(skip_all, name = "tx_worker", fields(chain = %self.relay.dst_chain().chain_id()))]
+    #[instrument(skip_all, name = "tx_worker", fields(chain = %self.relay.dst_chain().chain_label()))]
     async fn run(mut self) -> Result<()> {
         let metrics = self.metrics.clone();
         let (mut msg_rx, fwd_task) = forward_requests(self.receiver, metrics.clone());
@@ -172,7 +172,7 @@ impl<R: Relay> Worker for SrcTxWorker<R> {
         "src_tx_worker"
     }
 
-    #[instrument(skip_all, name = "src_tx_worker", fields(chain = %self.relay.src_chain().chain_id()))]
+    #[instrument(skip_all, name = "src_tx_worker", fields(chain = %self.relay.src_chain().chain_label()))]
     async fn run(mut self) -> Result<()> {
         let metrics = self.metrics.clone();
         let (mut msg_rx, fwd_task) = forward_requests(self.receiver, metrics.clone());
