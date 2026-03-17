@@ -1,0 +1,23 @@
+[package]
+name = "mercury-cosmos-ethereum-relay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+mercury-core = { workspace = true }
+mercury-chain-cache = { workspace = true }
+mercury-relay = { workspace = true }
+mercury-cosmos-counterparties = { workspace = true, features = ["ethereum-beacon"] }
+mercury-ethereum-counterparties = { workspace = true, features = ["cosmos-sp1"] }
+
+async-trait = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+tokio-util = { workspace = true }
+ibc = { workspace = true }

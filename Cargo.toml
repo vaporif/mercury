@@ -9,6 +9,7 @@ members = [
   "crates/chains/cosmos-counterparties",
   "crates/chains/ethereum",
   "crates/chains/ethereum-counterparties",
+  "crates/chains/cosmos-ethereum-relay",
   "crates/relay",
   "crates/cli",
   "crates/e2e",
@@ -58,6 +59,7 @@ mercury-cosmos = { path = "crates/chains/cosmos" }
 mercury-cosmos-counterparties = { path = "crates/chains/cosmos-counterparties" }
 mercury-ethereum = { path = "crates/chains/ethereum" }
 mercury-ethereum-counterparties = { path = "crates/chains/ethereum-counterparties" }
+mercury-cosmos-ethereum-relay = { path = "crates/chains/cosmos-ethereum-relay" }
 mercury-relay = { path = "crates/relay" }
 mercury-cli = { path = "crates/cli" }
 
