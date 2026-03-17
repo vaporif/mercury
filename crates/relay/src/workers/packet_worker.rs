@@ -543,16 +543,29 @@ where
 
                         if packet_msgs.is_empty() {
                             if let Some(payload) = maybe_payload {
-                                let update_output =
-                                    self.build_dst_update_client_message(payload, &[]).await?;
-                                if !update_output.messages.is_empty() {
-                                    self.sender
+                                let update_output = match self
+                                    .build_dst_update_client_message(payload, &[])
+                                    .await
+                                {
+                                    Ok(o) => o,
+                                    Err(e) => {
+                                        warn!(error = %e, "failed to build update client message, skipping");
+                                        continue;
+                                    }
+                                };
+                                if !update_output.messages.is_empty()
+                                    && self
+                                        .sender
                                         .send(DstTxRequest {
                                             messages: update_output.messages,
                                             created_at: std::time::Instant::now(),
                                         })
                                         .await
-                                        .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
+                                        .is_err()
+                                {
+                                    warn!("tx_worker channel closed, cancelling relay");
+                                    self.token.cancel();
+                                    return Ok(());
                                 }
                             }
                         } else if let Some(payload) = maybe_payload {
@@ -566,9 +579,16 @@ where
                                 "building update client message with membership proofs"
                             );
 
-                            let mut update_output = self
+                            let mut update_output = match self
                                 .build_dst_update_client_message(payload, &all_entries)
-                                .await?;
+                                .await
+                            {
+                                Ok(o) => o,
+                                Err(e) => {
+                                    warn!(error = %e, "failed to build update client message with proofs, skipping batch");
+                                    continue;
+                                }
+                            };
                             let update_msg_count = update_output.messages.len();
 
                             debug!(
@@ -591,25 +611,37 @@ where
                                 packet = messages.len() - update_msg_count,
                                 "sending batch to tx_worker"
                             );
-                            self.sender
+                            if self
+                                .sender
                                 .send(DstTxRequest {
                                     messages,
                                     created_at: std::time::Instant::now(),
                                 })
                                 .await
-                                .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
+                                .is_err()
+                            {
+                                warn!("tx_worker channel closed, cancelling relay");
+                                self.token.cancel();
+                                return Ok(());
+                            }
                         } else {
                             info!(
                                 count = packet_msgs.len(),
                                 "client up to date, sending packet messages only"
                             );
-                            self.sender
+                            if self
+                                .sender
                                 .send(DstTxRequest {
                                     messages: packet_msgs,
                                     created_at: std::time::Instant::now(),
                                 })
                                 .await
-                                .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
+                                .is_err()
+                            {
+                                warn!("tx_worker channel closed, cancelling relay");
+                                self.token.cancel();
+                                return Ok(());
+                            }
                         }
                     }
                     Err(e) => {
@@ -634,13 +666,19 @@ where
                             let mut messages = src_update_msgs;
                             messages.extend(timeout_msgs);
 
-                            self.src_sender
+                            if self
+                                .src_sender
                                 .send(SrcTxRequest {
                                     messages,
                                     created_at: std::time::Instant::now(),
                                 })
                                 .await
-                                .map_err(|_| eyre::eyre!("src_tx_worker channel closed"))?;
+                                .is_err()
+                            {
+                                warn!("src_tx_worker channel closed, cancelling relay");
+                                self.token.cancel();
+                                return Ok(());
+                            }
                         }
                     }
                     Err(e) => {

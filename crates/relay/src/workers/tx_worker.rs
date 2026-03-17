@@ -48,7 +48,8 @@ async fn run_tx_loop<M: Send + 'static>(
                             token.cancel();
                             break;
                         }
-                        let backoff = (BACKOFF_BASE * 2u32.saturating_pow(consecutive_failures.min(5).try_into().unwrap_or(5)))
+                        #[allow(clippy::cast_possible_truncation)]
+                        let backoff = (BACKOFF_BASE * 2u32.saturating_pow(consecutive_failures.min(5) as u32))
                             .min(BACKOFF_CAP);
                         warn!("{label}: tx failure {consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}, backing off {backoff:?}");
                         tokio::time::sleep(backoff).await;
