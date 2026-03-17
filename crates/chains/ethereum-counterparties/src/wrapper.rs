@@ -1,3 +1,6 @@
+use async_trait::async_trait;
+
+use mercury_chain_traits::builders::ClientPayloadBuilder;
 use mercury_core::error::Result;
 
 use mercury_ethereum::chain::EthereumChainInner;
@@ -18,5 +21,28 @@ impl EthereumChain {
 }
 
 mercury_chain_traits::delegate_chain_inner! {
-    impl[] EthereumChain => EthereumChainInner
+    impl[] EthereumChain => EthereumChainInner; skip_cpb
+}
+
+#[async_trait]
+impl ClientPayloadBuilder<EthereumChainInner> for EthereumChain {
+    type CreateClientPayload =
+        <EthereumChainInner as ClientPayloadBuilder<EthereumChainInner>>::CreateClientPayload;
+    type UpdateClientPayload =
+        <EthereumChainInner as ClientPayloadBuilder<EthereumChainInner>>::UpdateClientPayload;
+
+    async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
+        self.0.build_create_client_payload().await
+    }
+
+    async fn build_update_client_payload(
+        &self,
+        trusted_height: &Self::Height,
+        target_height: &Self::Height,
+        counterparty_client_state: &<EthereumChainInner as mercury_chain_traits::IbcTypes>::ClientState,
+    ) -> Result<Self::UpdateClientPayload> {
+        self.0
+            .build_update_client_payload(trusted_height, target_height, counterparty_client_state)
+            .await
+    }
 }

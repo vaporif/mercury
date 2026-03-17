@@ -12,13 +12,25 @@
 /// mercury_chain_traits::delegate_chain_inner! {
 ///     impl[] EthereumChain => EthereumChainInner
 /// }
+///
+/// // Skip blanket ClientPayloadBuilder delegation (for wrappers with custom cross-chain impls):
+/// mercury_chain_traits::delegate_chain_inner! {
+///     impl[] EthereumChain => EthereumChainInner; skip_cpb
+/// }
 /// ```
 ///
 /// Generates `Deref`, `HasInner`, and all chain trait implementations that
 /// delegate to the inner type via `self.0`.
 #[macro_export]
 macro_rules! delegate_chain_inner {
+    (impl[$($gen:tt)*] $Wrapper:ty => $Inner:ty; skip_cpb) => {
+        $crate::delegate_chain_inner!(@base [$($gen)*] $Wrapper, $Inner);
+    };
     (impl[$($gen:tt)*] $Wrapper:ty => $Inner:ty) => {
+        $crate::delegate_chain_inner!(@base [$($gen)*] $Wrapper, $Inner);
+        $crate::delegate_chain_inner!(@cpb [$($gen)*] $Wrapper, $Inner);
+    };
+    (@base [$($gen:tt)*] $Wrapper:ty, $Inner:ty) => {
         impl<$($gen)*> ::std::ops::Deref for $Wrapper {
             type Target = $Inner;
             #[inline]
@@ -215,8 +227,6 @@ macro_rules! delegate_chain_inner {
                 self.0.query_send_packet_event(client_id, sequence).await
             }
         }
-
-        $crate::delegate_chain_inner!(@cpb [$($gen)*] $Wrapper, $Inner);
 
         #[$crate::_async_trait::async_trait]
         impl<$($gen)*> $crate::queries::ClientQuery<$Inner> for $Wrapper
