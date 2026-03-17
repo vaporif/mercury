@@ -101,10 +101,14 @@ impl PacketEvents for EthereumChain {
             .to_block(height.0);
 
         let logs = self
-            .provider
-            .get_logs(&filter)
-            .await
-            .wrap_err("querying block logs")?;
+            .rpc_guard
+            .guarded(|| async {
+                self.provider
+                    .get_logs(&filter)
+                    .await
+                    .wrap_err("querying block logs")
+            })
+            .await?;
 
         Ok(logs.iter().map(EvmEvent::from_alloy_log).collect())
     }
@@ -122,10 +126,14 @@ impl PacketEvents for EthereumChain {
             .from_block(self.config.deployment_block);
 
         let logs = self
-            .provider
-            .get_logs(&filter)
-            .await
-            .wrap_err("querying SendPacket event")?;
+            .rpc_guard
+            .guarded(|| async {
+                self.provider
+                    .get_logs(&filter)
+                    .await
+                    .wrap_err("querying SendPacket event")
+            })
+            .await?;
 
         let event = logs.iter().find_map(|log| {
             let decoded = ICS26Router::SendPacket::decode_log(log.as_ref()).ok()?;

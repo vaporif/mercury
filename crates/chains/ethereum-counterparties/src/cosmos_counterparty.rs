@@ -84,11 +84,16 @@ impl<S: CosmosSigner> ClientQuery<CosmosChain<S>> for EthereumAdapter {
         let lc = SP1ICS07Tendermint::new(lc_address, &*self.provider);
         // Use clientState() directly (struct accessor) instead of getClientState()
         // (bytes wrapper) to avoid ABI decode mismatches.
-        let cs = lc
-            .clientState()
-            .call()
-            .await
-            .wrap_err("SP1ICS07Tendermint.clientState() failed")?;
+        let cs = self
+            .0
+            .rpc_guard
+            .guarded(|| async {
+                lc.clientState()
+                    .call()
+                    .await
+                    .wrap_err("SP1ICS07Tendermint.clientState() failed")
+            })
+            .await?;
         tracing::debug!(
             chain_id = %cs.chainId,
             revision_height = cs.latestHeight.revisionHeight,
@@ -107,11 +112,16 @@ impl<S: CosmosSigner> ClientQuery<CosmosChain<S>> for EthereumAdapter {
         let height_u64 = consensus_height.value();
         let lc_address = resolve_light_client(&self.0, client_id).await?;
         let lc = SP1ICS07Tendermint::new(lc_address, &*self.provider);
-        let result = lc
-            .getConsensusStateHash(height_u64)
-            .call()
-            .await
-            .wrap_err_with(|| format!("getConsensusStateHash({height_u64}) failed"))?;
+        let result = self
+            .0
+            .rpc_guard
+            .guarded(|| async {
+                lc.getConsensusStateHash(height_u64)
+                    .call()
+                    .await
+                    .wrap_err_with(|| format!("getConsensusStateHash({height_u64}) failed"))
+            })
+            .await?;
         Ok(EvmConsensusState(result.to_vec()))
     }
 
@@ -445,10 +455,15 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
             .from_block(self.config.deployment_block);
 
         let logs = self
-            .provider
-            .get_logs(&filter)
-            .await
-            .wrap_err("querying ICS02ClientUpdated events")?;
+            .0
+            .rpc_guard
+            .guarded(|| async {
+                self.provider
+                    .get_logs(&filter)
+                    .await
+                    .wrap_err("querying ICS02ClientUpdated events")
+            })
+            .await?;
 
         let tx_hashes: Vec<_> = logs
             .iter()
@@ -551,7 +566,17 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for EthereumAda
 
         let lc_address = resolve_light_client(&self.0, client_id).await?;
         let lc = sp1_ics07_tendermint::new(lc_address, &*self.provider);
-        let client_state: SolClientState = lc.clientState().call().await?.into();
+        let client_state: SolClientState = self
+            .0
+            .rpc_guard
+            .guarded(|| async {
+                lc.clientState()
+                    .call()
+                    .await
+                    .wrap_err("SP1ICS07Tendermint.clientState() failed")
+            })
+            .await?
+            .into();
 
         let trusted_height_1 = evidence
             .misbehaviour

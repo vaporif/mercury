@@ -26,15 +26,20 @@ use crate::types::{
 
 pub(crate) async fn query_abci(
     client: &HttpClient,
+    rpc_guard: &mercury_core::rpc_guard::RpcGuard,
     path: &str,
     data: Vec<u8>,
     height: Option<TmHeight>,
     prove: bool,
 ) -> Result<tendermint_rpc::endpoint::abci_query::AbciQuery> {
-    let response = client
-        .abci_query(Some(path.to_string()), data, height, prove)
-        .await?;
-    Ok(response)
+    rpc_guard
+        .guarded(|| async {
+            client
+                .abci_query(Some(path.to_string()), data, height, prove)
+                .await
+                .map_err(Into::into)
+        })
+        .await
 }
 
 /// Query chain status via RPC only. No keys, no gRPC — lightweight health check.
@@ -51,7 +56,10 @@ pub async fn query_cosmos_status(rpc_addr: &str) -> Result<CosmosChainStatus> {
 impl<S: CosmosSigner> ChainStatusQuery for CosmosChain<S> {
     #[instrument(skip_all, name = "query_chain_status")]
     async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
-        let status = self.rpc_client.status().await?;
+        let status = self
+            .rpc_guard
+            .guarded(|| async { self.rpc_client.status().await.map_err(Into::into) })
+            .await?;
         Ok(CosmosChainStatus {
             height: status.sync_info.latest_block_height,
             timestamp: status.sync_info.latest_block_time,
@@ -75,10 +83,16 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
             .metadata_mut()
             .insert("x-cosmos-block-height", height.value().to_string().parse()?);
 
-        let response = IbcClientQueryClient::new(self.grpc_channel.clone())
-            .client_state(request)
-            .await?
-            .into_inner();
+        let response = self
+            .rpc_guard
+            .guarded(|| async {
+                IbcClientQueryClient::new(self.grpc_channel.clone())
+                    .client_state(request)
+                    .await
+                    .map(|r| r.into_inner())
+                    .map_err(Into::into)
+            })
+            .await?;
 
         let any = response
             .client_state
@@ -133,10 +147,16 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
             query_height.value().to_string().parse()?,
         );
 
-        let response = IbcClientQueryClient::new(self.grpc_channel.clone())
-            .consensus_state(request)
-            .await?
-            .into_inner();
+        let response = self
+            .rpc_guard
+            .guarded(|| async {
+                IbcClientQueryClient::new(self.grpc_channel.clone())
+                    .consensus_state(request)
+                    .await
+                    .map(|r| r.into_inner())
+                    .map_err(Into::into)
+            })
+            .await?;
 
         let any = response
             .consensus_state
@@ -259,6 +279,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         let query_height = proof_query_height(*height)?;
         let response = query_abci(
             &self.rpc_client,
+            &self.rpc_guard,
             IBC_STORE_PATH,
             ibc_v2_key(client_id.as_str(), COMMITMENT_DISCRIMINATOR, sequence),
             Some(query_height),
@@ -285,6 +306,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         let query_height = proof_query_height(*height)?;
         let response = query_abci(
             &self.rpc_client,
+            &self.rpc_guard,
             IBC_STORE_PATH,
             ibc_v2_key(client_id.as_str(), RECEIPT_DISCRIMINATOR, sequence),
             Some(query_height),
@@ -318,14 +340,19 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
 
         loop {
             let response = self
-                .rpc_client
-                .tx_search(
-                    query.clone(),
-                    false,
-                    page,
-                    per_page,
-                    tendermint_rpc::Order::Ascending,
-                )
+                .rpc_guard
+                .guarded(|| async {
+                    self.rpc_client
+                        .tx_search(
+                            query.clone(),
+                            false,
+                            page,
+                            per_page,
+                            tendermint_rpc::Order::Ascending,
+                        )
+                        .await
+                        .map_err(Into::into)
+                })
                 .await?;
 
             for tx in &response.txs {
@@ -373,6 +400,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         let query_height = proof_query_height(*height)?;
         let response = query_abci(
             &self.rpc_client,
+            &self.rpc_guard,
             IBC_STORE_PATH,
             ibc_v2_key(client_id.as_str(), ACK_DISCRIMINATOR, sequence),
             Some(query_height),

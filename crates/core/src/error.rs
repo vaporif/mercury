@@ -1,6 +1,6 @@
 //! Error handling — re-exports from `eyre` plus typed domain errors.
 
-pub use eyre::{Context, Report, Result, WrapErr, bail, eyre};
+pub use eyre::{bail, eyre, Context, Report, Result, WrapErr};
 
 /// Whether an error is safe to retry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +34,9 @@ impl RetryableExt for eyre::Report {
             return e.retryability();
         }
         if let Some(e) = self.downcast_ref::<ClientError>() {
+            return e.retryability();
+        }
+        if let Some(e) = self.downcast_ref::<RpcError>() {
             return e.retryability();
         }
         Retryability::Retryable
@@ -160,6 +163,21 @@ pub enum ClientError {
 impl HasRetryability for ClientError {
     fn retryability(&self) -> Retryability {
         Retryability::Fatal
+    }
+}
+
+/// RPC transport errors (timeout, rate limit exceeded).
+#[derive(Debug, thiserror::Error)]
+pub enum RpcError {
+    #[error("RPC timed out after {0:?}")]
+    Timeout(std::time::Duration),
+}
+
+impl HasRetryability for RpcError {
+    fn retryability(&self) -> Retryability {
+        match self {
+            Self::Timeout(_) => Retryability::Retryable,
+        }
     }
 }
 
@@ -383,6 +401,23 @@ mod tests {
     #[test]
     fn retryable_ext_untyped_error() {
         let err = eyre::eyre!("connection refused");
+        assert_eq!(err.retryability(), Retryability::Retryable);
+        assert!(err.is_retryable());
+    }
+
+    #[test]
+    fn rpc_error_retryability() {
+        use std::time::Duration;
+        assert_eq!(
+            RpcError::Timeout(Duration::from_secs(30)).retryability(),
+            Retryability::Retryable,
+        );
+    }
+
+    #[test]
+    fn retryable_ext_sees_rpc_error() {
+        use std::time::Duration;
+        let err: eyre::Report = RpcError::Timeout(Duration::from_secs(30)).into();
         assert_eq!(err.retryability(), Retryability::Retryable);
         assert!(err.is_retryable());
     }

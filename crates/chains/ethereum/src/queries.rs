@@ -24,16 +24,24 @@ use crate::types::{
 impl ChainStatusQuery for EthereumChain {
     async fn query_chain_status(&self) -> Result<EvmChainStatus> {
         let block_number = self
-            .provider
-            .get_block_number()
-            .await
-            .wrap_err("querying latest block number")?;
+            .rpc_guard
+            .guarded(|| async {
+                self.provider
+                    .get_block_number()
+                    .await
+                    .wrap_err("querying latest block number")
+            })
+            .await?;
 
         let block_info = self
-            .provider
-            .get_block_by_number(block_number.into())
-            .await
-            .wrap_err("querying block by number")?
+            .rpc_guard
+            .guarded(|| async {
+                self.provider
+                    .get_block_by_number(block_number.into())
+                    .await
+                    .wrap_err("querying block by number")
+            })
+            .await?
             .ok_or_else(|| QueryError::StaleState {
                 what: format!("block {block_number}"),
             })?;
@@ -50,11 +58,16 @@ pub async fn resolve_light_client(
     client_id: &EvmClientId,
 ) -> Result<Address> {
     let router = ICS26Router::new(chain.router_address, &*chain.provider);
-    router
-        .getClient(client_id.0.clone())
-        .call()
+    chain
+        .rpc_guard
+        .guarded(|| async {
+            router
+                .getClient(client_id.0.clone())
+                .call()
+                .await
+                .wrap_err_with(|| format!("getClient({client_id}) failed"))
+        })
         .await
-        .wrap_err_with(|| format!("getClient({client_id}) failed"))
 }
 
 pub type ClientStateReturn = sp1_ics07::SP1ICS07Tendermint::clientStateReturn;
@@ -103,11 +116,15 @@ impl ClientQuery<Self> for EthereumChain {
         // Use clientState() directly (struct accessor) instead of getClientState()
         // (bytes wrapper) to avoid ABI decode mismatches. Re-encode using
         // abi_encode_returns so decode_client_state can round-trip.
-        let cs = lc
-            .clientState()
-            .call()
-            .await
-            .wrap_err("SP1ICS07Tendermint.clientState() failed")?;
+        let cs = self
+            .rpc_guard
+            .guarded(|| async {
+                lc.clientState()
+                    .call()
+                    .await
+                    .wrap_err("SP1ICS07Tendermint.clientState() failed")
+            })
+            .await?;
         tracing::debug!(
             chain_id = %cs.chainId,
             revision_height = cs.latestHeight.revisionHeight,
@@ -125,13 +142,19 @@ impl ClientQuery<Self> for EthereumChain {
     ) -> Result<EvmConsensusState> {
         let lc_address = resolve_light_client(self, client_id).await?;
         let lc = SP1ICS07Tendermint::new(lc_address, &*self.provider);
-        let result = lc
-            .getConsensusStateHash(consensus_height.0)
-            .call()
-            .await
-            .wrap_err_with(|| {
-                format!("getConsensusStateHash({consensus_height}) failed for client {client_id}")
-            })?;
+        let result = self
+            .rpc_guard
+            .guarded(|| async {
+                lc.getConsensusStateHash(consensus_height.0)
+                    .call()
+                    .await
+                    .wrap_err_with(|| {
+                        format!(
+                            "getConsensusStateHash({consensus_height}) failed for client {client_id}"
+                        )
+                    })
+            })
+            .await?;
         Ok(EvmConsensusState(result.to_vec()))
     }
 
@@ -158,11 +181,16 @@ async fn get_storage_proof(
 ) -> Result<EvmCommitmentProof> {
     let block_id = alloy::eips::BlockId::number(height.0);
     let proof = chain
-        .provider
-        .get_proof(chain.router_address, vec![storage_slot.into()])
-        .block_id(block_id)
-        .await
-        .wrap_err("eth_getProof failed")?;
+        .rpc_guard
+        .guarded(|| async {
+            chain
+                .provider
+                .get_proof(chain.router_address, vec![storage_slot.into()])
+                .block_id(block_id)
+                .await
+                .wrap_err("eth_getProof failed")
+        })
+        .await?;
 
     let sp = proof.storage_proof.first().ok_or(ProofError::Missing)?;
 
@@ -182,12 +210,17 @@ async fn get_commitment_at_height(
     height: &EvmHeight,
 ) -> Result<B256> {
     let router = ICS26Router::new(chain.router_address, &*chain.provider);
-    let result = router
-        .getCommitment(hashed_path)
-        .block(alloy::eips::BlockId::number(height.0))
-        .call()
-        .await
-        .wrap_err("getCommitment failed")?;
+    let result = chain
+        .rpc_guard
+        .guarded(|| async {
+            router
+                .getCommitment(hashed_path)
+                .block(alloy::eips::BlockId::number(height.0))
+                .call()
+                .await
+                .wrap_err("getCommitment failed")
+        })
+        .await?;
     Ok(result)
 }
 
@@ -257,10 +290,14 @@ impl PacketStateQuery for EthereumChain {
             .to_block(height.0);
 
         let logs = self
-            .provider
-            .get_logs(&filter)
-            .await
-            .wrap_err("querying SendPacket logs")?;
+            .rpc_guard
+            .guarded(|| async {
+                self.provider
+                    .get_logs(&filter)
+                    .await
+                    .wrap_err("querying SendPacket logs")
+            })
+            .await?;
 
         let mut sequences: Vec<u64> = logs
             .iter()

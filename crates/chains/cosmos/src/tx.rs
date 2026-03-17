@@ -220,10 +220,16 @@ impl<S: CosmosSigner> CosmosChain<S> {
             address: address.clone(),
         });
 
-        let response = AuthQueryClient::new(self.grpc_channel.clone())
-            .account(request)
-            .await?
-            .into_inner();
+        let response = self
+            .rpc_guard
+            .guarded(|| async {
+                AuthQueryClient::new(self.grpc_channel.clone())
+                    .account(request)
+                    .await
+                    .map(|r| r.into_inner())
+                    .map_err(Into::into)
+            })
+            .await?;
 
         let account_any = response
             .account
@@ -266,31 +272,34 @@ impl<S: CosmosSigner> CosmosChain<S> {
         )
         .await?;
 
-        #[allow(deprecated)]
-        let request = tonic::Request::new(SimulateRequest { tx: None, tx_bytes });
-
-        let gas_used = match TxServiceClient::new(self.grpc_channel.clone())
-            .simulate(request)
-            .await
-        {
-            Ok(response) => {
-                response
-                    .into_inner()
-                    .gas_info
-                    .ok_or_else(|| eyre::eyre!("no gas info in simulate response"))?
-                    .gas_used
-            }
-            Err(status) if is_simulation_recoverable(status.message()) => {
-                warn!(error = %status, "simulation failed with recoverable error, using default_gas");
-                default_gas
-            }
-            Err(status) => {
-                return Err(TxError::SimulationFailed {
-                    reason: status.to_string(),
+        let gas_used = self
+            .rpc_guard
+            .guarded(|| async {
+                #[allow(deprecated)]
+                let request = tonic::Request::new(SimulateRequest { tx: None, tx_bytes });
+                match TxServiceClient::new(self.grpc_channel.clone())
+                    .simulate(request)
+                    .await
+                {
+                    Ok(response) => {
+                        let gas = response
+                            .into_inner()
+                            .gas_info
+                            .ok_or_else(|| eyre::eyre!("no gas info in simulate response"))?
+                            .gas_used;
+                        Ok(gas)
+                    }
+                    Err(status) if is_simulation_recoverable(status.message()) => {
+                        warn!(error = %status, "simulation failed with recoverable error, using default_gas");
+                        Ok(default_gas)
+                    }
+                    Err(status) => Err(TxError::SimulationFailed {
+                        reason: status.to_string(),
+                    }
+                    .into()),
                 }
-                .into());
-            }
-        };
+            })
+            .await?;
 
         let gas_limit = adjust_gas(gas_used, gas_multiplier, self.config.max_gas);
 
@@ -301,6 +310,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
                 self.config.gas_price.amount,
                 dgp,
                 &self.dynamic_gas_backend,
+                &self.rpc_guard,
             )
             .await
         } else {
@@ -350,7 +360,15 @@ impl<S: CosmosSigner> CosmosChain<S> {
             "broadcasting transaction"
         );
 
-        let response = self.rpc_client.broadcast_tx_sync(tx_bytes).await?;
+        let response = self
+            .rpc_guard
+            .guarded(|| async {
+                self.rpc_client
+                    .broadcast_tx_sync(tx_bytes)
+                    .await
+                    .map_err(Into::into)
+            })
+            .await?;
 
         if response.code.is_err() {
             let log = &response.log;
@@ -393,7 +411,11 @@ impl<S: CosmosSigner> CosmosChain<S> {
 
             tokio::time::sleep(poll_interval).await;
 
-            match self.rpc_client.tx(hash, false).await {
+            match self
+                .rpc_guard
+                .guarded(|| async { self.rpc_client.tx(hash, false).await.map_err(Into::into) })
+                .await
+            {
                 Ok(response) => {
                     if response.tx_result.code.is_err() {
                         return Err(TxError::Reverted {

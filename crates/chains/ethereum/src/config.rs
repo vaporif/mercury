@@ -76,6 +76,10 @@ pub struct EthereumChainConfig {
     pub client_payload_mode: ClientPayloadMode,
     #[serde(default)]
     pub sp1_prover: Option<Sp1ProverConfig>,
+    #[serde(default = "mercury_core::rpc_guard::default_timeout_secs")]
+    pub rpc_timeout_secs: u64,
+    #[serde(default = "mercury_core::rpc_guard::default_rate_limit")]
+    pub rpc_rate_limit: u64,
 }
 
 const fn default_block_time_secs() -> u64 {
@@ -83,6 +87,14 @@ const fn default_block_time_secs() -> u64 {
 }
 
 impl EthereumChainConfig {
+    #[must_use]
+    pub fn rpc_config(&self) -> mercury_core::rpc_guard::RpcConfig {
+        mercury_core::rpc_guard::RpcConfig {
+            rpc_timeout: Duration::from_secs(self.rpc_timeout_secs),
+            rate_limit: self.rpc_rate_limit,
+        }
+    }
+
     #[must_use]
     pub const fn block_time(&self) -> Duration {
         Duration::from_secs(self.block_time_secs)
@@ -231,6 +243,8 @@ mod tests {
             light_client_address: None,
             client_payload_mode: test_payload_mode(),
             sp1_prover: None,
+            rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
+            rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
         };
         assert!(config.validate().is_err());
     }
@@ -247,6 +261,8 @@ mod tests {
             light_client_address: None,
             client_payload_mode: test_payload_mode(),
             sp1_prover: None,
+            rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
+            rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
         };
         assert!(config.validate().is_err());
     }
@@ -263,6 +279,8 @@ mod tests {
             light_client_address: None,
             client_payload_mode: test_payload_mode(),
             sp1_prover: None,
+            rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
+            rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
         };
         assert!(config.validate().is_err());
     }
@@ -449,6 +467,64 @@ mod tests {
         assert!(matches!(sp1.prover_mode, ProverMode::Network));
         assert_eq!(sp1.proof_timeout_secs, 120);
         assert_eq!(sp1.max_concurrent_proofs, 4);
+    }
+
+    #[test]
+    fn rpc_config_defaults_from_toml() {
+        let toml_str = format!(
+            r#"
+            chain_id = 31337
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            {BEACON_TOML_SECTION}
+            "#
+        );
+        let config: EthereumChainConfig = toml::from_str(&toml_str).unwrap();
+        let rpc_config = config.rpc_config();
+        assert_eq!(
+            rpc_config.rpc_timeout,
+            Duration::from_secs(mercury_core::rpc_guard::RpcConfig::DEFAULT_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            rpc_config.rate_limit,
+            mercury_core::rpc_guard::RpcConfig::DEFAULT_RATE_LIMIT
+        );
+    }
+
+    #[test]
+    fn rpc_config_custom_from_toml() {
+        let toml_str = format!(
+            r#"
+            chain_id = 31337
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            rpc_timeout_secs = 60
+            rpc_rate_limit = 50
+            {BEACON_TOML_SECTION}
+            "#
+        );
+        let config: EthereumChainConfig = toml::from_str(&toml_str).unwrap();
+        let rpc_config = config.rpc_config();
+        assert_eq!(rpc_config.rpc_timeout, Duration::from_secs(60));
+        assert_eq!(rpc_config.rate_limit, 50);
+    }
+
+    #[test]
+    fn rpc_config_zero_rate_limit_rejected() {
+        let toml_str = format!(
+            r#"
+            chain_id = 31337
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            rpc_rate_limit = 0
+            {BEACON_TOML_SECTION}
+            "#
+        );
+        let config: EthereumChainConfig = toml::from_str(&toml_str).unwrap();
+        assert!(config.rpc_config().validate().is_err());
     }
 
     #[test]

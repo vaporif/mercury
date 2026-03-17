@@ -91,6 +91,8 @@ impl CosmosEthTestContext {
                 proof_timeout_secs: 120,
                 max_concurrent_proofs: 4,
             }),
+            rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
+            rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
         };
 
         let eth_chain = EthereumAdapter::new(eth_config, eth_signer)
@@ -601,6 +603,8 @@ fn make_cosmos_config(
         max_tx_size: None,
         wasm_checksum: wasm_checksum.map(String::from),
         mock_proofs: true,
+        rpc_timeout_secs: mercury_core::rpc_guard::RpcConfig::DEFAULT_TIMEOUT_SECS,
+        rpc_rate_limit: mercury_core::rpc_guard::RpcConfig::DEFAULT_RATE_LIMIT,
     }
 }
 

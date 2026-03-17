@@ -396,7 +396,17 @@ impl EthereumChain {
 
         let light_client_addr = self.config.light_client_address()?;
         let sp1_contract = sp1_ics07_tendermint::new(light_client_addr, &*self.provider);
-        let client_state: SolClientState = sp1_contract.clientState().call().await?.into();
+        let client_state: SolClientState = self
+            .rpc_guard
+            .guarded(|| async {
+                sp1_contract
+                    .clientState()
+                    .call()
+                    .await
+                    .wrap_err("SP1ICS07Tendermint.clientState() failed")
+            })
+            .await?
+            .into();
 
         let consensus_state = SolConsensusState::from(trusted_cs);
 
