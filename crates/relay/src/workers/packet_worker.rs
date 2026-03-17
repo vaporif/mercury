@@ -17,6 +17,7 @@ use mercury_chain_traits::relay::{IbcEvent, Relay, RelayPacketBuilder};
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
+use mercury_telemetry::recorder::PacketMetrics;
 
 use crate::workers::{DstTxRequest, SrcTxRequest};
 
@@ -41,6 +42,7 @@ pub struct PacketWorker<R: Relay> {
     pub sender: mpsc::Sender<DstTxRequest<R>>,
     pub src_sender: mpsc::Sender<SrcTxRequest<R>>,
     pub token: CancellationToken,
+    pub metrics: PacketMetrics,
 }
 
 struct PendingSend<E> {
@@ -515,6 +517,8 @@ where
                 }
             }
 
+            self.metrics.record_backlog(pending.len() + deliverable.len() + timed_out.len());
+
             if !deliverable.is_empty() || !write_acks.is_empty() {
                 match self.build_dst_update_client_payload().await {
                     Ok((src_height, maybe_payload)) => {
@@ -529,6 +533,9 @@ where
                             .await;
                         pending_acks.extend(ack_failed);
 
+                        self.metrics.record_recv(recv_msgs.len());
+                        self.metrics.record_ack(ack_msgs.len());
+
                         let mut packet_msgs: Vec<_> =
                             recv_msgs.into_iter().chain(ack_msgs).collect();
 
@@ -540,6 +547,7 @@ where
                                     self.sender
                                         .send(DstTxRequest {
                                             messages: update_output.messages,
+                                            created_at: std::time::Instant::now(),
                                         })
                                         .await
                                         .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
@@ -582,7 +590,7 @@ where
                                 "sending batch to tx_worker"
                             );
                             self.sender
-                                .send(DstTxRequest { messages })
+                                .send(DstTxRequest { messages, created_at: std::time::Instant::now() })
                                 .await
                                 .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
                         } else {
@@ -593,6 +601,7 @@ where
                             self.sender
                                 .send(DstTxRequest {
                                     messages: packet_msgs,
+                                    created_at: std::time::Instant::now(),
                                 })
                                 .await
                                 .map_err(|_| eyre::eyre!("tx_worker channel closed"))?;
@@ -616,11 +625,12 @@ where
                         pending.extend(timeout_failed);
 
                         if !timeout_msgs.is_empty() {
+                            self.metrics.record_timeout(timeout_msgs.len());
                             let mut messages = src_update_msgs;
                             messages.extend(timeout_msgs);
 
                             self.src_sender
-                                .send(SrcTxRequest { messages })
+                                .send(SrcTxRequest { messages, created_at: std::time::Instant::now() })
                                 .await
                                 .map_err(|_| eyre::eyre!("src_tx_worker channel closed"))?;
                         }

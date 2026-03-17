@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -12,6 +12,7 @@ use mercury_chain_traits::relay::{IbcEvent, Relay};
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
+use mercury_telemetry::recorder::EventMetrics;
 
 use crate::filter::PacketFilter;
 
@@ -24,6 +25,7 @@ pub struct EventWatcher<R: Relay> {
     pub token: CancellationToken,
     pub start_height: Option<<R::SrcChain as ChainTypes>::Height>,
     pub packet_filter: Option<PacketFilter>,
+    pub metrics: EventMetrics,
 }
 
 #[async_trait]
@@ -39,12 +41,15 @@ impl<R: Relay> Worker for EventWatcher<R> {
             Some(h) => h,
             None => src.query_latest_height().await?,
         };
+        let mut last_block_at = Instant::now();
 
         loop {
             tokio::select! {
                 () = self.token.cancelled() => break,
                 () = tokio::time::sleep(POLL_INTERVAL) => {}
             }
+
+            self.metrics.record_lag(last_block_at);
 
             let latest = match src.query_latest_height().await {
                 Ok(h) => h,
@@ -87,6 +92,13 @@ impl<R: Relay> Worker for EventWatcher<R> {
                     }
                 }
 
+                let pre_filter_count = ibc_events.len();
+                let send_count = ibc_events.iter().filter(|e| matches!(e, IbcEvent::SendPacket(_))).count();
+                let ack_count = pre_filter_count - send_count;
+
+                self.metrics.record_send_events(send_count);
+                self.metrics.record_ack_events(ack_count);
+
                 if let Some(ref filter) = self.packet_filter {
                     ibc_events.retain(|event| {
                         let packet = match event {
@@ -105,6 +117,9 @@ impl<R: Relay> Worker for EventWatcher<R> {
                         }
                         allowed
                     });
+
+                    let filtered_count = pre_filter_count - ibc_events.len();
+                    self.metrics.record_filtered(filtered_count);
                 }
 
                 if !ibc_events.is_empty() {
@@ -117,6 +132,7 @@ impl<R: Relay> Worker for EventWatcher<R> {
                 }
 
                 last_height = h.clone();
+                last_block_at = Instant::now();
                 maybe_h = R::SrcChain::increment_height(&h);
             }
         }

@@ -40,11 +40,19 @@ pub trait IbcTypes: ChainTypes {
     fn packet_source_ports(packet: &Self::Packet) -> Vec<String>;
 }
 
+/// Receipt from a confirmed transaction batch.
+pub struct TxReceipt {
+    /// Total gas consumed (if available from chain).
+    pub gas_used: Option<u64>,
+    /// When the transaction was confirmed in a block.
+    pub confirmed_at: std::time::Instant,
+}
+
 /// Sends a batch of messages to the chain.
 #[async_trait]
 pub trait MessageSender: ChainTypes {
     async fn send_messages(
         &self,
         messages: Vec<Self::Message>,
-    ) -> Result<Vec<Self::MessageResponse>>;
+    ) -> Result<TxReceipt>;
 }

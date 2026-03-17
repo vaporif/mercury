@@ -46,7 +46,7 @@ impl TestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let responses_b = cosmos_b
-            .send_messages(vec![msg_create_b])
+            .send_messages_with_responses(vec![msg_create_b])
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let client_id_b = extract_client_id_from_events(&responses_b)?;
@@ -64,7 +64,7 @@ impl TestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let responses_a = cosmos_a
-            .send_messages(vec![msg_create_a])
+            .send_messages_with_responses(vec![msg_create_a])
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let client_id_a = extract_client_id_from_events(&responses_a)?;
@@ -166,7 +166,7 @@ impl TestContext {
         };
 
         let responses = user_chain
-            .send_messages(vec![cosmos_msg])
+            .send_messages_with_responses(vec![cosmos_msg])
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
 
@@ -219,7 +219,7 @@ impl TestContext {
         };
 
         let responses = user_chain
-            .send_messages(vec![cosmos_msg])
+            .send_messages_with_responses(vec![cosmos_msg])
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
 

@@ -14,6 +14,8 @@ use mercury_chain_traits::types::IbcTypes;
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
+use mercury_telemetry::recorder::ClearingMetrics;
+
 use crate::filter::PacketFilter;
 
 const RECEIPT_CHECK_CONCURRENCY: usize = 8;
@@ -25,6 +27,7 @@ pub struct ClearingWorker<R: Relay> {
     pub token: CancellationToken,
     pub interval: Duration,
     pub packet_filter: Option<PacketFilter>,
+    pub metrics: ClearingMetrics,
 }
 
 #[async_trait]
@@ -122,6 +125,8 @@ impl<R: Relay> ClearingWorker<R> {
                 }
             }
         }
+
+        self.metrics.record_cleared(events.len());
 
         if !events.is_empty() && self.sender.send(events).await.is_err() {
             warn!("packet_worker channel closed, cancelling relay");

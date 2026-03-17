@@ -108,7 +108,7 @@ impl CosmosEthTestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let cosmos_responses = cosmos_chain
-            .send_messages(vec![msg_create_cosmos])
+            .send_messages_with_responses(vec![msg_create_cosmos])
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let client_id_on_cosmos = extract_cosmos_client_id(&cosmos_responses)?;
@@ -126,7 +126,7 @@ impl CosmosEthTestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let eth_responses = eth_chain
-            .send_messages(vec![msg_create_eth])
+            .send_messages_with_responses(vec![msg_create_eth])
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let client_id_on_eth = extract_evm_client_id(&eth_responses)?;
@@ -256,7 +256,7 @@ impl CosmosEthTestContext {
         };
 
         let responses = user_chain
-            .send_messages(vec![cosmos_msg])
+            .send_messages_with_responses(vec![cosmos_msg])
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
 

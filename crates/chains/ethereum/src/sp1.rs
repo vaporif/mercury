@@ -33,6 +33,7 @@ use ibc_eureka_solidity_types::sp1_ics07::sp1_ics07_tendermint;
 use ibc_proto_eureka::ibc::lightclients::tendermint::v1::Header as EurekaHeader;
 use ibc_proto_eureka::ibc::lightclients::tendermint::v1::Misbehaviour as EurekaMisbehaviour;
 
+use mercury_core::error::ProofError;
 use tracing::{debug, info};
 
 use mercury_chain_traits::builders::UpdateClientOutput;
@@ -227,13 +228,12 @@ async fn generate_update_proof_with_timeout<C: SP1ProverComponents + 'static>(
         }),
     )
     .await
-    .map_err(|_| {
-        eyre::eyre!(
-            "SP1 proof generation timed out after {}s",
-            timeout_duration.as_secs()
-        )
+    .map_err(|_| ProofError::ZkProvingFailed {
+        reason: format!("timed out after {}s", timeout_duration.as_secs()),
     })?
-    .wrap_err("sp1 proving task panicked")
+    .map_err(|e| eyre::Report::from(ProofError::ZkProvingFailed {
+        reason: format!("proving task panicked: {e}"),
+    }))
 }
 
 async fn generate_uc_and_membership_proof_with_timeout<C: SP1ProverComponents + 'static>(
@@ -260,13 +260,12 @@ async fn generate_uc_and_membership_proof_with_timeout<C: SP1ProverComponents + 
         }),
     )
     .await
-    .map_err(|_| {
-        eyre::eyre!(
-            "SP1 combined proof generation timed out after {}s",
-            timeout_duration.as_secs()
-        )
+    .map_err(|_| ProofError::ZkProvingFailed {
+        reason: format!("combined proof timed out after {}s", timeout_duration.as_secs()),
     })?
-    .wrap_err("sp1 combined proving task panicked")
+    .map_err(|e| eyre::Report::from(ProofError::ZkProvingFailed {
+        reason: format!("combined proving task panicked: {e}"),
+    }))
 }
 
 pub async fn generate_misbehaviour_proof_with_timeout<C: SP1ProverComponents + 'static>(
@@ -293,13 +292,12 @@ pub async fn generate_misbehaviour_proof_with_timeout<C: SP1ProverComponents + '
         }),
     )
     .await
-    .map_err(|_| {
-        eyre::eyre!(
-            "SP1 misbehaviour proof generation timed out after {}s",
-            timeout_duration.as_secs()
-        )
+    .map_err(|_| ProofError::ZkProvingFailed {
+        reason: format!("misbehaviour proof timed out after {}s", timeout_duration.as_secs()),
     })?
-    .wrap_err("sp1 misbehaviour proving task panicked")
+    .map_err(|e| eyre::Report::from(ProofError::ZkProvingFailed {
+        reason: format!("misbehaviour proving task panicked: {e}"),
+    }))
 }
 
 /// Convert membership proof entries into typed `(KVPair, MerkleProof)` pairs

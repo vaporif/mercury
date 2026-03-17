@@ -13,6 +13,8 @@ pub struct RelayerConfig {
     pub chains: Vec<ChainConfig>,
     #[serde(default)]
     pub relays: Vec<RelayConfig>,
+    #[serde(default)]
+    pub telemetry: mercury_telemetry::TelemetryConfig,
 }
 
 /// Chain backend configuration, tagged by type.

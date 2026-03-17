@@ -12,7 +12,7 @@ use tracing::{instrument, warn};
 
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_chain_traits::types::ChainTypes;
-use mercury_core::error::Result;
+use mercury_core::error::{ProofError, QueryError, Result};
 
 use crate::chain::CosmosChainInner;
 use crate::client_types::{
@@ -82,7 +82,9 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChainInner<S> {
 
         let any = response
             .client_state
-            .ok_or_else(|| eyre::eyre!("client state not found for {client_id}"))?;
+            .ok_or_else(|| QueryError::StaleState {
+                what: format!("client state for {client_id}"),
+            })?;
 
         let type_url = any.type_url.strip_prefix('/').unwrap_or(&any.type_url);
 
@@ -99,7 +101,12 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChainInner<S> {
                 )?;
                 CosmosClientState::Wasm(cs)
             }
-            other => eyre::bail!("unsupported client state type_url: {other}"),
+            other => {
+                return Err(QueryError::UnsupportedType {
+                    type_url: other.to_string(),
+                }
+                .into())
+            }
         };
         Ok(client_state)
     }
@@ -131,8 +138,8 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChainInner<S> {
             .await?
             .into_inner();
 
-        let any = response.consensus_state.ok_or_else(|| {
-            eyre::eyre!("consensus state not found for {client_id} at height {consensus_height}")
+        let any = response.consensus_state.ok_or_else(|| QueryError::StaleState {
+            what: format!("consensus state for {client_id} at height {consensus_height}"),
         })?;
 
         let type_url = any.type_url.strip_prefix('/').unwrap_or(&any.type_url);
@@ -150,7 +157,12 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChainInner<S> {
                 )?;
                 CosmosConsensusState::Wasm(cs)
             }
-            other => eyre::bail!("unsupported consensus state type_url: {other}"),
+            other => {
+                return Err(QueryError::UnsupportedType {
+                    type_url: other.to_string(),
+                }
+                .into())
+            }
         };
         Ok(consensus_state)
     }
@@ -214,7 +226,7 @@ fn extract_proof(
     let proof_ops = response
         .proof
         .as_ref()
-        .ok_or_else(|| eyre::eyre!("missing proof in ABCI query response"))?;
+        .ok_or(ProofError::Missing)?;
 
     let proofs: Vec<ibc_proto::ics23::CommitmentProof> = proof_ops
         .ops
