@@ -91,6 +91,7 @@ impl EthereumChain {
 
 #[async_trait]
 impl MessageSender for EthereumChain {
+    // TODO: use ICS26Router::multicall to batch all messages into a single tx
     async fn send_messages(&self, messages: Vec<EvmMessage>) -> Result<TxReceipt> {
         let mut total_gas: u64 = 0;
 

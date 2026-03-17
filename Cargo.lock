@@ -5027,8 +5027,11 @@ name = "mercury-chain-cache"
 version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
+ "eyre",
  "mercury-chain-traits",
  "mercury-core",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
