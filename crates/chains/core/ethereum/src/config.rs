@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use alloy::primitives::Address;
+use eyre::WrapErr;
 use serde::Deserialize;
 
 const fn default_quorum() -> usize {
@@ -103,13 +104,14 @@ impl EthereumChainConfig {
     }
 
     pub fn validate(&self) -> eyre::Result<()> {
-        if !self.rpc_addr.starts_with("http://") && !self.rpc_addr.starts_with("https://") {
-            eyre::bail!(
-                "ethereum chain '{}': rpc_addr must start with http:// or https://, got '{}'",
-                self.chain_id,
-                self.rpc_addr
-            );
-        }
+        self.validate_inner()
+            .wrap_err_with(|| format!("ethereum chain '{}'", self.chain_id))
+    }
+
+    fn validate_inner(&self) -> eyre::Result<()> {
+        use mercury_core::validate::{require_http_url, require_positive};
+
+        require_http_url("rpc_addr", &self.rpc_addr)?;
         self.router_address()?;
         if let Some(ref addr) = self.light_client_address {
             addr.parse::<Address>()
@@ -117,32 +119,21 @@ impl EthereumChainConfig {
         }
         match &self.client_payload_mode {
             ClientPayloadMode::Beacon { beacon_api_url } => {
-                if !beacon_api_url.starts_with("http://") && !beacon_api_url.starts_with("https://")
-                {
-                    eyre::bail!(
-                        "ethereum chain '{}': beacon_api_url must start with http:// or https://, got '{}'",
-                        self.chain_id,
-                        beacon_api_url
-                    );
-                }
+                require_http_url("beacon_api_url", beacon_api_url)?;
             }
             ClientPayloadMode::Attested {
                 attestor_endpoints,
                 quorum_threshold,
             } => {
-                if attestor_endpoints.is_empty() {
-                    eyre::bail!(
-                        "ethereum chain '{}': attestor_endpoints must not be empty",
-                        self.chain_id
-                    );
-                }
-                if *quorum_threshold == 0 || *quorum_threshold > attestor_endpoints.len() {
-                    eyre::bail!(
-                        "ethereum chain '{}': quorum_threshold must be 1..={}",
-                        self.chain_id,
-                        attestor_endpoints.len()
-                    );
-                }
+                eyre::ensure!(
+                    !attestor_endpoints.is_empty(),
+                    "attestor_endpoints must not be empty"
+                );
+                eyre::ensure!(
+                    *quorum_threshold >= 1 && *quorum_threshold <= attestor_endpoints.len(),
+                    "quorum_threshold must be 1..={}",
+                    attestor_endpoints.len()
+                );
             }
             ClientPayloadMode::Mock => {}
         }
@@ -151,32 +142,19 @@ impl EthereumChainConfig {
             {
                 let _ = sp1;
                 eyre::bail!(
-                    "ethereum chain '{}': sp1_prover is configured but the binary was built \
-                     without the `sp1` feature — rebuild with `--features sp1`",
-                    self.chain_id
+                    "sp1_prover is configured but the binary was built \
+                     without the `sp1` feature — rebuild with `--features sp1`"
                 );
             }
 
             #[cfg(feature = "sp1")]
             {
-                if self.light_client_address.is_none() {
-                    eyre::bail!(
-                        "ethereum chain '{}': light_client_address is required when sp1_prover is configured",
-                        self.chain_id
-                    );
-                }
-                if sp1.proof_timeout_secs == 0 {
-                    eyre::bail!(
-                        "ethereum chain '{}': proof_timeout_secs must be > 0",
-                        self.chain_id
-                    );
-                }
-                if sp1.max_concurrent_proofs == 0 {
-                    eyre::bail!(
-                        "ethereum chain '{}': max_concurrent_proofs must be > 0",
-                        self.chain_id
-                    );
-                }
+                eyre::ensure!(
+                    self.light_client_address.is_some(),
+                    "light_client_address is required when sp1_prover is configured"
+                );
+                require_positive("proof_timeout_secs", sp1.proof_timeout_secs)?;
+                require_positive("max_concurrent_proofs", sp1.max_concurrent_proofs)?;
             }
         }
         Ok(())
@@ -697,9 +675,10 @@ mod tests {
         #[cfg(not(feature = "sp1"))]
         {
             let err = config.validate().unwrap_err();
+            let msg = format!("{err:?}");
             assert!(
-                err.to_string().contains("sp1"),
-                "expected sp1 feature error, got: {err}"
+                msg.contains("sp1"),
+                "expected sp1 feature error, got: {msg}"
             );
         }
 

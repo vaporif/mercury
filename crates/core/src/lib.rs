@@ -6,6 +6,7 @@ pub mod plugin;
 pub mod registry;
 /// RPC rate-limiting and timeout guard.
 pub mod rpc_guard;
+pub mod validate;
 pub mod worker;
 
 pub trait ThreadSafe: Send + Sync + 'static {}
