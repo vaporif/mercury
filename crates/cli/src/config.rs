@@ -53,7 +53,7 @@ pub struct RelayConfig {
     #[serde(default)]
     pub lookback_window_secs: Option<u64>,
     #[serde(default)]
-    pub clearing_interval_secs: Option<u64>,
+    pub sweep_interval_secs: Option<u64>,
     #[serde(default)]
     pub misbehaviour_scan_interval_secs: Option<u64>,
     #[serde(default)]

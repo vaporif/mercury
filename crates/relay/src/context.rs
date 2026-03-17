@@ -14,7 +14,7 @@ use mercury_core::error::Result;
 use mercury_core::worker::spawn_worker;
 use mercury_telemetry::guard::WorkerGuard;
 use mercury_telemetry::recorder::{
-    ClearingMetrics, ClientMetrics, EventMetrics, MisbehaviourMetrics, PacketMetrics, TxDirection,
+    ClientMetrics, EventMetrics, MisbehaviourMetrics, PacketMetrics, SweepMetrics, TxDirection,
     TxMetrics,
 };
 use tokio::sync::mpsc;
@@ -37,7 +37,7 @@ const INITIAL_RESTART_BACKOFF: Duration = Duration::from_secs(1);
 #[derive(Clone, Default)]
 pub struct RelayWorkerConfig {
     pub lookback: Option<Duration>,
-    pub clearing_interval: Option<Duration>,
+    pub sweep_interval: Option<Duration>,
     pub misbehaviour_scan_interval: Option<Duration>,
     pub packet_filter: Option<PacketFilter>,
 }
@@ -222,7 +222,7 @@ where
         let src_tx_worker_handle = spawn_worker(src_tx_worker);
         let client_refresh_handle = spawn_worker(client_refresh);
 
-        let clearing_handle = config.clearing_interval.map_or_else(
+        let sweep_handle = config.sweep_interval.map_or_else(
             || tokio::spawn(futures::future::pending()),
             |interval| {
                 let packet_sweeper = PacketSweeper {
@@ -231,7 +231,7 @@ where
                     token: pipeline_token.clone(),
                     interval,
                     packet_filter: config.packet_filter.clone(),
-                    metrics: ClearingMetrics::new(src_label.clone())
+                    metrics: SweepMetrics::new(src_label.clone())
                         .with_counterparty(dst_label.clone()),
                 };
                 spawn_worker(packet_sweeper)
@@ -273,7 +273,7 @@ where
         // Tear down remaining workers from this pipeline iteration.
         pipeline_token.cancel();
 
-        let _ = tokio::join!(client_refresh_handle, clearing_handle, misbehaviour_handle);
+        let _ = tokio::join!(client_refresh_handle, sweep_handle, misbehaviour_handle);
 
         match result {
             Ok(worker_result) => worker_result,

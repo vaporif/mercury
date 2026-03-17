@@ -2,7 +2,7 @@ pub mod ics26_router {
     alloy::sol!(
         #[sol(rpc, all_derives)]
         ICS26Router,
-        "../../../external/solidity-ibc-eureka/abi/ICS26Router.json"
+        "../../../../external/solidity-ibc-eureka/abi/ICS26Router.json"
     );
 }
 
@@ -10,7 +10,7 @@ pub mod sp1_ics07 {
     alloy::sol!(
         #[sol(rpc, all_derives)]
         SP1ICS07Tendermint,
-        "../../../external/solidity-ibc-eureka/abi/SP1ICS07Tendermint.json"
+        "../../../../external/solidity-ibc-eureka/abi/SP1ICS07Tendermint.json"
     );
 }
 
@@ -18,7 +18,7 @@ pub mod ics20_transfer {
     alloy::sol!(
         #[sol(rpc, all_derives)]
         ICS20Transfer,
-        "../../../external/solidity-ibc-eureka/abi/ICS20Transfer.json"
+        "../../../../external/solidity-ibc-eureka/abi/ICS20Transfer.json"
     );
 }
 
@@ -26,7 +26,7 @@ pub mod ibc_erc20 {
     alloy::sol!(
         #[sol(rpc, all_derives)]
         IBCERC20,
-        "../../../external/solidity-ibc-eureka/abi/IBCERC20.json"
+        "../../../../external/solidity-ibc-eureka/abi/IBCERC20.json"
     );
 }
 

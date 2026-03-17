@@ -216,14 +216,14 @@ impl EventMetrics {
     }
 }
 
-/// Metrics for the clearing worker.
+/// Metrics for the packet sweeper worker.
 #[derive(Clone)]
-pub struct ClearingMetrics {
+pub struct SweepMetrics {
     label: ChainLabel,
     counterparty: Option<ChainLabel>,
 }
 
-impl ClearingMetrics {
+impl SweepMetrics {
     #[must_use]
     pub const fn new(label: ChainLabel) -> Self {
         Self {
@@ -238,10 +238,10 @@ impl ClearingMetrics {
         self
     }
 
-    pub fn record_cleared(&self, count: usize) {
+    pub fn record_swept(&self, count: usize) {
         if count > 0 {
             let labels = build_labels(&self.label, self.counterparty.as_ref());
-            counter!(metric::event::CLEARED_EVENTS, &labels).increment(count as u64);
+            counter!(metric::event::SWEPT_EVENTS, &labels).increment(count as u64);
         }
     }
 }

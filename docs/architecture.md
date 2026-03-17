@@ -225,28 +225,39 @@ pub fn build_registry() -> ChainRegistry {
     let mut r = ChainRegistry::new();
     mercury_cosmos_counterparties::plugin::register(&mut r);
     mercury_ethereum_counterparties::plugin::register(&mut r);
+    mercury_cosmos_cosmos_relay::register(&mut r);    // relay pairs
+    mercury_cosmos_ethereum_relay::register(&mut r);  // relay pairs
     r
 }
 ```
 
-Each counterparty crate's `register()` function registers both its `ChainPlugin` and all supported `RelayPairPlugin` combinations. The CLI then uses the registry to validate config, connect chains, query status, and build relays — all without knowing concrete chain types.
+Each counterparty crate's `register()` function registers its `ChainPlugin`. `RelayPairPlugin` implementations live in dedicated relay crates under `crates/relay-pairs/` (e.g., `cosmos-cosmos`, `cosmos-ethereum`) and register relay pairs separately. The CLI then uses the registry to validate config, connect chains, query status, and build relays — all without knowing concrete chain types.
 
 ## Crate Layout
 
 ```mermaid
 graph TD
     CLI[mercury-cli<br/><i>CLI binary</i>]
-    COSMOS[mercury-cosmos<br/><i>chains/cosmos — RPC, protobuf, tx signing</i>]
-    ETH[mercury-ethereum<br/><i>chains/ethereum — alloy, EVM contracts</i>]
-    COSMOS_BR[mercury-cosmos-counterparties<br/><i>chains/cosmos-counterparties — wrapper + cross-chain impls</i>]
-    ETH_BR[mercury-ethereum-counterparties<br/><i>chains/ethereum-counterparties — wrapper + cross-chain impls</i>]
+    COSMOS[mercury-cosmos<br/><i>crates/chains/core/cosmos — RPC, protobuf, tx signing</i>]
+    ETH[mercury-ethereum<br/><i>crates/chains/core/ethereum — alloy, EVM contracts</i>]
+    COSMOS_BR[mercury-cosmos-counterparties<br/><i>crates/chains/counterparties/cosmos — wrapper + cross-chain impls</i>]
+    ETH_BR[mercury-ethereum-counterparties<br/><i>crates/chains/counterparties/ethereum — wrapper + cross-chain impls</i>]
+    CCR[mercury-cosmos-cosmos-relay<br/><i>crates/chains/relay-pairs/cosmos-cosmos — relay pair plugin</i>]
+    CER[mercury-cosmos-ethereum-relay<br/><i>crates/chains/relay-pairs/cosmos-ethereum — relay pair plugins</i>]
     RELAY[mercury-relay<br/><i>Worker pipeline, generic over chain traits</i>]
     TRAITS[mercury-chain-traits<br/><i>Chain types, messaging, queries, relay traits</i>]
     CORE[mercury-core<br/><i>Error types, encoding, worker trait, membership proofs</i>]
 
     CLI --> COSMOS_BR
     CLI --> ETH_BR
+    CLI --> CCR
+    CLI --> CER
     CLI --> RELAY
+    CCR --> COSMOS_BR
+    CCR --> RELAY
+    CER --> COSMOS_BR
+    CER --> ETH_BR
+    CER --> RELAY
     COSMOS_BR --> COSMOS
     COSMOS_BR --> TRAITS
     COSMOS_BR -. "ethereum-beacon feature" .-> ETH
@@ -259,7 +270,7 @@ graph TD
     TRAITS --> CORE
 ```
 
-Default builds: core chain crates (`mercury-cosmos`, `mercury-ethereum`) are independent. Counterparty crates add the cross-chain dependency behind feature flags. The `cosmos-sp1` feature on `mercury-ethereum-counterparties` activates Cosmos→EVM impls. The `ethereum-beacon` feature on `mercury-cosmos-counterparties` activates EVM→Cosmos impls. The relay binary enables features as needed.
+Default builds: core chain crates (`mercury-cosmos`, `mercury-ethereum`) are independent. Counterparty crates provide wrapper types and cross-chain trait impls behind feature flags. Dedicated relay crates (e.g., `mercury-cosmos-ethereum-relay`) depend on both counterparty crates (with cross-chain features enabled) and provide `RelayPairPlugin` implementations. The `cosmos-sp1` feature on `mercury-ethereum-counterparties` activates Cosmos→EVM impls. The `ethereum-beacon` feature on `mercury-cosmos-counterparties` activates EVM→Cosmos impls.
 
 ## Data Flow: Relaying a Packet
 
@@ -284,7 +295,7 @@ graph LR
 ```
 
 1. **EventWatcher** polls source chain block-by-block for `SendPacket` and `WriteAck` events, batches per block, sends `Vec<IbcEvent>` downstream. Supports optional packet filter (allow/deny by source port). Stays 1 block behind tip for proof consistency. Tolerates transient RPC failures without dying.
-2. **PacketSweeper** *(optional)* periodically scans source chain for all packet commitments, cross-references against destination receipts, and recovers missed `SendPacket` events. Feeds into the same event channel as EventWatcher. Enabled via `clearing_interval` config.
+2. **PacketSweeper** *(optional)* periodically scans source chain for all packet commitments, cross-references against destination receipts, and recovers missed `SendPacket` events. Feeds into the same event channel as EventWatcher. Enabled via `sweep_interval` config.
 3. **PacketWorker** receives event batches, tracks in-flight packets with grace periods, classifies packets as live or timed-out using the destination chain's timestamp, queries proofs concurrently (8 streams, 3 retries, 500ms delay), then:
    - Builds dst update messages via `build_update_client_message` → `UpdateClientOutput`
    - Builds recv/ack packet messages
