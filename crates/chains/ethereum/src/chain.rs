@@ -135,7 +135,8 @@ impl EthereumChain {
 
         info!(chain_id = config.chain_id, %router_address, "ethereum chain initialized");
 
-        let label = mercury_core::ChainLabel::with_id("ethereum", config.chain_id.to_string());
+        let name = config.chain_name.as_deref().unwrap_or("ethereum");
+        let label = mercury_core::ChainLabel::with_id(name, config.chain_id.to_string());
         Ok(Self {
             chain_id: EvmChainId(config.chain_id),
             config,

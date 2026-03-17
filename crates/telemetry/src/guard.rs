@@ -1,22 +1,40 @@
 use metrics::gauge;
 
+use mercury_core::ChainLabel;
+
 use crate::metric;
 
 /// RAII guard that increments the worker gauge on creation and decrements on drop.
 pub struct WorkerGuard {
-    worker_type: &'static str,
+    labels: Vec<(&'static str, String)>,
 }
 
 impl WorkerGuard {
     #[must_use]
     pub fn new(worker_type: &'static str) -> Self {
-        gauge!(metric::worker::WORKERS, "type" => worker_type).increment(1.0);
-        Self { worker_type }
+        let labels = vec![("type", worker_type.to_owned())];
+        gauge!(metric::worker::WORKERS, &labels).increment(1.0);
+        Self { labels }
+    }
+
+    #[must_use]
+    pub fn with_chain_labels(
+        worker_type: &'static str,
+        chain: &ChainLabel,
+        counterparty: Option<&ChainLabel>,
+    ) -> Self {
+        let mut labels = vec![("type", worker_type.to_owned())];
+        labels.extend(chain.metric_labels());
+        if let Some(cp) = counterparty {
+            labels.extend(cp.counterparty_metric_labels());
+        }
+        gauge!(metric::worker::WORKERS, &labels).increment(1.0);
+        Self { labels }
     }
 }
 
 impl Drop for WorkerGuard {
     fn drop(&mut self) {
-        gauge!(metric::worker::WORKERS, "type" => self.worker_type).decrement(1.0);
+        gauge!(metric::worker::WORKERS, &self.labels).decrement(1.0);
     }
 }
