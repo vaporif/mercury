@@ -10,7 +10,6 @@ pub mod traits;
 
 static BUN_INSTALL: Once = Once::new();
 
-/// Install Solidity dependencies once across all parallel tests.
 #[allow(clippy::missing_panics_doc)]
 pub fn install_solidity_deps(eureka_dir: &Path) {
     BUN_INSTALL.call_once(|| {

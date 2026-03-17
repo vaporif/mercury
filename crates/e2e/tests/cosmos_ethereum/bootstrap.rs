@@ -17,7 +17,6 @@ async fn anvil_bootstrap_smoke() -> Result<()> {
     assert_ne!(handle.mock_verifier, alloy::primitives::Address::ZERO);
     assert_ne!(handle.erc20, alloy::primitives::Address::ZERO);
 
-    // Verify we can connect and query
     let provider = alloy::providers::ProviderBuilder::new()
         .connect_http(handle.rpc_endpoint().parse().expect("valid RPC URL"))
         .erased();

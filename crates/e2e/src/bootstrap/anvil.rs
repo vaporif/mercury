@@ -8,14 +8,12 @@ use tracing::info;
 
 use super::install_solidity_deps;
 
-/// Wallet for Anvil accounts.
 #[derive(Clone, Debug)]
 pub struct AnvilWallet {
     pub private_key: String,
     pub address: Address,
 }
 
-/// Handle to a running Anvil instance with deployed IBC contracts.
 pub struct AnvilHandle {
     child: Child,
     pub rpc_endpoint: String,
@@ -48,7 +46,6 @@ impl AnvilHandle {
     }
 }
 
-/// Start Anvil and deploy IBC contracts.
 pub async fn start_anvil() -> Result<AnvilHandle> {
     let port = find_free_port()?;
     let chain_id = u64::from(port);
@@ -103,8 +100,7 @@ fn find_free_port() -> Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
-/// Anvil's pre-funded accounts (deterministic from mnemonic).
-/// These are well-known deterministic keys — safe to hardcode for tests.
+/// Anvil's pre-funded accounts
 fn anvil_wallet(index: u8) -> AnvilWallet {
     let (key, addr) = match index {
         0 => (

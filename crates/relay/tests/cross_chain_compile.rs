@@ -1,11 +1,4 @@
-//! Compile-time verification that `RelayContext` can be instantiated
-//! with cross-chain type parameters. If `HasCore` equality constraints
-//! are missing, this will fail to compile.
-//!
-//! Note: type aliases don't fully check trait bounds — they verify
-//! structural compatibility. Use `fn _assert<T: Trait>() {}` for
-//! exhaustive bound checking once all cross-chain impls are complete.
-
+// Compile time checks
 mod cross_chain {
     use mercury_cosmos_counterparties::CosmosAdapter;
     use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
