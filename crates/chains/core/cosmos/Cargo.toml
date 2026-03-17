@@ -23,7 +23,7 @@ tracing = { workspace = true }
 eyre = { workspace = true }
 
 tendermint = { workspace = true }
-tendermint-rpc = { workspace = true }
+tendermint-rpc = { workspace = true, features = ["websocket-client"] }
 tendermint-proto = { workspace = true }
 ibc = { workspace = true }
 ibc-proto = { workspace = true }

@@ -1,8 +1,17 @@
+use std::pin::Pin;
+
 use async_trait::async_trait;
+use futures::Stream;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
 use crate::types::IbcTypes;
+
+#[derive(Debug, Clone)]
+pub struct BlockEvents<H, E> {
+    pub height: H,
+    pub events: Vec<E>,
+}
 
 /// Extracts IBC packet events from raw chain events and queries block events.
 #[async_trait]
@@ -23,4 +32,12 @@ pub trait PacketEvents: IbcTypes {
         client_id: &Self::ClientId,
         sequence: u64,
     ) -> Result<Option<Self::SendPacketEvent>>;
+
+    async fn subscribe_block_events(
+        &self,
+    ) -> Result<
+        Option<Pin<Box<dyn Stream<Item = Result<BlockEvents<Self::Height, Self::Event>>> + Send>>>,
+    > {
+        Ok(None)
+    }
 }

@@ -1,10 +1,13 @@
+use std::pin::Pin;
+
 use alloy::primitives::{B256, U256, keccak256};
-use alloy::providers::Provider;
+use alloy::providers::{Provider, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use async_trait::async_trait;
 use eyre::Context;
-use mercury_chain_traits::events::PacketEvents;
+use futures::{Stream, StreamExt};
+use mercury_chain_traits::events::{BlockEvents, PacketEvents};
 use mercury_core::error::Result;
 
 use crate::chain::EthereumChain;
@@ -156,5 +159,93 @@ impl PacketEvents for EthereumChain {
         }
 
         Ok(event)
+    }
+
+    async fn subscribe_block_events(
+        &self,
+    ) -> Result<Option<Pin<Box<dyn Stream<Item = Result<BlockEvents<EvmHeight, EvmEvent>>> + Send>>>>
+    {
+        let ws_addr = match &self.config.ws_addr {
+            Some(addr) => addr.clone(),
+            None => return Ok(None),
+        };
+
+        let ws = WsConnect::new(ws_addr);
+        let ws_provider = alloy::providers::ProviderBuilder::new()
+            .connect_ws(ws)
+            .await
+            .map_err(|e| eyre::eyre!("ethereum websocket connect failed: {e}"))?;
+
+        let filter = Filter::new().address(self.router_address);
+        let sub = ws_provider
+            .subscribe_logs(&filter)
+            .await
+            .map_err(|e| eyre::eyre!("ethereum log subscription failed: {e}"))?;
+
+        let log_stream = sub.into_stream();
+        let flush_timeout = self.config.block_time() * 2;
+
+        let stream = futures::stream::unfold(
+            (log_stream, None::<(u64, Vec<EvmEvent>)>, flush_timeout),
+            |(mut logs, mut pending, flush_timeout)| async move {
+                let flush = |pending: (u64, Vec<EvmEvent>), state| {
+                    let flushed = BlockEvents {
+                        height: EvmHeight(pending.0),
+                        events: pending.1,
+                    };
+                    Some((Ok(flushed), state))
+                };
+
+                loop {
+                    let next = tokio::time::timeout(flush_timeout, logs.next()).await;
+
+                    match next {
+                        Ok(Some(log)) => {
+                            if log.removed {
+                                continue;
+                            }
+
+                            let Some(block_number) = log.block_number else {
+                                continue;
+                            };
+
+                            let event = EvmEvent::from_alloy_log(&log);
+
+                            match &mut pending {
+                                Some((pending_block, pending_events))
+                                    if *pending_block == block_number =>
+                                {
+                                    pending_events.push(event);
+                                }
+                                Some((pending_block, pending_events)) => {
+                                    let flushed = BlockEvents {
+                                        height: EvmHeight(*pending_block),
+                                        events: std::mem::take(pending_events),
+                                    };
+                                    *pending_block = block_number;
+                                    *pending_events = vec![event];
+                                    return Some((Ok(flushed), (logs, pending, flush_timeout)));
+                                }
+                                None => {
+                                    pending = Some((block_number, vec![event]));
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            return pending
+                                .take()
+                                .and_then(|p| flush(p, (logs, None, flush_timeout)));
+                        }
+                        Err(_timeout) => {
+                            if let Some(p) = pending.take() {
+                                return flush(p, (logs, None, flush_timeout));
+                            }
+                        }
+                    }
+                }
+            },
+        );
+
+        Ok(Some(Box::pin(stream)))
     }
 }
