@@ -6,7 +6,7 @@ use tendermint::Time as TmTime;
 use tendermint::block::Height as TmHeight;
 use tendermint::node::info::TxIndexStatus;
 use tendermint_rpc::HttpClient;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::client_types::{CosmosClientState, CosmosConsensusState};
 use crate::config::CosmosChainConfig;
@@ -73,6 +73,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
             .wrap_err("connecting to gRPC")?;
 
         check_min_gas_price(grpc_channel.clone(), &config).await;
+        info!(chain_id = %chain_id, "cosmos chain initialized");
 
         Ok(Self {
             block_time: config.block_time,

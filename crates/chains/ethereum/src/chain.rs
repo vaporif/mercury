@@ -7,6 +7,8 @@ use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::sol_types::SolCall;
 use async_trait::async_trait;
 use eyre::Context;
+use tracing::info;
+
 use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, UpdateClientOutput,
 };
@@ -121,6 +123,8 @@ impl EthereumChainInner {
         } else {
             None
         };
+
+        info!(chain_id = config.chain_id, %router_address, "ethereum chain initialized");
 
         Ok(Self {
             chain_id: EvmChainId(config.chain_id),
