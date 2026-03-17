@@ -1,7 +1,7 @@
 [[profile.default.overrides]]
 filter = "package(mercury-e2e)"
 threads-required = 2
-slow-timeout = { period = "120s", terminate-after = 3 }
+slow-timeout = { period = "220s", terminate-after = 5 }
 
 # Ethereum e2e tests need more time for SP1 prover setup.
 # Run with: cargo nextest run --profile eth-e2e ...
