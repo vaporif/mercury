@@ -1,3 +1,5 @@
+#![allow(clippy::unused_async)]
+
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 

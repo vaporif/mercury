@@ -27,7 +27,7 @@ pub struct CreateClientCmd {
     /// Chain being tracked by the client
     #[arg(long)]
     reference_chain: String,
-    /// Client ID on the reference chain (for MsgRegisterCounterparty)
+    /// Client ID on the reference chain (for `MsgRegisterCounterparty`)
     #[arg(long)]
     counterparty_client: String,
     /// Trusting period (e.g. "14days")
