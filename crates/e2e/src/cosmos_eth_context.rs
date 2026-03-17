@@ -336,8 +336,6 @@ impl CosmosEthTestContext {
         Ok(())
     }
 
-    /// Query the IBCERC20 balance on Ethereum for a received IBC denom.
-    ///
     /// `denom` is the full IBC denom path, e.g. `transfer/{client_id_on_eth}/stake`.
     #[allow(clippy::future_not_send)]
     pub async fn query_ibcerc20_balance(&self, denom: &str, holder: Address) -> Result<U256> {
@@ -356,7 +354,6 @@ impl CosmosEthTestContext {
         Ok(erc20.balanceOf(holder).call().await?)
     }
 
-    /// Poll Ethereum for expected IBCERC20 balance, with timeout.
     #[allow(clippy::future_not_send)]
     pub async fn assert_eventual_eth_balance(
         &self,
@@ -404,7 +401,6 @@ impl CosmosEthTestContext {
         }
     }
 
-    /// Query bank balance on Cosmos for a given address and denom.
     #[allow(clippy::future_not_send)]
     pub async fn query_cosmos_balance(&self, address: &str, denom: &str) -> Result<u64> {
         let cmd = format!(
@@ -430,7 +426,6 @@ impl CosmosEthTestContext {
         Ok(0)
     }
 
-    /// Poll Cosmos for expected bank balance, with timeout.
     #[allow(clippy::future_not_send)]
     pub async fn assert_eventual_cosmos_balance(
         &self,
@@ -477,8 +472,6 @@ impl CosmosEthTestContext {
     }
 }
 
-/// Build the Solidity-encoded client state and consensus state hash for
-/// `SP1ICS07Tendermint` deployment, using real Cosmos chain state.
 async fn build_sp1_client_state(
     cosmos_handle: &CosmosDockerHandle,
 ) -> Result<(Vec<u8>, alloy::primitives::B256)> {

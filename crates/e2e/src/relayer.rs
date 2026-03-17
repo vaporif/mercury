@@ -40,12 +40,10 @@ pub struct SubprocessHandle {
 }
 
 impl SubprocessHandle {
-    /// Check if the subprocess is still running.
     pub fn is_running(&mut self) -> bool {
         matches!(self.child.try_wait(), Ok(None))
     }
 
-    /// Poll the relayer's health endpoint until it responds HTTP 200.
     pub async fn wait_until_ready(&mut self, timeout: Duration) -> Result<()> {
         let start = std::time::Instant::now();
         let poll_interval = Duration::from_millis(250);
@@ -132,7 +130,6 @@ impl Drop for SubprocessHandle {
 }
 
 impl TestContext {
-    /// Start mercury relay workers in-process (bidirectional).
     pub fn start_relay_library(&self) -> Result<RelayHandle> {
         let token = CancellationToken::new();
 
@@ -171,7 +168,6 @@ impl TestContext {
         })
     }
 
-    /// Start mercury-relayer as a subprocess.
     #[allow(clippy::missing_panics_doc)]
     pub fn start_relay_binary(&self) -> Result<SubprocessHandle> {
         let config_dir = tempfile::tempdir().wrap_err("creating temp dir")?;
@@ -181,7 +177,6 @@ impl TestContext {
 
         let binary = find_or_build_binary();
 
-        // Bind to port 0 to get a free port, then release it for the subprocess.
         let health_port = {
             let listener = std::net::TcpListener::bind("127.0.0.1:0")
                 .wrap_err("finding free port for health check")?;
