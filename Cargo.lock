@@ -5053,6 +5053,7 @@ dependencies = [
  "eyre",
  "futures",
  "mercury-core",
+ "mercury-cosmos-cosmos-relay",
  "mercury-cosmos-counterparties",
  "mercury-cosmos-ethereum-relay",
  "mercury-ethereum-counterparties",
@@ -5115,6 +5116,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mercury-cosmos-cosmos-relay"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "async-trait",
+ "eyre",
+ "futures",
+ "ibc",
+ "mercury-chain-cache",
+ "mercury-core",
+ "mercury-cosmos-counterparties",
+ "mercury-relay",
+ "tokio-util",
+]
+
+[[package]]
 name = "mercury-cosmos-counterparties"
 version = "0.1.0-alpha.2"
 dependencies = [
@@ -5122,7 +5138,6 @@ dependencies = [
  "async-trait",
  "ethereum-light-client",
  "eyre",
- "futures",
  "hex",
  "ibc",
  "ibc-client-tendermint",

@@ -225,12 +225,13 @@ pub fn build_registry() -> ChainRegistry {
     let mut r = ChainRegistry::new();
     mercury_cosmos_counterparties::plugin::register(&mut r);
     mercury_ethereum_counterparties::plugin::register(&mut r);
-    mercury_cosmos_ethereum_relay::register(&mut r);
+    mercury_cosmos_cosmos_relay::register(&mut r);    // relay pairs
+    mercury_cosmos_ethereum_relay::register(&mut r);  // relay pairs
     r
 }
 ```
 
-Each counterparty crate's `register()` function registers its `ChainPlugin`. Cross-chain `RelayPairPlugin` implementations live in dedicated relay crates (e.g., `mercury-cosmos-ethereum-relay`) that depend on both counterparty crates and register relay pairs separately. The CLI then uses the registry to validate config, connect chains, query status, and build relays — all without knowing concrete chain types.
+Each counterparty crate's `register()` function registers its `ChainPlugin`. `RelayPairPlugin` implementations live in dedicated relay crates under `crates/relay-pairs/` (e.g., `cosmos-cosmos`, `cosmos-ethereum`) and register relay pairs separately. The CLI then uses the registry to validate config, connect chains, query status, and build relays — all without knowing concrete chain types.
 
 ## Crate Layout
 
@@ -239,17 +240,21 @@ graph TD
     CLI[mercury-cli<br/><i>CLI binary</i>]
     COSMOS[mercury-cosmos<br/><i>chains/cosmos — RPC, protobuf, tx signing</i>]
     ETH[mercury-ethereum<br/><i>chains/ethereum — alloy, EVM contracts</i>]
-    COSMOS_BR[mercury-cosmos-counterparties<br/><i>chains/cosmos-counterparties — wrapper + cross-chain impls</i>]
-    ETH_BR[mercury-ethereum-counterparties<br/><i>chains/ethereum-counterparties — wrapper + cross-chain impls</i>]
-    CER[mercury-cosmos-ethereum-relay<br/><i>chains/cosmos-ethereum-relay — relay pair plugins</i>]
+    COSMOS_BR[mercury-cosmos-counterparties<br/><i>counterparties/cosmos — wrapper + cross-chain impls</i>]
+    ETH_BR[mercury-ethereum-counterparties<br/><i>counterparties/ethereum — wrapper + cross-chain impls</i>]
+    CCR[mercury-cosmos-cosmos-relay<br/><i>relay-pairs/cosmos-cosmos — relay pair plugin</i>]
+    CER[mercury-cosmos-ethereum-relay<br/><i>relay-pairs/cosmos-ethereum — relay pair plugins</i>]
     RELAY[mercury-relay<br/><i>Worker pipeline, generic over chain traits</i>]
     TRAITS[mercury-chain-traits<br/><i>Chain types, messaging, queries, relay traits</i>]
     CORE[mercury-core<br/><i>Error types, encoding, worker trait, membership proofs</i>]
 
     CLI --> COSMOS_BR
     CLI --> ETH_BR
+    CLI --> CCR
     CLI --> CER
     CLI --> RELAY
+    CCR --> COSMOS_BR
+    CCR --> RELAY
     CER --> COSMOS_BR
     CER --> ETH_BR
     CER --> RELAY
