@@ -1,15 +1,19 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::Args;
 use mercury_core::plugin::{AnyChain, ChainId, DynRelay, DynRelayConfig};
 use mercury_core::registry::ChainRegistry;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
 use crate::config::RelayConfig;
 use crate::registry::build_registry;
+
+const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(30);
 
 #[derive(Args)]
 pub struct StartCmd {
@@ -67,6 +71,8 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
         );
     }
 
+    let shutdown_token = CancellationToken::new();
+
     let mut handles: Vec<JoinHandle<mercury_core::error::Result<()>>> = Vec::new();
     for relay in &cfg.relays {
         let src = chains
@@ -85,7 +91,7 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
         let (fwd, rev) =
             pair.build_relay(&src.chain, &dst.chain, &src_client_id, &dst_client_id)?;
 
-        let handle = spawn_relay_pair(fwd, rev, relay);
+        let handle = spawn_relay_pair(fwd, rev, relay, shutdown_token.child_token());
         tracing::info!(
             src = %relay.src_chain,
             dst = %relay.dst_chain,
@@ -113,19 +119,25 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
         tokio::spawn(serve_health(port, registry, health_chains));
     }
 
+    // Wait for a relay to exit or a shutdown signal, then drain gracefully.
     tokio::select! {
-        (result, _index, remaining) = futures::future::select_all(handles) => {
-            match result {
-                Ok(Ok(())) => tracing::warn!("relay pair exited unexpectedly"),
-                Ok(Err(e)) => tracing::error!(error = %e, "relay pair failed"),
-                Err(e) => tracing::error!(error = %e, "relay task panicked"),
-            }
-            for handle in remaining {
-                handle.abort();
-            }
+        (result, _, _) = futures::future::select_all(&mut handles) => {
+            log_relay_exit(result);
+            shutdown_token.cancel();
         }
-        _ = tokio::signal::ctrl_c() => {
-            tracing::info!("received ctrl-c, shutting down");
+        _ = shutdown_signal() => {
+            tracing::info!("shutdown signal received, draining in-flight transactions");
+            shutdown_token.cancel();
+        }
+    }
+
+    if tokio::time::timeout(SHUTDOWN_GRACE_PERIOD, futures::future::join_all(&mut handles))
+        .await
+        .is_err()
+    {
+        tracing::warn!("grace period expired, aborting remaining tasks");
+        for h in &handles {
+            h.abort();
         }
     }
 
@@ -136,6 +148,7 @@ fn spawn_relay_pair(
     fwd: Arc<dyn DynRelay>,
     rev: Arc<dyn DynRelay>,
     relay: &RelayConfig,
+    shared_token: CancellationToken,
 ) -> JoinHandle<mercury_core::error::Result<()>> {
     let src_name = relay.src_chain.clone();
     let dst_name = relay.dst_chain.clone();
@@ -146,8 +159,6 @@ fn spawn_relay_pair(
         misbehaviour_scan_interval_secs: relay.misbehaviour_scan_interval_secs,
         packet_filter_config: relay.packet_filter.clone(),
     };
-
-    let shared_token = tokio_util::sync::CancellationToken::new();
 
     tokio::spawn(async move {
         tracing::info!(
@@ -173,6 +184,30 @@ fn spawn_relay_pair(
             _ => Ok(()),
         }
     })
+}
+
+fn log_relay_exit(result: Result<mercury_core::error::Result<()>, tokio::task::JoinError>) {
+    match result {
+        Ok(Ok(())) => tracing::warn!("relay pair exited unexpectedly"),
+        Ok(Err(e)) => tracing::error!(error = %e, "relay pair failed"),
+        Err(e) => tracing::error!(error = %e, "relay task panicked"),
+    }
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut sigterm = signal(SignalKind::terminate()).expect("failed to register SIGTERM");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = sigterm.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await.ok();
+    }
 }
 
 struct HealthState {
