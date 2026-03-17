@@ -24,18 +24,18 @@ impl<R> Worker for MisbehaviourWorker<R>
 where
     R: Relay,
     R::SrcChain: MisbehaviourDetector<
-            <R::DstChain as HasInner>::Inner,
+            <R::DstChain as HasCore>::Core,
             CounterpartyClientState = <R::DstChain as IbcTypes>::ClientState,
         >,
     R::DstChain: MisbehaviourQuery<
-            <R::SrcChain as HasInner>::Inner,
+            <R::SrcChain as HasCore>::Core,
             CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<
-                <R::DstChain as HasInner>::Inner,
+                <R::DstChain as HasCore>::Core,
             >>::UpdateHeader,
         > + MisbehaviourMessageBuilder<
-            <R::SrcChain as HasInner>::Inner,
+            <R::SrcChain as HasCore>::Core,
             MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<
-                <R::DstChain as HasInner>::Inner,
+                <R::DstChain as HasCore>::Core,
             >>::MisbehaviourEvidence,
         >,
 {
@@ -73,18 +73,18 @@ impl<R> MisbehaviourWorker<R>
 where
     R: Relay,
     R::SrcChain: MisbehaviourDetector<
-            <R::DstChain as HasInner>::Inner,
+            <R::DstChain as HasCore>::Core,
             CounterpartyClientState = <R::DstChain as IbcTypes>::ClientState,
         >,
     R::DstChain: MisbehaviourQuery<
-            <R::SrcChain as HasInner>::Inner,
+            <R::SrcChain as HasCore>::Core,
             CounterpartyUpdateHeader = <R::SrcChain as MisbehaviourDetector<
-                <R::DstChain as HasInner>::Inner,
+                <R::DstChain as HasCore>::Core,
             >>::UpdateHeader,
         > + MisbehaviourMessageBuilder<
-            <R::SrcChain as HasInner>::Inner,
+            <R::SrcChain as HasCore>::Core,
             MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<
-                <R::DstChain as HasInner>::Inner,
+                <R::DstChain as HasCore>::Core,
             >>::MisbehaviourEvidence,
         >,
 {

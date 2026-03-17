@@ -6,7 +6,7 @@ use mercury_chain_traits::builders::{
     PacketMessageBuilder, UpdateClientOutput,
 };
 use mercury_chain_traits::events::PacketEvents;
-use mercury_chain_traits::inner::HasInner;
+use mercury_chain_traits::inner::HasCore;
 use mercury_chain_traits::queries::{MisbehaviourQuery, PacketStateQuery};
 use mercury_chain_traits::types::{ChainTypes, IbcTypes, MessageSender, TxReceipt};
 use mercury_core::error::Result;
@@ -78,8 +78,8 @@ impl<C: IbcTypes> IbcTypes for CachedChain<C> {
     }
 }
 
-impl<C: HasInner> HasInner for CachedChain<C> {
-    type Inner = C::Inner;
+impl<C: HasCore> HasCore for CachedChain<C> {
+    type Core = C::Core;
 }
 
 #[async_trait]

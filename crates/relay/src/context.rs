@@ -6,7 +6,7 @@ use mercury_chain_traits::builders::{
     PacketMessageBuilder,
 };
 use mercury_chain_traits::events::PacketEvents;
-use mercury_chain_traits::inner::HasInner;
+use mercury_chain_traits::inner::HasCore;
 use mercury_chain_traits::queries::{ClientQuery, MisbehaviourQuery};
 use mercury_chain_traits::relay::{Relay, RelayChain};
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
@@ -50,15 +50,15 @@ pub struct RelayContext<Src: ChainTypes, Dst: ChainTypes> {
 
 impl<Src, Dst> Relay for RelayContext<Src, Dst>
 where
-    Src: RelayChain + ClientPayloadBuilder<<Dst as HasInner>::Inner> + PacketEvents,
+    Src: RelayChain + ClientPayloadBuilder<<Dst as HasCore>::Core> + PacketEvents,
     Dst: RelayChain
         + ClientMessageBuilder<
-            <Src as HasInner>::Inner,
-            CreateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasInner>::Inner>>::CreateClientPayload,
-            UpdateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasInner>::Inner>>::UpdateClientPayload,
-        > + ClientQuery<<Src as HasInner>::Inner>
-        + PacketMessageBuilder<<Src as HasInner>::Inner>
-        + ClientPayloadBuilder<<Src as HasInner>::Inner>,
+            <Src as HasCore>::Core,
+            CreateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasCore>::Core>>::CreateClientPayload,
+            UpdateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasCore>::Core>>::UpdateClientPayload,
+        > + ClientQuery<<Src as HasCore>::Core>
+        + PacketMessageBuilder<<Src as HasCore>::Core>
+        + ClientPayloadBuilder<<Src as HasCore>::Core>,
 {
     type SrcChain = Src;
     type DstChain = Dst;
@@ -83,30 +83,30 @@ where
 impl<Src, Dst> RelayContext<Src, Dst>
 where
     Src: RelayChain
-        + ClientPayloadBuilder<<Dst as HasInner>::Inner>
+        + ClientPayloadBuilder<<Dst as HasCore>::Core>
         + PacketEvents
-        + PacketMessageBuilder<<Dst as HasInner>::Inner>
-        + ClientQuery<<Dst as HasInner>::Inner>
+        + PacketMessageBuilder<<Dst as HasCore>::Core>
+        + ClientQuery<<Dst as HasCore>::Core>
         + ClientMessageBuilder<
-            <Dst as HasInner>::Inner,
-            CreateClientPayload = <Dst as ClientPayloadBuilder<<Src as HasInner>::Inner>>::CreateClientPayload,
-            UpdateClientPayload = <Dst as ClientPayloadBuilder<<Src as HasInner>::Inner>>::UpdateClientPayload,
-        > + MisbehaviourDetector<<Dst as HasInner>::Inner, CounterpartyClientState = <Dst as IbcTypes>::ClientState>,
+            <Dst as HasCore>::Core,
+            CreateClientPayload = <Dst as ClientPayloadBuilder<<Src as HasCore>::Core>>::CreateClientPayload,
+            UpdateClientPayload = <Dst as ClientPayloadBuilder<<Src as HasCore>::Core>>::UpdateClientPayload,
+        > + MisbehaviourDetector<<Dst as HasCore>::Core, CounterpartyClientState = <Dst as IbcTypes>::ClientState>,
     Dst: RelayChain
         + ClientMessageBuilder<
-            <Src as HasInner>::Inner,
-            CreateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasInner>::Inner>>::CreateClientPayload,
-            UpdateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasInner>::Inner>>::UpdateClientPayload,
-        > + ClientQuery<<Src as HasInner>::Inner>
+            <Src as HasCore>::Core,
+            CreateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasCore>::Core>>::CreateClientPayload,
+            UpdateClientPayload = <Src as ClientPayloadBuilder<<Dst as HasCore>::Core>>::UpdateClientPayload,
+        > + ClientQuery<<Src as HasCore>::Core>
         + PacketEvents
-        + PacketMessageBuilder<<Src as HasInner>::Inner>
-        + ClientPayloadBuilder<<Src as HasInner>::Inner>
+        + PacketMessageBuilder<<Src as HasCore>::Core>
+        + ClientPayloadBuilder<<Src as HasCore>::Core>
         + MisbehaviourQuery<
-            <Src as HasInner>::Inner,
-            CounterpartyUpdateHeader = <Src as MisbehaviourDetector<<Dst as HasInner>::Inner>>::UpdateHeader,
+            <Src as HasCore>::Core,
+            CounterpartyUpdateHeader = <Src as MisbehaviourDetector<<Dst as HasCore>::Core>>::UpdateHeader,
         > + MisbehaviourMessageBuilder<
-            <Src as HasInner>::Inner,
-            MisbehaviourEvidence = <Src as MisbehaviourDetector<<Dst as HasInner>::Inner>>::MisbehaviourEvidence,
+            <Src as HasCore>::Core,
+            MisbehaviourEvidence = <Src as MisbehaviourDetector<<Dst as HasCore>::Core>>::MisbehaviourEvidence,
         >,
 {
     pub async fn run_with_token(
