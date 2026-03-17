@@ -1,11 +1,11 @@
-/// Scans for unrelayed packet commitments and recovers missed events.
-pub mod clearing_worker;
 /// Periodic IBC client refresh worker.
 pub mod client_refresh;
 /// Source chain block event poller.
 pub mod event_watcher;
 /// Monitors for light client misbehaviour.
 pub mod misbehaviour_worker;
+/// Scans for unrelayed packet commitments and recovers missed events.
+pub mod packet_sweeper;
 /// Packet proof building and message construction.
 pub mod packet_worker;
 /// Transaction submission workers for source and destination chains.

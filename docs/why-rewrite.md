@@ -45,6 +45,6 @@ Each chain direction is a separate crate (`eth-to-cosmos`, `cosmos-to-eth`, `sol
 
 Mercury differs in three ways:
 
-- **Shared relay logic.** All workers (`EventWatcher`, `PacketWorker`, `TxWorker`, `ClearingWorker`) are generic over the `Relay` trait — the same code handles every chain pair. Eureka duplicates relay logic per direction. Mercury still has per-pair counterparty wrappers (~600 lines each for orphan rule compliance), but the relay pipeline itself is written once.
+- **Shared relay logic.** All workers (`EventWatcher`, `PacketWorker`, `TxWorker`, `PacketSweeper`) are generic over the `Relay` trait — the same code handles every chain pair. Eureka duplicates relay logic per direction. Mercury still has per-pair counterparty wrappers (~600 lines each for orphan rule compliance), but the relay pipeline itself is written once.
 - **Autonomous operation.** Mercury polls blocks, recovers missed packets, manages client refresh, and submits transactions. Eureka requires an external orchestrator for all of this.
 - **Compile-time type safety.** `RelayContext<Src, Dst>` enforces payload type matching through associated type constraints. Eureka's modules receive opaque `serde_json::Value` config and discover type errors at runtime.

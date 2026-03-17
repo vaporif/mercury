@@ -8,7 +8,7 @@ Production readiness tasks ordered by priority. Each item is scoped as an indepe
 
 ### ~~1. Packet Clearing / Flushing~~
 
-Implemented in `clearing_worker.rs`. Periodically scans source chain for unrelayed packet commitments, cross-references against destination receipts, and feeds recovered `SendPacket` events into the event pipeline. Enabled via `clearing_interval` config.
+Implemented in `packet_sweeper.rs`. Periodically scans source chain for unrelayed packet commitments, cross-references against destination receipts, and feeds recovered `SendPacket` events into the event pipeline. Enabled via `clearing_interval` config.
 
 ---
 
@@ -42,7 +42,7 @@ Expose a Prometheus `/metrics` endpoint with operational metrics. Operators need
 
 ### ~~3. Packet Filtering~~
 
-Implemented in `filter.rs` in `mercury-relay`. Configurable allow/deny policies with glob patterns on payload source ports. Filter applied in EventWatcher and ClearingWorker before events reach PacketWorker. Config: `[relays.packet_filter]` with `policy` and `source_ports` fields.
+Implemented in `filter.rs` in `mercury-relay`. Configurable allow/deny policies with glob patterns on payload source ports. Filter applied in EventWatcher and PacketSweeper before events reach PacketWorker. Config: `[relays.packet_filter]` with `policy` and `source_ports` fields.
 
 ---
 

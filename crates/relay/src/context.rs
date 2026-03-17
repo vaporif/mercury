@@ -22,10 +22,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::filter::PacketFilter;
-use crate::workers::clearing_worker::ClearingWorker;
 use crate::workers::client_refresh::ClientRefreshWorker;
 use crate::workers::event_watcher::EventWatcher;
 use crate::workers::misbehaviour_worker::MisbehaviourWorker;
+use crate::workers::packet_sweeper::PacketSweeper;
 use crate::workers::packet_worker::PacketWorker;
 use crate::workers::tx_worker::{SrcTxWorker, TxWorker};
 
@@ -225,7 +225,7 @@ where
         let clearing_handle = config.clearing_interval.map_or_else(
             || tokio::spawn(futures::future::pending()),
             |interval| {
-                let clearing_worker = ClearingWorker {
+                let packet_sweeper = PacketSweeper {
                     relay: Arc::clone(self),
                     sender: event_tx,
                     token: pipeline_token.clone(),
@@ -234,7 +234,7 @@ where
                     metrics: ClearingMetrics::new(src_label.clone())
                         .with_counterparty(dst_label.clone()),
                 };
-                spawn_worker(clearing_worker)
+                spawn_worker(packet_sweeper)
             },
         );
 

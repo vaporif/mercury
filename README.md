@@ -21,7 +21,7 @@ Early active development. Core IBC v2 relay pipeline with Cosmos↔Cosmos packet
 ```
 EventWatcher    ─┐
                  ├→ PacketWorker → TxWorker (dst chain)
-ClearingWorker  ─┘       ↓
+PacketSweeper   ─┘       ↓
                     SrcTxWorker (src chain)
 
 ClientRefreshWorker → TxWorker (dst chain)
