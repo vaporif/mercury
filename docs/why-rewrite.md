@@ -12,6 +12,12 @@ The chain abstractions are also tightly coupled to Cosmos SDK semantics, making 
 
 By the time async Rust matured, the sync model was load-bearing and too costly to retrofit. The existence of hermes-sdk as a separate ground-up effort suggests the team reached the same conclusion. Mercury benefits from starting in 2026, where stable async traits, a mature tokio, and battle-tested async patterns are the default.
 
+### The Fork Problem
+
+Because Hermes hardcodes chain types into core enums (`ChainConfig::CosmosSdk`, `ChainConfig::Namada`, `ChainConfig::Penumbra`) and dispatches through match arms spread across the relayer crate (~280 chain-specific references), adding a new chain means modifying Hermes internals. In practice, chain teams maintain forks — Namada runs a [fork](https://github.com/heliaxdev/hermes) with Namada-specific changes that must be continuously rebased on upstream.
+
+Mercury's plugin architecture eliminates this entirely. The relay pipeline, CLI, and core crate contain **zero** chain-specific code. Adding a chain is additive: create new crates under `crates/chains/`, implement the plugin traits, add register calls in `crates/cli/src/registry.rs`. No enums to extend, no match arms to update, no fork to maintain. Upstream updates never conflict with chain-specific code because they never touch the same files.
+
 ## Hermes SDK: Right Problem, Wrong Abstraction
 
 [Hermes SDK](https://github.com/informalsystems/hermes-sdk) was built on [Context-Generic Programming](https://github.com/contextgeneric/cgp) (CGP), a custom Rust framework that provides compile-time polymorphism without runtime dispatch.
