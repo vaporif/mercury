@@ -11,7 +11,7 @@ use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, UpdateClientOutput,
 };
 use mercury_chain_traits::events::PacketEvents;
-use mercury_chain_traits::inner::HasInner;
+use mercury_chain_traits::inner::HasCore;
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_chain_traits::relay::{IbcEvent, Relay, RelayPacketBuilder};
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
@@ -67,14 +67,14 @@ struct PendingSend<E> {
 impl<R> PacketWorker<R>
 where
     R: Relay + RelayPacketBuilder,
-    R::SrcChain: ClientQuery<<R::DstChain as HasInner>::Inner>
+    R::SrcChain: ClientQuery<<R::DstChain as HasCore>::Core>
         + ClientMessageBuilder<
-            <R::DstChain as HasInner>::Inner,
+            <R::DstChain as HasCore>::Core,
             CreateClientPayload = <R::DstChain as ClientPayloadBuilder<
-                <R::SrcChain as HasInner>::Inner,
+                <R::SrcChain as HasCore>::Core,
             >>::CreateClientPayload,
             UpdateClientPayload = <R::DstChain as ClientPayloadBuilder<
-                <R::SrcChain as HasInner>::Inner,
+                <R::SrcChain as HasCore>::Core,
             >>::UpdateClientPayload,
         >,
 {
@@ -85,7 +85,7 @@ where
         &self,
     ) -> Result<(
         <R::SrcChain as ChainTypes>::Height,
-        Option<<R::DstChain as ClientMessageBuilder<<R::SrcChain as HasInner>::Inner>>::UpdateClientPayload>,
+        Option<<R::DstChain as ClientMessageBuilder<<R::SrcChain as HasCore>::Core>>::UpdateClientPayload>,
     )>{
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
@@ -124,7 +124,7 @@ where
     /// Phase 2: Enrich the payload with membership proofs and build the update client message.
     async fn build_dst_update_client_message(
         &self,
-        mut payload: <R::DstChain as ClientMessageBuilder<<R::SrcChain as HasInner>::Inner>>::UpdateClientPayload,
+        mut payload: <R::DstChain as ClientMessageBuilder<<R::SrcChain as HasCore>::Core>>::UpdateClientPayload,
         membership_entries: &[mercury_core::MembershipProofEntry],
     ) -> Result<UpdateClientOutput<<R::DstChain as ChainTypes>::Message>> {
         if !membership_entries.is_empty() {
@@ -417,14 +417,14 @@ where
 impl<R> Worker for PacketWorker<R>
 where
     R: Relay + RelayPacketBuilder,
-    R::SrcChain: ClientQuery<<R::DstChain as HasInner>::Inner>
+    R::SrcChain: ClientQuery<<R::DstChain as HasCore>::Core>
         + ClientMessageBuilder<
-            <R::DstChain as HasInner>::Inner,
+            <R::DstChain as HasCore>::Core,
             CreateClientPayload = <R::DstChain as ClientPayloadBuilder<
-                <R::SrcChain as HasInner>::Inner,
+                <R::SrcChain as HasCore>::Core,
             >>::CreateClientPayload,
             UpdateClientPayload = <R::DstChain as ClientPayloadBuilder<
-                <R::SrcChain as HasInner>::Inner,
+                <R::SrcChain as HasCore>::Core,
             >>::UpdateClientPayload,
         >,
 {

@@ -93,8 +93,8 @@ impl fmt::Debug for MockChain {
     }
 }
 
-impl HasInner for MockChain {
-    type Inner = Self;
+impl HasCore for MockChain {
+    type Core = Self;
 }
 
 impl ChainTypes for MockChain {

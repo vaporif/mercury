@@ -29,7 +29,7 @@ use ibc_proto::ibc::core::channel::v2::{
 };
 use ibc_proto::ibc::core::client::v2::MsgRegisterCounterparty;
 
-use crate::chain::CosmosChainInner;
+use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
 use crate::types::to_any;
 use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgement};
@@ -57,7 +57,7 @@ pub struct CosmosUpdateClientPayload {
 }
 
 #[async_trait]
-impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChainInner<S> {
+impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> {
     type CreateClientPayload = CosmosCreateClientPayload;
     type UpdateClientPayload = CosmosUpdateClientPayload;
 
@@ -215,7 +215,7 @@ fn find_proposer(
 }
 
 #[async_trait]
-impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChainInner<S> {
+impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
     type CreateClientPayload = CosmosCreateClientPayload;
     type UpdateClientPayload = CosmosUpdateClientPayload;
 
@@ -305,7 +305,7 @@ fn to_proto_height(revision_number: u64, h: TmHeight) -> ProtoHeight {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChainInner<S> {
+impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChain<S> {
     async fn build_receive_packet_message(
         &self,
         packet: &CosmosPacket,

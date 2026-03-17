@@ -10,15 +10,15 @@ use ibc::core::host::types::identifiers::ClientId;
 use ibc_proto::ibc::core::channel::v2::{MsgSendPacket, Payload};
 use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
 use mercury_chain_traits::types::MessageSender;
-use mercury_cosmos_counterparties::CosmosChain;
-use mercury_cosmos_counterparties::chain::CosmosChainInner;
+use mercury_cosmos_counterparties::CosmosAdapter;
+use mercury_cosmos_counterparties::chain::CosmosChain;
 use mercury_cosmos_counterparties::config::{CosmosChainConfig, GasPrice};
 use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
 use mercury_cosmos_counterparties::types::{CosmosMessage, CosmosTxResponse};
 use mercury_ethereum::config::{ClientPayloadMode, EthereumChainConfig};
 use mercury_ethereum::contracts::{IBCERC20, ICS20Transfer, ICS26Router};
 use mercury_ethereum::types::{EvmClientId, EvmTxResponse};
-use mercury_ethereum_counterparties::EthereumChain;
+use mercury_ethereum_counterparties::EthereumAdapter;
 use mercury_relay::context::{RelayContext, RelayWorkerConfig};
 use prost::Message;
 use prost::Name as _;
@@ -35,8 +35,8 @@ use crate::relayer::RelayHandle;
 pub struct CosmosEthTestContext {
     pub cosmos_handle: CosmosDockerHandle,
     pub anvil_handle: AnvilHandle,
-    pub cosmos_chain: CosmosChain<Secp256k1KeyPair>,
-    pub eth_chain: EthereumChain,
+    pub cosmos_chain: CosmosAdapter<Secp256k1KeyPair>,
+    pub eth_chain: EthereumAdapter,
     pub client_id_on_cosmos: ClientId,
     pub client_id_on_eth: EvmClientId,
 }
@@ -93,16 +93,19 @@ impl CosmosEthTestContext {
             }),
         };
 
-        let eth_chain = EthereumChain::new(eth_config, eth_signer)
+        let eth_chain = EthereumAdapter::new(eth_config, eth_signer)
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
 
         info!("creating IBC client on Cosmos for Ethereum");
-        let eth_payload = ClientPayloadBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_create_client_payload(&eth_chain)
+        let eth_payload =
+            ClientPayloadBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_payload(
+                &eth_chain,
+            )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         let msg_create_cosmos =
-            ClientMessageBuilder::<mercury_ethereum::chain::EthereumChainInner>::build_create_client_message(
+            ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_create_client_message(
                 &cosmos_chain, eth_payload,
             )
             .await
@@ -116,12 +119,13 @@ impl CosmosEthTestContext {
 
         info!("creating IBC client on Ethereum for Cosmos");
         let cosmos_payload =
-            ClientPayloadBuilder::<EthereumChain>::build_create_client_payload(&cosmos_chain)
+            ClientPayloadBuilder::<EthereumAdapter>::build_create_client_payload(&cosmos_chain)
                 .await
                 .map_err(|e| eyre::eyre!("{e}"))?;
         let msg_create_eth =
-            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_create_client_message(
-                &eth_chain, cosmos_payload,
+            ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_message(
+                &eth_chain,
+                cosmos_payload,
             )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
@@ -134,7 +138,7 @@ impl CosmosEthTestContext {
 
         info!("registering counterparties");
         let msg_register_cosmos =
-            ClientMessageBuilder::<mercury_ethereum::chain::EthereumChainInner>::build_register_counterparty_message(
+            ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_register_counterparty_message(
                 &cosmos_chain,
                 &client_id_on_cosmos,
                 &client_id_on_eth,
@@ -148,7 +152,7 @@ impl CosmosEthTestContext {
             .map_err(|e| eyre::eyre!("{e}"))?;
 
         let msg_register_eth =
-            ClientMessageBuilder::<CosmosChainInner<Secp256k1KeyPair>>::build_register_counterparty_message(
+            ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_register_counterparty_message(
                 &eth_chain,
                 &client_id_on_eth,
                 &client_id_on_cosmos,
@@ -603,7 +607,7 @@ fn make_cosmos_config(
 async fn build_cosmos_chain(
     handle: &CosmosDockerHandle,
     wasm_checksum: Option<&str>,
-) -> Result<CosmosChain<Secp256k1KeyPair>> {
+) -> Result<CosmosAdapter<Secp256k1KeyPair>> {
     build_cosmos_chain_with_user(handle, handle.relayer_wallet(), wasm_checksum).await
 }
 
@@ -611,7 +615,7 @@ async fn build_cosmos_chain_with_user(
     handle: &CosmosDockerHandle,
     wallet: &crate::bootstrap::traits::Wallet,
     wasm_checksum: Option<&str>,
-) -> Result<CosmosChain<Secp256k1KeyPair>> {
+) -> Result<CosmosAdapter<Secp256k1KeyPair>> {
     let secret_bytes =
         hex::decode(&wallet.secret_key_hex).wrap_err("decoding wallet secret key hex")?;
     let secret_arr: [u8; 32] = secret_bytes
@@ -621,7 +625,7 @@ async fn build_cosmos_chain_with_user(
         .map_err(|e| eyre::eyre!("invalid secret key: {e}"))?;
     let signer = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
 
-    CosmosChain::new(make_cosmos_config(handle, wasm_checksum), signer)
+    CosmosAdapter::new(make_cosmos_config(handle, wasm_checksum), signer)
         .await
         .map_err(|e| eyre::eyre!("{e}"))
 }

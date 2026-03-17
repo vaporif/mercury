@@ -5,10 +5,10 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use futures::FutureExt;
 use mercury_chain_cache::CachedChain;
-use mercury_cosmos_counterparties::CosmosChain;
+use mercury_cosmos_counterparties::CosmosAdapter;
 use mercury_cosmos_counterparties::keys::{Secp256k1KeyPair, load_cosmos_signer};
 use mercury_ethereum::types::EvmClientId;
-use mercury_ethereum_counterparties::EthereumChain;
+use mercury_ethereum_counterparties::EthereumAdapter;
 use mercury_relay::context::{RelayContext, RelayWorkerConfig};
 use mercury_relay::filter::PacketFilter;
 use tokio::task::JoinHandle;
@@ -149,8 +149,8 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
     Ok(())
 }
 
-type CosmosCached = CachedChain<CosmosChain<Secp256k1KeyPair>>;
-type EthCached = CachedChain<EthereumChain>;
+type CosmosCached = CachedChain<CosmosAdapter<Secp256k1KeyPair>>;
+type EthCached = CachedChain<EthereumAdapter>;
 
 #[derive(Clone)]
 enum ConnectedChain {
@@ -299,7 +299,7 @@ async fn connect_chain(
             let signer = load_cosmos_signer(&key_path, &cosmos_cfg.account_prefix)
                 .map_err(|e| eyre::eyre!("loading signer for '{}': {e}", cosmos_cfg.chain_id))?;
 
-            let chain = CosmosChain::new(cosmos_cfg.as_ref().clone(), signer)
+            let chain = CosmosAdapter::new(cosmos_cfg.as_ref().clone(), signer)
                 .await
                 .map_err(|e| eyre::eyre!("connecting to '{}': {e}", cosmos_cfg.chain_id))?;
 
@@ -322,7 +322,7 @@ async fn connect_chain(
             let signer = mercury_ethereum_counterparties::keys::load_ethereum_signer(&key_path)
                 .map_err(|e| eyre::eyre!("loading signer for chain {}: {e}", eth_cfg.chain_id))?;
 
-            let chain = EthereumChain::new(eth_cfg.clone(), signer)
+            let chain = EthereumAdapter::new(eth_cfg.clone(), signer)
                 .await
                 .map_err(|e| eyre::eyre!("connecting to chain {}: {e}", eth_cfg.chain_id))?;
 

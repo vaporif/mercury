@@ -5,7 +5,7 @@ use prost::Message as _;
 use tendermint_rpc::Client;
 use tracing::warn;
 
-use crate::chain::CosmosChainInner;
+use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
 use crate::types::{
     CosmosEvent, CosmosPacket, PacketAcknowledgement, PacketPayload, SendPacketEvent, WriteAckEvent,
@@ -65,7 +65,7 @@ fn abci_event_to_cosmos_event(event: &tendermint::abci::Event) -> CosmosEvent {
 }
 
 #[async_trait]
-impl<S: CosmosSigner> PacketEvents for CosmosChainInner<S> {
+impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
     type SendPacketEvent = SendPacketEvent;
     type WriteAckEvent = WriteAckEvent;
 
@@ -190,7 +190,7 @@ mod tests {
     use crate::keys::Secp256k1KeyPair;
     use ibc_proto::ibc::core::channel::v2::{Acknowledgement, Packet, Payload};
 
-    type TestChain = CosmosChainInner<Secp256k1KeyPair>;
+    type TestChain = CosmosChain<Secp256k1KeyPair>;
 
     #[test]
     fn get_attr_finds_existing_key() {

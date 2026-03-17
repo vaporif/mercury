@@ -3,11 +3,11 @@ use mercury_chain_traits::builders::{MisbehaviourDetector, MisbehaviourMessageBu
 use mercury_chain_traits::queries::MisbehaviourQuery;
 use mercury_core::error::Result;
 
-use crate::chain::EthereumChainInner;
+use crate::chain::EthereumChain;
 use crate::types::{EvmClientState, EvmHeight, EvmMessage};
 
 #[async_trait]
-impl MisbehaviourDetector<Self> for EthereumChainInner {
+impl MisbehaviourDetector<Self> for EthereumChain {
     type UpdateHeader = ();
     type MisbehaviourEvidence = ();
     type CounterpartyClientState = EvmClientState;
@@ -23,7 +23,7 @@ impl MisbehaviourDetector<Self> for EthereumChainInner {
 }
 
 #[async_trait]
-impl MisbehaviourMessageBuilder<Self> for EthereumChainInner {
+impl MisbehaviourMessageBuilder<Self> for EthereumChain {
     type MisbehaviourEvidence = ();
 
     async fn build_misbehaviour_message(
@@ -36,7 +36,7 @@ impl MisbehaviourMessageBuilder<Self> for EthereumChainInner {
 }
 
 #[async_trait]
-impl MisbehaviourQuery<Self> for EthereumChainInner {
+impl MisbehaviourQuery<Self> for EthereumChain {
     type CounterpartyUpdateHeader = ();
 
     async fn query_consensus_state_heights(
