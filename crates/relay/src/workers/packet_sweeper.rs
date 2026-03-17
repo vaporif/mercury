@@ -21,7 +21,7 @@ use crate::filter::PacketFilter;
 const RECEIPT_CHECK_CONCURRENCY: usize = 8;
 
 /// Scans for unrelayed packet commitments and feeds recovered events into the relay pipeline.
-pub struct ClearingWorker<R: Relay> {
+pub struct PacketSweeper<R: Relay> {
     pub relay: Arc<R>,
     pub sender: mpsc::Sender<Vec<IbcEvent<R>>>,
     pub token: CancellationToken,
@@ -31,12 +31,12 @@ pub struct ClearingWorker<R: Relay> {
 }
 
 #[async_trait]
-impl<R: Relay> Worker for ClearingWorker<R> {
+impl<R: Relay> Worker for PacketSweeper<R> {
     fn name(&self) -> &'static str {
-        "clearing_worker"
+        "packet_sweeper"
     }
 
-    #[instrument(skip_all, name = "clearing_worker", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
+    #[instrument(skip_all, name = "packet_sweeper", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     async fn run(self) -> Result<()> {
         loop {
             tokio::select! {
@@ -53,7 +53,7 @@ impl<R: Relay> Worker for ClearingWorker<R> {
     }
 }
 
-impl<R: Relay> ClearingWorker<R> {
+impl<R: Relay> PacketSweeper<R> {
     async fn scan(&self) -> Result<()> {
         debug!("starting clearing scan");
         let src = self.relay.src_chain();

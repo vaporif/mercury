@@ -237,7 +237,7 @@ Seven workers connected by `tokio::mpsc` channels form the relay pipeline. Each 
 ```mermaid
 graph LR
     EW[EventWatcher]
-    CW[ClearingWorker]
+    CW[PacketSweeper]
     PW[PacketWorker]
     TW[TxWorker<br/><i>dst chain</i>]
     STW[SrcTxWorker<br/><i>src chain</i>]
@@ -253,7 +253,7 @@ graph LR
 ```
 
 1. **EventWatcher** polls source chain block-by-block for `SendPacket` and `WriteAck` events, batches per block, sends `Vec<IbcEvent>` downstream. Supports optional packet filter (allow/deny by source port). Stays 1 block behind tip for proof consistency. Tolerates transient RPC failures without dying.
-2. **ClearingWorker** *(optional)* periodically scans source chain for all packet commitments, cross-references against destination receipts, and recovers missed `SendPacket` events. Feeds into the same event channel as EventWatcher. Enabled via `clearing_interval` config.
+2. **PacketSweeper** *(optional)* periodically scans source chain for all packet commitments, cross-references against destination receipts, and recovers missed `SendPacket` events. Feeds into the same event channel as EventWatcher. Enabled via `clearing_interval` config.
 3. **PacketWorker** receives event batches, tracks in-flight packets with grace periods, classifies packets as live or timed-out using the destination chain's timestamp, queries proofs concurrently (8 streams, 3 retries, 500ms delay), then:
    - Builds dst update messages via `build_update_client_message` → `UpdateClientOutput`
    - Builds recv/ack packet messages
