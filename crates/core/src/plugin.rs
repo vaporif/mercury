@@ -2,6 +2,7 @@ use std::any::Any;
 use std::path::Path;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use futures::future::BoxFuture;
 
 #[cfg(unix)]
@@ -22,9 +23,43 @@ pub type AnyChain = Arc<dyn Any + Send + Sync>;
 
 pub type AnyClientId = Box<dyn Any + Send + Sync>;
 
+/// Chain identifier (e.g. "cosmoshub-4", "1" for Ethereum mainnet).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ChainId(pub String);
+
+impl std::fmt::Display for ChainId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl AsRef<str> for ChainId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::borrow::Borrow<str> for ChainId {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for ChainId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<&str> for ChainId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ChainStatusInfo {
-    pub chain_id: String,
+    pub chain_id: ChainId,
     pub height: u64,
     pub timestamp: String,
 }
@@ -45,17 +80,14 @@ pub struct DynRelayConfig {
     pub packet_filter_config: Option<toml::Value>,
 }
 
+#[async_trait]
 pub trait ChainPlugin: Send + Sync {
     fn chain_type(&self) -> &'static str;
     fn validate_config(&self, raw: &toml::Table) -> eyre::Result<()>;
-    fn connect(
-        &self,
-        raw_config: &toml::Table,
-        config_dir: &Path,
-    ) -> BoxFuture<'_, eyre::Result<AnyChain>>;
+    async fn connect(&self, raw_config: &toml::Table, config_dir: &Path) -> eyre::Result<AnyChain>;
     fn parse_client_id(&self, raw: &str) -> eyre::Result<AnyClientId>;
-    fn query_status(&self, chain: &AnyChain) -> BoxFuture<'_, eyre::Result<ChainStatusInfo>>;
-    fn chain_id_from_config(&self, raw: &toml::Table) -> eyre::Result<String>;
+    async fn query_status(&self, chain: &AnyChain) -> eyre::Result<ChainStatusInfo>;
+    fn chain_id_from_config(&self, raw: &toml::Table) -> eyre::Result<ChainId>;
     fn rpc_addr_from_config(&self, raw: &toml::Table) -> eyre::Result<String>;
 }
 
@@ -67,7 +99,7 @@ pub trait RelayPairPlugin: Send + Sync {
         &self,
         src: &AnyChain,
         dst: &AnyChain,
-        src_client_id: &str,
-        dst_client_id: &str,
+        src_client_id: &AnyClientId,
+        dst_client_id: &AnyClientId,
     ) -> eyre::Result<(Arc<dyn DynRelay>, Arc<dyn DynRelay>)>;
 }

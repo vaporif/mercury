@@ -1,12 +1,13 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use futures::future::BoxFuture;
 use mercury_chain_cache::CachedChain;
 use mercury_chain_traits::queries::ChainStatusQuery;
 use mercury_chain_traits::types::ChainTypes;
 use mercury_core::plugin::{
-    self, AnyChain, AnyClientId, ChainPlugin, ChainStatusInfo, DynRelay, DynRelayConfig,
+    self, AnyChain, AnyClientId, ChainId, ChainPlugin, ChainStatusInfo, DynRelay, DynRelayConfig,
     RelayPairPlugin,
 };
 use mercury_core::registry::ChainRegistry;
@@ -25,6 +26,14 @@ pub fn downcast_cosmos(chain: &AnyChain) -> eyre::Result<&CosmosCached> {
         .ok_or_else(|| eyre::eyre!("expected cosmos chain handle"))
 }
 
+fn downcast_cosmos_client_id(
+    id: &AnyClientId,
+) -> eyre::Result<&ibc::core::host::types::identifiers::ClientId> {
+    (**id)
+        .downcast_ref::<ibc::core::host::types::identifiers::ClientId>()
+        .ok_or_else(|| eyre::eyre!("expected cosmos client ID"))
+}
+
 fn table_to_cosmos_config(raw: &toml::Table) -> eyre::Result<CosmosChainConfig> {
     raw.clone()
         .try_into()
@@ -33,6 +42,7 @@ fn table_to_cosmos_config(raw: &toml::Table) -> eyre::Result<CosmosChainConfig> 
 
 struct CosmosPlugin;
 
+#[async_trait]
 impl ChainPlugin for CosmosPlugin {
     fn chain_type(&self) -> &'static str {
         "cosmos"
@@ -43,37 +53,29 @@ impl ChainPlugin for CosmosPlugin {
         cfg.validate()
     }
 
-    fn connect(
-        &self,
-        raw_config: &toml::Table,
-        config_dir: &Path,
-    ) -> BoxFuture<'_, eyre::Result<AnyChain>> {
-        let raw_config = raw_config.clone();
-        let config_dir = config_dir.to_path_buf();
-        Box::pin(async move {
-            let cfg = table_to_cosmos_config(&raw_config)?;
-            let key_path = config_dir.join(&cfg.key_file);
+    async fn connect(&self, raw_config: &toml::Table, config_dir: &Path) -> eyre::Result<AnyChain> {
+        let cfg = table_to_cosmos_config(raw_config)?;
+        let key_path = config_dir.join(&cfg.key_file);
 
-            #[cfg(unix)]
-            plugin::warn_key_file_permissions(&key_path);
+        #[cfg(unix)]
+        plugin::warn_key_file_permissions(&key_path);
 
-            let signer = load_cosmos_signer(&key_path, &cfg.account_prefix)
-                .map_err(|e| eyre::eyre!("loading signer for '{}': {e}", cfg.chain_id))?;
+        let signer = load_cosmos_signer(&key_path, &cfg.account_prefix)
+            .map_err(|e| eyre::eyre!("loading signer for '{}': {e}", cfg.chain_id))?;
 
-            let expected_chain_id = cfg.chain_id.clone();
-            let chain = CosmosAdapter::new(cfg, signer)
-                .await
-                .map_err(|e| eyre::eyre!("connecting to '{expected_chain_id}': {e}"))?;
+        let expected_chain_id = cfg.chain_id.clone();
+        let chain = CosmosAdapter::new(cfg, signer)
+            .await
+            .map_err(|e| eyre::eyre!("connecting to '{expected_chain_id}': {e}"))?;
 
-            let on_chain_id = chain.chain_id.to_string();
-            if on_chain_id != expected_chain_id {
-                eyre::bail!(
-                    "chain_id mismatch: config says '{expected_chain_id}', node reports '{on_chain_id}'"
-                );
-            }
+        let on_chain_id = chain.chain_id.to_string();
+        if on_chain_id != expected_chain_id {
+            eyre::bail!(
+                "chain_id mismatch: config says '{expected_chain_id}', node reports '{on_chain_id}'"
+            );
+        }
 
-            Ok(Arc::new(CachedChain::new(chain)) as AnyChain)
-        })
+        Ok(Arc::new(CachedChain::new(chain)) as AnyChain)
     }
 
     fn parse_client_id(&self, raw: &str) -> eyre::Result<AnyClientId> {
@@ -83,26 +85,23 @@ impl ChainPlugin for CosmosPlugin {
         Ok(Box::new(id))
     }
 
-    fn query_status(&self, chain: &AnyChain) -> BoxFuture<'_, eyre::Result<ChainStatusInfo>> {
-        let chain = chain.clone();
-        Box::pin(async move {
-            let c = downcast_cosmos(&chain)?;
-            let status = c.query_chain_status().await?;
-            let height = CosmosCached::chain_status_height(&status);
-            let timestamp = CosmosCached::chain_status_timestamp(&status);
-            let chain_id = c.chain_id();
-            Ok(ChainStatusInfo {
-                chain_id: chain_id.to_string(),
-                height: height.value(),
-                timestamp: timestamp.to_string(),
-            })
+    async fn query_status(&self, chain: &AnyChain) -> eyre::Result<ChainStatusInfo> {
+        let c = downcast_cosmos(chain)?;
+        let status = c.query_chain_status().await?;
+        let height = CosmosCached::chain_status_height(&status);
+        let timestamp = CosmosCached::chain_status_timestamp(&status);
+        let chain_id = c.chain_id();
+        Ok(ChainStatusInfo {
+            chain_id: ChainId::from(chain_id.to_string()),
+            height: height.value(),
+            timestamp: timestamp.to_string(),
         })
     }
 
-    fn chain_id_from_config(&self, raw: &toml::Table) -> eyre::Result<String> {
+    fn chain_id_from_config(&self, raw: &toml::Table) -> eyre::Result<ChainId> {
         raw.get("chain_id")
             .and_then(toml::Value::as_str)
-            .map(String::from)
+            .map(ChainId::from)
             .ok_or_else(|| eyre::eyre!("missing 'chain_id' in cosmos config"))
     }
 
@@ -145,17 +144,13 @@ impl RelayPairPlugin for CosmosToCosmosRelay {
         &self,
         src: &AnyChain,
         dst: &AnyChain,
-        src_client_id: &str,
-        dst_client_id: &str,
+        src_client_id: &AnyClientId,
+        dst_client_id: &AnyClientId,
     ) -> eyre::Result<(Arc<dyn DynRelay>, Arc<dyn DynRelay>)> {
         let src = downcast_cosmos(src)?.clone();
         let dst = downcast_cosmos(dst)?.clone();
-        let src_id: ibc::core::host::types::identifiers::ClientId = src_client_id
-            .parse()
-            .map_err(|e| eyre::eyre!("invalid src_client_id '{src_client_id}': {e}"))?;
-        let dst_id: ibc::core::host::types::identifiers::ClientId = dst_client_id
-            .parse()
-            .map_err(|e| eyre::eyre!("invalid dst_client_id '{dst_client_id}': {e}"))?;
+        let src_id = downcast_cosmos_client_id(src_client_id)?.clone();
+        let dst_id = downcast_cosmos_client_id(dst_client_id)?.clone();
 
         let fwd: Arc<dyn DynRelay> = Arc::new(CosmosRelayContext(Arc::new(RelayContext {
             src_chain: src.clone(),

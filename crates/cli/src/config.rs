@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use eyre::Context;
+use mercury_core::plugin::ChainId;
 use mercury_core::registry::ChainRegistry;
 use serde::Deserialize;
 
@@ -22,7 +23,7 @@ impl RelayerConfig {
     ) -> eyre::Result<&'a RawChainConfig> {
         self.chains
             .iter()
-            .find(|c| c.chain_id(registry).is_ok_and(|id| id == chain_id))
+            .find(|c| c.chain_id(registry).is_ok_and(|id| id.as_ref() == chain_id))
             .ok_or_else(|| eyre::eyre!("chain '{chain_id}' not found in config"))
     }
 }
@@ -37,7 +38,7 @@ pub struct RawChainConfig {
 }
 
 impl RawChainConfig {
-    pub fn chain_id(&self, registry: &ChainRegistry) -> eyre::Result<String> {
+    pub fn chain_id(&self, registry: &ChainRegistry) -> eyre::Result<ChainId> {
         let plugin = registry.chain(&self.chain_type)?;
         plugin.chain_id_from_config(&self.raw)
     }

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::Args;
-use mercury_core::plugin::{AnyChain, DynRelay, DynRelayConfig};
+use mercury_core::plugin::{AnyChain, ChainId, DynRelay, DynRelayConfig};
 use mercury_core::registry::ChainRegistry;
 use tokio::task::JoinHandle;
 use tracing::instrument;
@@ -32,6 +32,12 @@ struct ChainHandle {
     chain: AnyChain,
 }
 
+struct HealthChainEntry {
+    chain_id: ChainId,
+    chain_type: String,
+    chain: AnyChain,
+}
+
 #[instrument(skip_all, name = "run_start")]
 async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result<()> {
     let registry = build_registry();
@@ -46,7 +52,7 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
             .map_err(|_| eyre::eyre!("relay references unknown dst_chain '{}'", relay.dst_chain))?;
     }
 
-    let mut chains: HashMap<String, ChainHandle> = HashMap::new();
+    let mut chains: HashMap<ChainId, ChainHandle> = HashMap::new();
     for chain_cfg in &cfg.chains {
         let plugin = registry.chain(&chain_cfg.chain_type)?;
         let chain = plugin.connect(&chain_cfg.raw, config_dir).await?;
@@ -64,19 +70,20 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
     let mut handles: Vec<JoinHandle<mercury_core::error::Result<()>>> = Vec::new();
     for relay in &cfg.relays {
         let src = chains
-            .get(&relay.src_chain)
+            .get(relay.src_chain.as_str())
             .ok_or_else(|| eyre::eyre!("chain '{}' not in cache", relay.src_chain))?;
         let dst = chains
-            .get(&relay.dst_chain)
+            .get(relay.dst_chain.as_str())
             .ok_or_else(|| eyre::eyre!("chain '{}' not in cache", relay.dst_chain))?;
 
+        let src_plugin = registry.chain(&src.chain_type)?;
+        let dst_plugin = registry.chain(&dst.chain_type)?;
+        let src_client_id = src_plugin.parse_client_id(&relay.src_client_id)?;
+        let dst_client_id = dst_plugin.parse_client_id(&relay.dst_client_id)?;
+
         let pair = registry.pair(&src.chain_type, &dst.chain_type)?;
-        let (fwd, rev) = pair.build_relay(
-            &src.chain,
-            &dst.chain,
-            &relay.src_client_id,
-            &relay.dst_client_id,
-        )?;
+        let (fwd, rev) =
+            pair.build_relay(&src.chain, &dst.chain, &src_client_id, &dst_client_id)?;
 
         let handle = spawn_relay_pair(fwd, rev, relay);
         tracing::info!(
@@ -97,7 +104,11 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
     if let Some(port) = health_port {
         let health_chains: Vec<_> = chains
             .into_iter()
-            .map(|(id, h)| (id, h.chain_type, h.chain))
+            .map(|(id, h)| HealthChainEntry {
+                chain_id: id,
+                chain_type: h.chain_type,
+                chain: h.chain,
+            })
             .collect();
         tokio::spawn(serve_health(port, registry, health_chains));
     }
@@ -166,7 +177,7 @@ fn spawn_relay_pair(
 
 struct HealthState {
     registry: ChainRegistry,
-    chains: Vec<(String, String, AnyChain)>,
+    chains: Vec<HealthChainEntry>,
 }
 
 async fn health_handler(
@@ -175,9 +186,9 @@ async fn health_handler(
     let mut chain_results = serde_json::Map::new();
     let mut all_healthy = true;
 
-    for (chain_id, chain_type, chain) in &state.chains {
-        let status = match state.registry.chain(chain_type) {
-            Ok(plugin) => match plugin.query_status(chain).await {
+    for entry in &state.chains {
+        let status = match state.registry.chain(&entry.chain_type) {
+            Ok(plugin) => match plugin.query_status(&entry.chain).await {
                 Ok(info) => serde_json::json!({
                     "status": "healthy",
                     "height": info.height,
@@ -199,7 +210,7 @@ async fn health_handler(
                 })
             }
         };
-        chain_results.insert(chain_id.clone(), status);
+        chain_results.insert(entry.chain_id.to_string(), status);
     }
 
     axum::response::Json(serde_json::json!({
@@ -208,7 +219,7 @@ async fn health_handler(
     }))
 }
 
-async fn serve_health(port: u16, registry: ChainRegistry, chains: Vec<(String, String, AnyChain)>) {
+async fn serve_health(port: u16, registry: ChainRegistry, chains: Vec<HealthChainEntry>) {
     let state = Arc::new(HealthState { registry, chains });
     let app = axum::Router::new()
         .route("/health", axum::routing::get(health_handler))
