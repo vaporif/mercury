@@ -583,9 +583,10 @@ mod tests {
         .unwrap();
 
         let err = config.validate().unwrap_err();
+        let msg = format!("{err:?}");
         assert!(
-            err.to_string().contains("light_client_address"),
-            "expected light_client_address error, got: {err}"
+            msg.contains("light_client_address"),
+            "expected light_client_address error, got: {msg}"
         );
     }
 
@@ -614,9 +615,10 @@ mod tests {
         .unwrap();
 
         let err = config.validate().unwrap_err();
+        let msg = format!("{err:?}");
         assert!(
-            err.to_string().contains("proof_timeout_secs"),
-            "expected proof_timeout_secs error, got: {err}"
+            msg.contains("proof_timeout_secs"),
+            "expected proof_timeout_secs error, got: {msg}"
         );
     }
 
@@ -645,9 +647,10 @@ mod tests {
         .unwrap();
 
         let err = config.validate().unwrap_err();
+        let msg = format!("{err:?}");
         assert!(
-            err.to_string().contains("max_concurrent_proofs"),
-            "expected max_concurrent_proofs error, got: {err}"
+            msg.contains("max_concurrent_proofs"),
+            "expected max_concurrent_proofs error, got: {msg}"
         );
     }
 
