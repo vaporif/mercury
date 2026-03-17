@@ -4,6 +4,7 @@ resolver = "2"
 members = [
   "crates/core",
   "crates/chain-traits",
+  "crates/chain-cache",
   "crates/chains/cosmos",
   "crates/chains/cosmos-counterparties",
   "crates/chains/ethereum",
@@ -51,6 +52,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 mercury-core = { path = "crates/core" }
 mercury-chain-traits = { path = "crates/chain-traits" }
+mercury-chain-cache = { path = "crates/chain-cache" }
 mercury-cosmos = { path = "crates/chains/cosmos" }
 mercury-cosmos-counterparties = { path = "crates/chains/cosmos-counterparties" }
 mercury-ethereum = { path = "crates/chains/ethereum" }

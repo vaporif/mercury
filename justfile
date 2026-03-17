@@ -19,7 +19,7 @@ clippy:
 
 # Run tests
 test:
-    cargo test --workspace
+    cargo nextest run --workspace
 
 # Run e2e tests
 e2e:
