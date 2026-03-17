@@ -16,8 +16,10 @@ workspace = true
 [dependencies]
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
+metrics-process = { workspace = true }
 eyre = { workspace = true }
 mercury-core = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 
