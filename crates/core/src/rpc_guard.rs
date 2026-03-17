@@ -181,7 +181,7 @@ impl std::fmt::Debug for RpcGuard {
             .field("chain_id", &self.chain_id)
             .field("timeout", &self.config.rpc_timeout)
             .field("rate_limit", &self.config.rate_limit)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
