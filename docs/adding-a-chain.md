@@ -38,35 +38,51 @@ Once all traits are implemented, `RelayChain` is automatically satisfied via a b
 
 ## 4. Implement the plugin
 
+### Chain plugin
+
 In your counterparty crate (e.g., `mercury-mychain-counterparties/src/plugin.rs`):
 
 1. **`ChainPlugin`** — implement `chain_type()`, `validate_config()`, `connect()`, `parse_client_id()`, `query_status()`, `chain_id_from_config()`, `rpc_addr_from_config()`. The `connect()` method creates your chain, wraps it in `CachedChain`, and returns it as `AnyChain` (`Arc<dyn Any + Send + Sync>`).
 
-2. **`RelayPairPlugin`** — for each supported relay direction, implement `src_type()`, `dst_type()`, and `build_relay()`. The `build_relay()` method downcasts `AnyChain` back to your concrete types, creates a `RelayContext`, and returns forward + reverse `DynRelay` instances.
-
-3. **`register()` function** — register your chain plugin and all relay pair plugins with the `ChainRegistry`:
+2. **`register()` function** — register your chain plugin with the `ChainRegistry`:
 
 ```rust
 pub fn register(registry: &mut ChainRegistry) {
     registry.register_chain(MyChainPlugin);
-    registry.register_pair(MyChainToMyChainRelay);
-    // Add cross-chain relay pairs as needed
 }
 ```
 
-4. **Wire into the CLI** — add your `register()` call in `crates/cli/src/registry.rs`:
+### Relay pair plugin
+
+Cross-chain relay pairs live in dedicated relay crates (e.g., `crates/chains/cosmos-ethereum-relay/`), separate from the counterparty crates. This keeps counterparty crates focused on trait impls and avoids pulling relay construction logic into them.
+
+1. **`RelayPairPlugin`** — for each supported relay direction, implement `src_type()`, `dst_type()`, and `build_relay()`. The `build_relay()` method downcasts `AnyChain` back to your concrete types, creates a `RelayContext`, and returns forward + reverse `DynRelay` instances.
+
+2. **`register()` function** — register relay pair plugins:
+
+```rust
+pub fn register(registry: &mut ChainRegistry) {
+    registry.register_pair(MyChainToOtherChainRelay);
+    registry.register_pair(OtherChainToMyChainRelay);
+}
+```
+
+### Wire into the CLI
+
+Add your `register()` calls in `crates/cli/src/registry.rs`:
 
 ```rust
 pub fn build_registry() -> ChainRegistry {
     let mut r = ChainRegistry::new();
     mercury_cosmos_counterparties::plugin::register(&mut r);
     mercury_ethereum_counterparties::plugin::register(&mut r);
-    mercury_mychain_counterparties::plugin::register(&mut r);  // add this
+    mercury_mychain_counterparties::plugin::register(&mut r);  // chain plugin
+    mercury_mychain_relay::register(&mut r);                    // relay pairs
     r
 }
 ```
 
-No enum variants, match arms, or CLI code changes needed beyond this single line.
+No enum variants, match arms, or CLI code changes needed beyond these lines.
 
 ## 5. Cross-chain support
 
@@ -114,4 +130,4 @@ Non-native light clients on Cosmos are deployed as CosmWasm contracts, so their 
 
 ### CLI wiring
 
-Add your counterparty crate's `register()` call to `crates/cli/src/registry.rs`. The plugin system handles chain connection, relay construction, and status queries automatically — no enum variants or match arms needed in the CLI.
+Add your counterparty crate's `register()` call and your relay crate's `register()` call to `crates/cli/src/registry.rs`. The plugin system handles chain connection, relay construction, and status queries automatically — no enum variants or match arms needed in the CLI.

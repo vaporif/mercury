@@ -225,11 +225,12 @@ pub fn build_registry() -> ChainRegistry {
     let mut r = ChainRegistry::new();
     mercury_cosmos_counterparties::plugin::register(&mut r);
     mercury_ethereum_counterparties::plugin::register(&mut r);
+    mercury_cosmos_ethereum_relay::register(&mut r);
     r
 }
 ```
 
-Each counterparty crate's `register()` function registers both its `ChainPlugin` and all supported `RelayPairPlugin` combinations. The CLI then uses the registry to validate config, connect chains, query status, and build relays — all without knowing concrete chain types.
+Each counterparty crate's `register()` function registers its `ChainPlugin`. Cross-chain `RelayPairPlugin` implementations live in dedicated relay crates (e.g., `mercury-cosmos-ethereum-relay`) that depend on both counterparty crates and register relay pairs separately. The CLI then uses the registry to validate config, connect chains, query status, and build relays — all without knowing concrete chain types.
 
 ## Crate Layout
 
@@ -240,13 +241,18 @@ graph TD
     ETH[mercury-ethereum<br/><i>chains/ethereum — alloy, EVM contracts</i>]
     COSMOS_BR[mercury-cosmos-counterparties<br/><i>chains/cosmos-counterparties — wrapper + cross-chain impls</i>]
     ETH_BR[mercury-ethereum-counterparties<br/><i>chains/ethereum-counterparties — wrapper + cross-chain impls</i>]
+    CER[mercury-cosmos-ethereum-relay<br/><i>chains/cosmos-ethereum-relay — relay pair plugins</i>]
     RELAY[mercury-relay<br/><i>Worker pipeline, generic over chain traits</i>]
     TRAITS[mercury-chain-traits<br/><i>Chain types, messaging, queries, relay traits</i>]
     CORE[mercury-core<br/><i>Error types, encoding, worker trait, membership proofs</i>]
 
     CLI --> COSMOS_BR
     CLI --> ETH_BR
+    CLI --> CER
     CLI --> RELAY
+    CER --> COSMOS_BR
+    CER --> ETH_BR
+    CER --> RELAY
     COSMOS_BR --> COSMOS
     COSMOS_BR --> TRAITS
     COSMOS_BR -. "ethereum-beacon feature" .-> ETH
@@ -259,7 +265,7 @@ graph TD
     TRAITS --> CORE
 ```
 
-Default builds: core chain crates (`mercury-cosmos`, `mercury-ethereum`) are independent. Counterparty crates add the cross-chain dependency behind feature flags. The `cosmos-sp1` feature on `mercury-ethereum-counterparties` activates Cosmos→EVM impls. The `ethereum-beacon` feature on `mercury-cosmos-counterparties` activates EVM→Cosmos impls. The relay binary enables features as needed.
+Default builds: core chain crates (`mercury-cosmos`, `mercury-ethereum`) are independent. Counterparty crates provide wrapper types and cross-chain trait impls behind feature flags. Dedicated relay crates (e.g., `mercury-cosmos-ethereum-relay`) depend on both counterparty crates (with cross-chain features enabled) and provide `RelayPairPlugin` implementations. The `cosmos-sp1` feature on `mercury-ethereum-counterparties` activates Cosmos→EVM impls. The `ethereum-beacon` feature on `mercury-cosmos-counterparties` activates EVM→Cosmos impls.
 
 ## Data Flow: Relaying a Packet
 
