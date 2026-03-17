@@ -33,11 +33,13 @@ impl RpcConfig {
 }
 
 /// Serde default helper for `rpc_timeout_secs` fields.
+#[must_use]
 pub const fn default_timeout_secs() -> u64 {
     RpcConfig::DEFAULT_TIMEOUT_SECS
 }
 
 /// Serde default helper for `rpc_rate_limit` fields.
+#[must_use]
 pub const fn default_rate_limit() -> u64 {
     RpcConfig::DEFAULT_RATE_LIMIT
 }
@@ -66,6 +68,9 @@ pub struct RpcGuard {
 }
 
 impl RpcGuard {
+    /// # Panics
+    /// This function will not panic in practice; the fallback ensures a valid `NonZeroU32`.
+    #[must_use]
     pub fn new(chain_id: &str, config: RpcConfig) -> Self {
         let quota = Quota::per_second(
             NonZeroU32::new(config.rate_limit.try_into().unwrap_or(u32::MAX))
@@ -84,6 +89,7 @@ impl RpcGuard {
         }
     }
 
+    #[must_use]
     pub fn noop(chain_id: &str) -> Self {
         Self::new(chain_id, RpcConfig {
             rpc_timeout: Duration::from_secs(3600),
