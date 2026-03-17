@@ -8,12 +8,10 @@ use mercury_core::error::TxError;
 
 use crate::metric;
 
-/// Duration to milliseconds via `as_secs_f64`, avoiding a u128 intermediate.
 fn duration_millis(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
 
-/// Lossless integer-to-f64 via u32 saturation.
 fn saturating_gauge(v: impl TryInto<u32>) -> f64 {
     f64::from(v.try_into().unwrap_or(u32::MAX))
 }
@@ -45,7 +43,6 @@ impl TxDirection {
     }
 }
 
-/// Metrics for transaction submission workers.
 #[derive(Clone)]
 pub struct TxMetrics {
     direction: TxDirection,
@@ -117,7 +114,6 @@ impl TxMetrics {
     }
 }
 
-/// Metrics for the packet relay worker.
 #[derive(Clone)]
 pub struct PacketMetrics {
     label: ChainLabel,
@@ -166,7 +162,6 @@ impl PacketMetrics {
     }
 }
 
-/// Metrics for the event watcher worker.
 #[derive(Clone)]
 pub struct EventMetrics {
     label: ChainLabel,
@@ -216,7 +211,6 @@ impl EventMetrics {
     }
 }
 
-/// Metrics for the packet sweeper worker.
 #[derive(Clone)]
 pub struct SweepMetrics {
     label: ChainLabel,
@@ -246,7 +240,6 @@ impl SweepMetrics {
     }
 }
 
-/// Metrics for the client refresh worker.
 #[derive(Clone)]
 pub struct ClientMetrics {
     label: ChainLabel,
@@ -295,7 +288,6 @@ impl ClientMetrics {
     }
 }
 
-/// Metrics for the misbehaviour worker.
 #[derive(Clone)]
 pub struct MisbehaviourMetrics {
     label: ChainLabel,
