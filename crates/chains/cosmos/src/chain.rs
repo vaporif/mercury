@@ -28,6 +28,7 @@ pub struct CosmosChain<S: CosmosSigner> {
     pub block_time: Duration,
     pub rpc_guard: mercury_core::rpc_guard::RpcGuard,
     pub dynamic_gas_backend: Arc<OnceLock<crate::gas::DynamicGasBackend>>,
+    label: mercury_core::ChainLabel,
 }
 
 impl<S: CosmosSigner> CosmosChain<S> {
@@ -84,6 +85,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
         check_min_gas_price(grpc_channel.clone(), &config).await;
         info!(chain_id = %chain_id, "cosmos chain initialized");
 
+        let label = mercury_core::ChainLabel::with_id("cosmos", chain_id.to_string());
         Ok(Self {
             block_time: config.block_time,
             config,
@@ -93,6 +95,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
             signer,
             rpc_guard,
             dynamic_gas_backend: Arc::new(OnceLock::new()),
+            label,
         })
     }
 }
@@ -141,6 +144,10 @@ impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
 
     fn chain_id(&self) -> &Self::ChainId {
         &self.chain_id
+    }
+
+    fn chain_label(&self) -> mercury_core::ChainLabel {
+        self.label.clone()
     }
 }
 

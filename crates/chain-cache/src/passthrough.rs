@@ -54,6 +54,10 @@ impl<C: IbcTypes> ChainTypes for CachedChain<C> {
     fn chain_id(&self) -> &Self::ChainId {
         self.inner.chain_id()
     }
+
+    fn chain_label(&self) -> mercury_core::ChainLabel {
+        self.inner.chain_label()
+    }
 }
 
 impl<C: IbcTypes> IbcTypes for CachedChain<C> {

@@ -1,5 +1,7 @@
 //! Core types, error handling, and worker infrastructure for the Mercury relayer.
 
+use std::sync::Arc;
+
 /// Serialization and deserialization abstractions.
 pub mod encoding;
 /// Error types and result aliases.
@@ -12,6 +14,56 @@ pub mod worker;
 /// Marker trait for types that are `Send + Sync + 'static`.
 pub trait ThreadSafe: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> ThreadSafe for T {}
+
+/// Human-readable chain identifier for metrics and telemetry.
+#[derive(Clone, Debug)]
+pub struct ChainLabel {
+    name: &'static str,
+    id: Option<Arc<str>>,
+}
+
+impl ChainLabel {
+    #[must_use]
+    pub const fn new(name: &'static str) -> Self {
+        Self { name, id: None }
+    }
+
+    #[must_use]
+    pub fn with_id(name: &'static str, id: impl Into<Arc<str>>) -> Self {
+        Self {
+            name,
+            id: Some(id.into()),
+        }
+    }
+
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    #[must_use]
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    #[must_use]
+    pub fn metric_labels(&self) -> Vec<(&'static str, String)> {
+        let mut labels = vec![("chain_name", self.name.to_owned())];
+        if let Some(id) = &self.id {
+            labels.push(("chain_id", id.to_string()));
+        }
+        labels
+    }
+}
+
+impl std::fmt::Display for ChainLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.id {
+            Some(id) => write!(f, "{}/{id}", self.name),
+            None => f.write_str(self.name),
+        }
+    }
+}
 
 /// IBC merkle prefix representing the key path in nested merkle trees.
 #[derive(Clone, Debug, PartialEq, Eq)]

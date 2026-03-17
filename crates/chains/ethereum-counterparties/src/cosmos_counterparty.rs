@@ -16,6 +16,7 @@ use mercury_chain_traits::builders::{
     PacketMessageBuilder, UpdateClientOutput,
 };
 use mercury_chain_traits::queries::{ClientQuery, MisbehaviourQuery};
+use mercury_chain_traits::types::ChainTypes;
 use mercury_core::MerklePrefix;
 use mercury_core::error::Result;
 
@@ -74,7 +75,7 @@ impl<S: CosmosSigner> ClientPayloadBuilder<CosmosChain<S>> for EthereumAdapter {
 
 #[async_trait]
 impl<S: CosmosSigner> ClientQuery<CosmosChain<S>> for EthereumAdapter {
-    #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
+    #[instrument(skip_all, name = "query_client_state", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_client_state(
         &self,
         client_id: &EvmClientId,
@@ -102,7 +103,7 @@ impl<S: CosmosSigner> ClientQuery<CosmosChain<S>> for EthereumAdapter {
         Ok(EvmClientState(encode_client_state(&cs)))
     }
 
-    #[instrument(skip_all, name = "query_consensus_state", fields(client_id = %client_id, consensus_height = %consensus_height))]
+    #[instrument(skip_all, name = "query_consensus_state", fields(chain = %self.chain_label(), client_id = %client_id, consensus_height = %consensus_height))]
     async fn query_consensus_state(
         &self,
         client_id: &EvmClientId,
@@ -438,7 +439,7 @@ impl<S: CosmosSigner> MisbehaviourDetector<CosmosChain<S>> for EthereumAdapter {
 impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
     type CounterpartyUpdateHeader = ibc_client_tendermint::types::Header;
 
-    #[instrument(skip_all, name = "eth_query_consensus_heights", fields(client_id = %client_id))]
+    #[instrument(skip_all, name = "eth_query_consensus_heights", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_consensus_state_heights(
         &self,
         client_id: &Self::ClientId,
@@ -540,7 +541,7 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
 impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for EthereumAdapter {
     type MisbehaviourEvidence = mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence;
 
-    #[instrument(skip_all, name = "eth_build_misbehaviour_msg", fields(client_id = %client_id))]
+    #[instrument(skip_all, name = "eth_build_misbehaviour_msg", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn build_misbehaviour_message(
         &self,
         client_id: &Self::ClientId,

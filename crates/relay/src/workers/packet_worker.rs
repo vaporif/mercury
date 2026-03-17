@@ -79,7 +79,7 @@ where
         >,
 {
     /// Build the update client payload (headers) without generating proofs yet.
-    #[instrument(skip_all, name = "build_dst_update_client")]
+    #[instrument(skip_all, name = "build_dst_update_client", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     #[allow(clippy::type_complexity)]
     async fn build_dst_update_client_payload(
         &self,
@@ -143,7 +143,7 @@ where
             .await
     }
 
-    #[instrument(skip_all, name = "build_src_update_client")]
+    #[instrument(skip_all, name = "build_src_update_client", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     async fn build_src_update_client_messages(
         &self,
     ) -> UpdateClientResult<<R::DstChain as ChainTypes>::Height, <R::SrcChain as ChainTypes>::Message>
@@ -182,7 +182,7 @@ where
         Ok((dst_height, update_output.messages))
     }
 
-    #[instrument(skip_all, name = "build_recv_tracked")]
+    #[instrument(skip_all, name = "build_recv_tracked", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     async fn build_recv_messages_tracked(
         &self,
         send_packets: Vec<PendingSend<SendEvent<R>>>,
@@ -235,7 +235,7 @@ where
 
     /// Queries receipt on dst chain for in-flight packets past grace period.
     /// Receipt exists → drop. No receipt → reset for re-classification.
-    #[instrument(skip_all, name = "confirm_in_flight")]
+    #[instrument(skip_all, name = "confirm_in_flight", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     async fn confirm_in_flight(
         &self,
         in_flight: Vec<PendingSend<SendEvent<R>>>,
@@ -285,7 +285,7 @@ where
         still_pending
     }
 
-    #[instrument(skip_all, name = "build_ack_tracked")]
+    #[instrument(skip_all, name = "build_ack_tracked", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     async fn build_ack_messages_tracked(
         &self,
         write_acks: WriteAckEvents<R>,
@@ -337,7 +337,7 @@ where
         (messages, failed, membership_entries)
     }
 
-    #[instrument(skip_all, name = "build_timeout")]
+    #[instrument(skip_all, name = "build_timeout", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     #[allow(clippy::type_complexity)]
     async fn build_timeout_messages(
         &self,
@@ -432,7 +432,7 @@ where
         "packet_worker"
     }
 
-    #[instrument(skip_all, name = "packet_worker", fields(src_chain = %self.relay.src_chain().chain_id(), dst_chain = %self.relay.dst_chain().chain_id()))]
+    #[instrument(skip_all, name = "packet_worker", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     async fn run(mut self) -> Result<()> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;

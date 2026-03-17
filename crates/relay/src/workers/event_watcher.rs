@@ -34,7 +34,7 @@ impl<R: Relay> Worker for EventWatcher<R> {
         "event_watcher"
     }
 
-    #[instrument(skip_all, name = "event_watcher", fields(src_chain = %self.relay.src_chain().chain_id()))]
+    #[instrument(skip_all, name = "event_watcher", fields(src_chain = %self.relay.src_chain().chain_label()))]
     async fn run(self) -> Result<()> {
         let src = self.relay.src_chain();
         let mut last_height = match self.start_height {

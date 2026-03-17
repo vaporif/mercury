@@ -25,6 +25,7 @@ pub struct RpcConfig {
 impl RpcConfig {
     pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
     pub const DEFAULT_RATE_LIMIT: u64 = 100;
+    pub const NOOP_TIMEOUT_SECS: u64 = 3600;
 
     pub fn validate(&self) -> Result<()> {
         eyre::ensure!(self.rate_limit > 0, "rpc_rate_limit must be > 0");
@@ -94,7 +95,7 @@ impl RpcGuard {
         Self::new(
             chain_id,
             RpcConfig {
-                rpc_timeout: Duration::from_secs(3600),
+                rpc_timeout: Duration::from_secs(RpcConfig::NOOP_TIMEOUT_SECS),
                 rate_limit: u64::from(u32::MAX),
             },
         )
@@ -131,6 +132,7 @@ impl RpcGuard {
             Err(_) => {
                 self.m_requests.increment(1);
                 self.m_timeouts.increment(1);
+                self.m_duration.record(elapsed_ms);
                 Err(RpcError::Timeout(self.config.rpc_timeout).into())
             }
         }
@@ -174,6 +176,7 @@ impl RpcGuard {
             Err(_) => {
                 self.m_requests.increment(2);
                 self.m_timeouts.increment(1);
+                self.m_duration.record(elapsed_ms);
                 Err(RpcError::Timeout(self.config.rpc_timeout).into())
             }
         }

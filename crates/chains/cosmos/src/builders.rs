@@ -61,7 +61,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
     type CreateClientPayload = CosmosCreateClientPayload;
     type UpdateClientPayload = CosmosUpdateClientPayload;
 
-    #[instrument(skip_all, name = "build_create_client_payload")]
+    #[instrument(skip_all, name = "build_create_client_payload", fields(chain = %self.chain_label()))]
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
         let latest_block = self
             .rpc_guard
@@ -110,7 +110,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
         })
     }
 
-    #[instrument(skip_all, name = "build_update_client_payload", fields(trusted = %trusted_height, target = %target_height))]
+    #[instrument(skip_all, name = "build_update_client_payload", fields(chain = %self.chain_label(), trusted = %trusted_height, target = %target_height))]
     async fn build_update_client_payload(
         &self,
         trusted_height: &Self::Height,

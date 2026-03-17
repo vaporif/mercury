@@ -9,6 +9,7 @@ use eyre::Context;
 use tracing::instrument;
 
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
+use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::{ProofError, QueryError, Result};
 
 use crate::chain::EthereumChain;
@@ -105,7 +106,7 @@ pub fn decode_client_state(bytes: &[u8]) -> Option<ClientStateReturn> {
 
 #[async_trait]
 impl ClientQuery<Self> for EthereumChain {
-    #[instrument(skip_all, name = "query_client_state", fields(client_id = %client_id))]
+    #[instrument(skip_all, name = "query_client_state", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_client_state(
         &self,
         client_id: &EvmClientId,
@@ -133,7 +134,7 @@ impl ClientQuery<Self> for EthereumChain {
         Ok(EvmClientState(encode_client_state(&cs)))
     }
 
-    #[instrument(skip_all, name = "query_consensus_state", fields(client_id = %client_id, consensus_height = %consensus_height))]
+    #[instrument(skip_all, name = "query_consensus_state", fields(chain = %self.chain_label(), client_id = %client_id, consensus_height = %consensus_height))]
     async fn query_consensus_state(
         &self,
         client_id: &EvmClientId,
@@ -238,7 +239,7 @@ async fn query_commitment_with_proof(
 
 #[async_trait]
 impl PacketStateQuery for EthereumChain {
-    #[instrument(skip_all, name = "query_packet_commitment", fields(seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_commitment", fields(chain = %self.chain_label(), seq = sequence))]
     async fn query_packet_commitment(
         &self,
         client_id: &EvmClientId,
@@ -251,7 +252,7 @@ impl PacketStateQuery for EthereumChain {
         Ok((commitment, proof))
     }
 
-    #[instrument(skip_all, name = "query_packet_receipt", fields(seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_receipt", fields(chain = %self.chain_label(), seq = sequence))]
     async fn query_packet_receipt(
         &self,
         client_id: &EvmClientId,
@@ -264,7 +265,7 @@ impl PacketStateQuery for EthereumChain {
         Ok((receipt, proof))
     }
 
-    #[instrument(skip_all, name = "query_packet_ack", fields(seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_ack", fields(chain = %self.chain_label(), seq = sequence))]
     async fn query_packet_acknowledgement(
         &self,
         client_id: &EvmClientId,
@@ -277,7 +278,7 @@ impl PacketStateQuery for EthereumChain {
         Ok((ack, proof))
     }
 
-    #[instrument(skip_all, name = "query_commitment_sequences", fields(client_id = %client_id))]
+    #[instrument(skip_all, name = "query_commitment_sequences", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_commitment_sequences(
         &self,
         client_id: &EvmClientId,
