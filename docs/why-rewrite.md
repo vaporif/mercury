@@ -33,9 +33,15 @@ The practical costs:
 
 ## Eureka Relayer: Different Layer
 
-The [Eureka relayer](https://github.com/cosmos/solidity-ibc-eureka/tree/main/programs/relayer) is a stateless gRPC service that generates unsigned transactions for cross-chain IBC operations. It doesn't monitor chains, submit transactions, or manage state — a separate orchestrator handles that. Each chain pair is an independent module with no shared relay logic.
+The [Eureka relayer](https://github.com/cosmos/solidity-ibc-eureka/tree/main/programs/relayer) is a stateless gRPC service that generates unsigned transactions for cross-chain IBC operations. Its `RelayerService` exposes `RelayByTx(source_tx_ids)` — an external system must discover IBC transactions and call this RPC with specific tx hashes. No event watching, no packet recovery, no continuous relaying. The relayer doesn't even submit transactions — it returns raw tx bytes to the caller.
 
-Mercury is a full relayer with shared relay logic across all chain pairs. The architectures are complementary — Mercury could use the Eureka relayer's gRPC API as a transaction generation backend.
+Each chain direction is a separate crate (`eth-to-cosmos`, `cosmos-to-eth`, `solana-to-cosmos`, etc. — 7 modules today). Bidirectional relay requires two independent module instances sharing no state. Module config is `serde_json::Value` parsed at runtime.
+
+Mercury differs in three ways:
+
+- **Shared relay logic.** All workers (`EventWatcher`, `PacketWorker`, `TxWorker`, `ClearingWorker`) are generic over the `Relay` trait — the same code handles every chain pair. Eureka duplicates relay logic per direction. Mercury still has per-pair counterparty wrappers (~600 lines each for orphan rule compliance), but the relay pipeline itself is written once.
+- **Autonomous operation.** Mercury polls blocks, recovers missed packets, manages client refresh, and submits transactions. Eureka requires an external orchestrator for all of this.
+- **Compile-time type safety.** `RelayContext<Src, Dst>` enforces payload type matching through associated type constraints. Eureka's modules receive opaque `serde_json::Value` config and discover type errors at runtime.
 
 ## Mercury's Approach
 
