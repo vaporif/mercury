@@ -2,8 +2,8 @@
 
 [![Cosmos ecosystem][cosmos-shield]][cosmos-link]
 
-[![CI](https://github.com/vaporif/mercury/actions/workflows/ci.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/ci.yml)
-[![E2E](https://github.com/vaporif/mercury/actions/workflows/e2e.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/e2e.yml)
+[![CI](https://github.com/vaporif/mercury/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/vaporif/mercury/actions/workflows/ci.yml?query=branch%3Amain)
+[![E2E](https://github.com/vaporif/mercury/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/vaporif/mercury/actions/workflows/e2e.yml?query=branch%3Amain)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 <!-- [![Nix](https://github.com/vaporif/mercury/actions/workflows/nix.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/nix.yml) -->
