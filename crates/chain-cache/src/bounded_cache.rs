@@ -7,7 +7,7 @@ pub struct TtlCell<V> {
 }
 
 impl<V> TtlCell<V> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             inner: RwLock::new(None),
         }
@@ -39,7 +39,7 @@ pub struct BoundedCache<V> {
     inner: RwLock<Inner<V>>,
 }
 
-impl<V: Clone> BoundedCache<V> {
+impl<V> BoundedCache<V> {
     pub fn new(cap: usize) -> Self {
         Self {
             inner: RwLock::new(Inner {
@@ -48,11 +48,6 @@ impl<V: Clone> BoundedCache<V> {
                 cap,
             }),
         }
-    }
-
-    pub fn get(&self, key: &str) -> Option<V> {
-        let inner = self.inner.read().expect("poisoned lock");
-        inner.entries.get(key).cloned()
     }
 
     pub fn insert(&self, key: String, value: V) {
@@ -71,6 +66,13 @@ impl<V: Clone> BoundedCache<V> {
 
         inner.insert_order.push_back(key.clone());
         inner.entries.insert(key, value);
+    }
+}
+
+impl<V: Clone> BoundedCache<V> {
+    pub fn get(&self, key: &str) -> Option<V> {
+        let inner = self.inner.read().expect("poisoned lock");
+        inner.entries.get(key).cloned()
     }
 }
 
