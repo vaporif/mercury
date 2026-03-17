@@ -1,10 +1,10 @@
 [package]
-name = "mercury-core"
+name = "mercury-telemetry"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description.workspace = true
+description = "Prometheus telemetry for Mercury relayer"
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
@@ -14,8 +14,12 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 eyre = { workspace = true }
-thiserror = { workspace = true }
-async-trait = { workspace = true }
-tokio = { workspace = true }
+mercury-core = { workspace = true }
 tracing = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }

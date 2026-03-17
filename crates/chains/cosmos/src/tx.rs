@@ -5,8 +5,8 @@ use prost::Message;
 use sha2::{Digest, Sha256};
 use tracing::{debug, info, instrument, warn};
 
-use mercury_chain_traits::types::MessageSender;
-use mercury_core::error::Result;
+use mercury_chain_traits::types::{MessageSender, TxReceipt};
+use mercury_core::error::{Result, TxError};
 
 use crate::chain::CosmosChainInner;
 use crate::keys::CosmosSigner;
@@ -17,6 +17,7 @@ const DEFAULT_GAS: u64 = 300_000;
 const TX_ENVELOPE_OVERHEAD: usize = 350;
 const PROTOBUF_ANY_OVERHEAD: usize = 10;
 const MAX_PARALLEL_BATCHES: usize = 3;
+const MAX_TX_POLL_RETRIES: u32 = 10;
 
 /// Transaction fee with gas limit and token denomination.
 #[derive(Clone, Debug)]
@@ -63,8 +64,12 @@ fn calculate_fee_amount(gas_limit: u64, gas_price: f64) -> u64 {
     (gas_limit as f64 * gas_price).ceil() as u64
 }
 
-fn is_recoverable_simulation_error(status: &tonic::Status) -> bool {
-    let msg = status.message();
+fn is_sequence_mismatch(err: &eyre::Report) -> bool {
+    err.downcast_ref::<TxError>()
+        .is_some_and(|te| matches!(te, TxError::SequenceMismatch { .. }))
+}
+
+fn is_simulation_recoverable(msg: &str) -> bool {
     msg.contains("account sequence mismatch")
         || msg.contains("client state height")
         || msg.contains("packet sequence")
@@ -275,11 +280,16 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
                     .ok_or_else(|| eyre::eyre!("no gas info in simulate response"))?
                     .gas_used
             }
-            Err(status) if is_recoverable_simulation_error(&status) => {
+            Err(status) if is_simulation_recoverable(status.message()) => {
                 warn!(error = %status, "simulation failed with recoverable error, using default_gas");
                 default_gas
             }
-            Err(status) => return Err(eyre::eyre!("simulation failed: {status}")),
+            Err(status) => {
+                return Err(TxError::SimulationFailed {
+                    reason: status.to_string(),
+                }
+                .into());
+            }
         };
 
         let gas_limit = adjust_gas(gas_used, gas_multiplier, self.config.max_gas);
@@ -343,11 +353,17 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
         let response = self.rpc_client.broadcast_tx_sync(tx_bytes).await?;
 
         if response.code.is_err() {
-            eyre::bail!(
-                "broadcast_tx_sync failed: code={}, log={}",
-                response.code.value(),
-                response.log
-            );
+            let log = &response.log;
+            if log.contains("account sequence mismatch") {
+                return Err(TxError::SequenceMismatch {
+                    details: log.clone(),
+                }
+                .into());
+            }
+            return Err(TxError::BroadcastFailed {
+                reason: format!("code={}, log={log}", response.code.value()),
+            }
+            .into());
         }
 
         let tx_hash = response.hash.to_string();
@@ -363,7 +379,7 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
 
         let hash = Hash::from_bytes(tendermint::hash::Algorithm::Sha256, &hex::decode(tx_hash)?)?;
 
-        let max_retries = 10;
+        let max_retries = MAX_TX_POLL_RETRIES;
         let poll_interval = self.block_time / 2;
         let mut last_err = eyre::eyre!("no attempts made");
 
@@ -380,11 +396,15 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
             match self.rpc_client.tx(hash, false).await {
                 Ok(response) => {
                     if response.tx_result.code.is_err() {
-                        eyre::bail!(
-                            "transaction failed: code={}, log={}",
-                            response.tx_result.code.value(),
-                            response.tx_result.log
-                        );
+                        return Err(TxError::Reverted {
+                            tx_hash: tx_hash.to_string(),
+                            reason: format!(
+                                "code={}, log={}",
+                                response.tx_result.code.value(),
+                                response.tx_result.log
+                            ),
+                        }
+                        .into());
                     }
 
                     let events = response
@@ -428,16 +448,50 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
             }
         }
 
-        eyre::bail!("transaction {tx_hash} not found after {max_retries} attempts: {last_err}")
+        return Err(TxError::NotConfirmed {
+            tx_hash: tx_hash.to_string(),
+            attempts: max_retries,
+            reason: last_err.to_string(),
+        }
+        .into());
     }
 }
 
-fn is_sequence_mismatch(e: &eyre::Report) -> bool {
-    let msg = e.to_string();
-    msg.contains("account sequence mismatch")
-}
-
 impl<S: CosmosSigner> CosmosChainInner<S> {
+    /// Send messages and return raw chain responses (for e2e / setup code that
+    /// needs to inspect events). Relay workers should use `MessageSender::send_messages` instead.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `split_batches` returns a non-empty vec whose iterator yields `None`
+    /// (impossible by construction — guarded by the `len() == 1` check).
+    pub async fn send_messages_with_responses(
+        &self,
+        messages: Vec<CosmosMessage>,
+    ) -> Result<Vec<CosmosTxResponse>> {
+        if messages.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let max_msg_num = self.config.max_msg_num;
+        let max_tx_size = self
+            .config
+            .max_tx_size
+            .unwrap_or(crate::config::DEFAULT_MAX_TX_SIZE);
+        let batches = split_batches(messages, max_msg_num, max_tx_size);
+
+        if batches.is_empty() {
+            return Ok(vec![]);
+        }
+
+        if batches.len() == 1 {
+            let batch = batches.into_iter().next().expect("checked len");
+            return self.send_single_batch(batch).await;
+        }
+
+        self.send_parallel_batches(batches).await
+    }
+
     async fn send_single_batch(
         &self,
         messages: Vec<CosmosMessage>,
@@ -559,12 +613,12 @@ impl<S: CosmosSigner> CosmosChainInner<S> {
 #[async_trait]
 impl<S: CosmosSigner> MessageSender for CosmosChainInner<S> {
     #[instrument(skip_all, name = "send_messages", fields(count = messages.len()))]
-    async fn send_messages(
-        &self,
-        messages: Vec<Self::Message>,
-    ) -> Result<Vec<Self::MessageResponse>> {
+    async fn send_messages(&self, messages: Vec<Self::Message>) -> Result<TxReceipt> {
         if messages.is_empty() {
-            return Ok(vec![]);
+            return Ok(TxReceipt {
+                gas_used: None,
+                confirmed_at: std::time::Instant::now(),
+            });
         }
 
         let max_msg_num = self.config.max_msg_num;
@@ -575,16 +629,23 @@ impl<S: CosmosSigner> MessageSender for CosmosChainInner<S> {
         let batches = split_batches(messages, max_msg_num, max_tx_size);
 
         if batches.is_empty() {
-            return Ok(vec![]);
+            return Ok(TxReceipt {
+                gas_used: None,
+                confirmed_at: std::time::Instant::now(),
+            });
         }
 
         if batches.len() == 1 {
-            // SAFETY: just checked len == 1
             let batch = batches.into_iter().next().expect("checked len");
-            return self.send_single_batch(batch).await;
+            self.send_single_batch(batch).await?;
+        } else {
+            self.send_parallel_batches(batches).await?;
         }
 
-        self.send_parallel_batches(batches).await
+        Ok(TxReceipt {
+            gas_used: None,
+            confirmed_at: std::time::Instant::now(),
+        })
     }
 }
 
@@ -593,20 +654,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn is_sequence_mismatch_detects_error() {
-        let err = eyre::eyre!("account sequence mismatch, expected 5, got 4");
+    fn sequence_mismatch_detected_via_downcast() {
+        let err: eyre::Report = TxError::SequenceMismatch {
+            details: "expected 5, got 4".into(),
+        }
+        .into();
         assert!(is_sequence_mismatch(&err));
     }
 
     #[test]
-    fn is_sequence_mismatch_ignores_other_errors() {
+    fn non_sequence_error_not_detected() {
         let err = eyre::eyre!("connection refused");
-        assert!(!is_sequence_mismatch(&err));
-    }
-
-    #[test]
-    fn is_sequence_mismatch_empty_message() {
-        let err = eyre::eyre!("");
         assert!(!is_sequence_mismatch(&err));
     }
 

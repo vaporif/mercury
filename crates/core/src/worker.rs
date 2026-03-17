@@ -8,9 +8,7 @@ use crate::error::Result;
 /// A named async task that can be spawned onto the Tokio runtime.
 #[async_trait]
 pub trait Worker: Send + 'static {
-    /// Returns the worker's name, used for logging.
     fn name(&self) -> &'static str;
-    /// Run the worker to completion.
     async fn run(self) -> Result<()>;
 }
 

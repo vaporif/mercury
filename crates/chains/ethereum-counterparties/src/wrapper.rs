@@ -96,7 +96,7 @@ impl MessageSender for EthereumChain {
     async fn send_messages(
         &self,
         messages: Vec<Self::Message>,
-    ) -> Result<Vec<Self::MessageResponse>> {
+    ) -> Result<mercury_chain_traits::types::TxReceipt> {
         self.0.send_messages(messages).await
     }
 }
@@ -320,7 +320,6 @@ where
     }
 }
 
-// === MisbehaviourDetector<Self> forwarding ===
 #[async_trait]
 impl MisbehaviourDetector<EthereumChainInner> for EthereumChain {
     type UpdateHeader = ();
@@ -339,7 +338,6 @@ impl MisbehaviourDetector<EthereumChainInner> for EthereumChain {
     }
 }
 
-// === MisbehaviourMessageBuilder<Self> forwarding ===
 #[async_trait]
 impl MisbehaviourMessageBuilder<EthereumChainInner> for EthereumChain {
     type MisbehaviourEvidence = ();
@@ -353,7 +351,6 @@ impl MisbehaviourMessageBuilder<EthereumChainInner> for EthereumChain {
     }
 }
 
-// === MisbehaviourQuery<Self> forwarding ===
 #[async_trait]
 impl MisbehaviourQuery<EthereumChainInner> for EthereumChain {
     type CounterpartyUpdateHeader = ();

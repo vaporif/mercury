@@ -11,6 +11,7 @@ members = [
   "crates/relay",
   "crates/cli",
   "crates/e2e",
+  "crates/telemetry",
 ]
 
 [workspace.package]
@@ -37,6 +38,7 @@ branches_sharing_code = "allow"
 [workspace.dependencies]
 async-trait = "0.1"
 eyre = "0.6"
+thiserror = "2"
 color-eyre = "0.6"
 tracing = "0.1"
 tokio = { version = "1", features = ["full"] }
@@ -98,3 +100,6 @@ ibc-proto-eureka = { package = "ibc-proto", version = "0.51", default-features =
 sp1-sdk = { version = "5.0", default-features = false, features = ["network"] }
 sp1-prover = { version = "5.0", default-features = false }
 ibc-eureka-solidity-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee", features = ["rpc"] }
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.16", default-features = false, features = ["http-listener"] }
+mercury-telemetry = { path = "crates/telemetry" }

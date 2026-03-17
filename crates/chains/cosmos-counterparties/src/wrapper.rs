@@ -95,7 +95,7 @@ impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
     async fn send_messages(
         &self,
         messages: Vec<Self::Message>,
-    ) -> Result<Vec<Self::MessageResponse>> {
+    ) -> Result<mercury_chain_traits::types::TxReceipt> {
         self.0.send_messages(messages).await
     }
 }

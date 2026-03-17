@@ -174,6 +174,7 @@ impl DynRelay for RelayContext<EthereumChain, CosmosChain<Secp256k1KeyPair>> {
 #[instrument(skip_all, name = "run_start")]
 async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result<()> {
     let cfg = config::load_config(config_path)?;
+    mercury_telemetry::init(&cfg.telemetry)?;
     let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
 
     for relay in &cfg.relays {

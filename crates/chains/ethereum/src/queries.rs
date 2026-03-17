@@ -9,7 +9,7 @@ use eyre::Context;
 use tracing::instrument;
 
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
-use mercury_core::error::Result;
+use mercury_core::error::{ProofError, QueryError, Result};
 
 use crate::chain::EthereumChainInner;
 use crate::contracts::sp1_ics07;
@@ -34,7 +34,9 @@ impl ChainStatusQuery for EthereumChainInner {
             .get_block_by_number(block_number.into())
             .await
             .wrap_err("querying block by number")?
-            .ok_or_else(|| eyre::eyre!("block {block_number} not found"))?;
+            .ok_or_else(|| QueryError::StaleState {
+                what: format!("block {block_number}"),
+            })?;
 
         Ok(EvmChainStatus {
             height: EvmHeight(block_number),
@@ -162,10 +164,7 @@ async fn get_storage_proof(
         .await
         .wrap_err("eth_getProof failed")?;
 
-    let sp = proof
-        .storage_proof
-        .first()
-        .ok_or_else(|| eyre::eyre!("eth_getProof returned no storage proof"))?;
+    let sp = proof.storage_proof.first().ok_or(ProofError::Missing)?;
 
     Ok(EvmCommitmentProof {
         proof_height: height.0,

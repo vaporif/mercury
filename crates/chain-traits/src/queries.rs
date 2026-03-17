@@ -6,7 +6,6 @@ use mercury_core::error::Result;
 
 use crate::types::{ChainTypes, IbcTypes};
 
-/// Queries the current status (height and timestamp) of the chain.
 #[async_trait]
 pub trait ChainStatusQuery: ChainTypes {
     async fn query_chain_status(&self) -> Result<Self::ChainStatus>;
@@ -17,7 +16,6 @@ pub trait ChainStatusQuery: ChainTypes {
     }
 }
 
-/// Queries and inspects IBC client and consensus state.
 #[async_trait]
 pub trait ClientQuery<Counterparty: ChainTypes>: IbcTypes {
     async fn query_client_state(
@@ -38,7 +36,6 @@ pub trait ClientQuery<Counterparty: ChainTypes>: IbcTypes {
     fn client_latest_height(client_state: &Self::ClientState) -> Counterparty::Height;
 }
 
-/// Queries consensus state heights and update headers for misbehaviour detection.
 #[async_trait]
 pub trait MisbehaviourQuery<Counterparty: ChainTypes>: IbcTypes {
     type CounterpartyUpdateHeader: ThreadSafe;
@@ -58,7 +55,6 @@ pub trait MisbehaviourQuery<Counterparty: ChainTypes>: IbcTypes {
     ) -> Result<Option<Self::CounterpartyUpdateHeader>>;
 }
 
-/// Queries packet commitments, receipts, and acknowledgements at a given height.
 #[async_trait]
 pub trait PacketStateQuery: IbcTypes {
     async fn query_packet_commitment(

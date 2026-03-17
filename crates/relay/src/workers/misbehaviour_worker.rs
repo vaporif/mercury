@@ -9,12 +9,14 @@ use mercury_chain_traits::prelude::*;
 use mercury_chain_traits::relay::Relay;
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
+use mercury_telemetry::recorder::MisbehaviourMetrics;
 
 /// Monitors for light client misbehaviour by checking update headers against the source chain.
 pub struct MisbehaviourWorker<R: Relay> {
     pub relay: Arc<R>,
     pub token: CancellationToken,
     pub scan_interval: Duration,
+    pub metrics: MisbehaviourMetrics,
 }
 
 #[async_trait]
@@ -149,6 +151,7 @@ where
                         .await?;
 
                     dst.send_messages(vec![msg]).await?;
+                    self.metrics.record_submitted();
 
                     error!("Misbehaviour evidence submitted — shutting down relay pair");
                     return Ok(true);
@@ -202,6 +205,7 @@ mod tests {
             relay: Arc::new(relay),
             token: CancellationToken::new(),
             scan_interval: Duration::from_millis(10),
+            metrics: MisbehaviourMetrics,
         };
 
         (worker, src_state, dst_state)

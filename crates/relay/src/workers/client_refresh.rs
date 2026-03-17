@@ -13,6 +13,8 @@ use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
+use mercury_telemetry::recorder::ClientMetrics;
+
 use crate::workers::DstTxRequest;
 
 const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_secs(300);
@@ -22,6 +24,7 @@ pub struct ClientRefreshWorker<R: Relay> {
     pub relay: Arc<R>,
     pub sender: mpsc::Sender<DstTxRequest<R>>,
     pub token: CancellationToken,
+    pub metrics: ClientMetrics,
 }
 
 #[async_trait]
@@ -69,7 +72,6 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
 
             let current_trusted = DstChain::<R>::client_latest_height(&client_state);
 
-            // Get src chain latest height
             let target_height = match self.relay.src_chain().query_chain_status().await {
                 Ok(status) => SrcChain::<R>::chain_status_height(&status).clone(),
                 Err(e) => {
@@ -80,10 +82,10 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
 
             if target_height <= current_trusted {
                 debug!("client already up to date, skipping refresh");
+                self.metrics.record_update_skipped();
                 continue;
             }
 
-            // Build and send MsgUpdateClient
             match async {
                 let payload = self
                     .relay
@@ -99,8 +101,17 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
             {
                 Ok(output) => {
                     let messages = output.messages;
+                    self.metrics.record_update_submitted();
                     info!("refreshing client");
-                    if self.sender.send(DstTxRequest { messages }).await.is_err() {
+                    if self
+                        .sender
+                        .send(DstTxRequest {
+                            messages,
+                            created_at: std::time::Instant::now(),
+                        })
+                        .await
+                        .is_err()
+                    {
                         warn!("tx_worker channel closed");
                         break;
                     }
