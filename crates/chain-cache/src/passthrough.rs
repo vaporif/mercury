@@ -89,7 +89,7 @@ impl<C: HasCore> HasCore for CachedChain<C> {
 #[async_trait]
 impl<C: MessageSender + IbcTypes> MessageSender for CachedChain<C> {
     async fn send_messages(&self, messages: Vec<Self::Message>) -> Result<TxReceipt> {
-        self.inner.send_messages(messages).await
+        self.tx_handle.submit(messages).await
     }
 }
 

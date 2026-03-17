@@ -119,17 +119,9 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
         tokio::spawn(serve_health(port, registry, health_chains));
     }
 
-    // Wait for a relay to exit or a shutdown signal, then drain gracefully.
-    tokio::select! {
-        (result, _, _) = futures::future::select_all(&mut handles) => {
-            log_relay_exit(result);
-            shutdown_token.cancel();
-        }
-        () = shutdown_signal() => {
-            tracing::info!("shutdown signal received, draining in-flight transactions");
-            shutdown_token.cancel();
-        }
-    }
+    shutdown_signal().await;
+    tracing::info!("shutdown signal received, draining in-flight transactions");
+    shutdown_token.cancel();
 
     if tokio::time::timeout(
         SHUTDOWN_GRACE_PERIOD,
@@ -187,14 +179,6 @@ fn spawn_relay_pair(
             _ => Ok(()),
         }
     })
-}
-
-fn log_relay_exit(result: Result<mercury_core::error::Result<()>, tokio::task::JoinError>) {
-    match result {
-        Ok(Ok(())) => tracing::warn!("relay pair exited unexpectedly"),
-        Ok(Err(e)) => tracing::error!(error = %e, "relay pair failed"),
-        Err(e) => tracing::error!(error = %e, "relay task panicked"),
-    }
 }
 
 async fn shutdown_signal() {

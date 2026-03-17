@@ -43,6 +43,7 @@ pub trait IbcTypes: ChainTypes {
 }
 
 /// Receipt from a confirmed transaction batch.
+#[derive(Clone, Debug)]
 pub struct TxReceipt {
     /// Total gas consumed (if available from chain).
     pub gas_used: Option<u64>,

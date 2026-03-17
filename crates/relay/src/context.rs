@@ -254,20 +254,12 @@ where
         );
 
         // RAII guards: gauge increments on creation, decrements on drop.
-        #[allow(clippy::collection_is_never_read)]
-        let mut guards = vec![
+        let _guards = [
             WorkerGuard::with_chain_labels("event_watcher", &src_label, Some(&dst_label)),
             WorkerGuard::with_chain_labels("packet_worker", &src_label, Some(&dst_label)),
             WorkerGuard::with_chain_labels("tx_worker", &dst_label, Some(&src_label)),
             WorkerGuard::with_chain_labels("src_tx_worker", &src_label, Some(&dst_label)),
-            WorkerGuard::with_chain_labels("client_refresh", &src_label, Some(&dst_label)),
         ];
-        if config.clearing_interval.is_some() {
-            guards.push(WorkerGuard::with_chain_labels("clearing_worker", &src_label, Some(&dst_label)));
-        }
-        if config.misbehaviour_scan_interval.is_some() {
-            guards.push(WorkerGuard::with_chain_labels("misbehaviour_worker", &src_label, Some(&dst_label)));
-        }
 
         info!("relay pipeline started");
 
@@ -276,13 +268,12 @@ where
             res = packet_worker_handle => res,
             res = tx_worker_handle => res,
             res = src_tx_worker_handle => res,
-            res = client_refresh_handle => res,
-            res = clearing_handle => res,
-            res = misbehaviour_handle => res,
         };
 
         // Tear down remaining workers from this pipeline iteration.
         pipeline_token.cancel();
+
+        let _ = tokio::join!(client_refresh_handle, clearing_handle, misbehaviour_handle);
 
         match result {
             Ok(worker_result) => worker_result,
