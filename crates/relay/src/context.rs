@@ -137,7 +137,6 @@ where
                         () = tokio::time::sleep(backoff) => {}
                     }
 
-                    info!("relay pipeline restarting");
                     backoff = (backoff * 2).min(MAX_RESTART_BACKOFF);
                 }
             }

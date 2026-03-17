@@ -75,11 +75,15 @@ impl Default for MockState {
 #[derive(Clone)]
 pub struct MockChain {
     pub state: Arc<Mutex<MockState>>,
+    pub chain_id: String,
 }
 
 impl MockChain {
     pub fn new(state: Arc<Mutex<MockState>>) -> Self {
-        Self { state }
+        Self {
+            state,
+            chain_id: "mock-chain".to_owned(),
+        }
     }
 }
 
@@ -125,9 +129,7 @@ impl ChainTypes for MockChain {
         Duration::from_secs(1)
     }
     fn chain_id(&self) -> &Self::ChainId {
-        static MOCK_CHAIN_ID: std::sync::LazyLock<String> =
-            std::sync::LazyLock::new(|| "mock-chain".to_owned());
-        &MOCK_CHAIN_ID
+        &self.chain_id
     }
 }
 

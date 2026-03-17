@@ -1,6 +1,5 @@
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
-use tracing::info;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -36,12 +35,6 @@ impl PacketFilter {
         let patterns = builder
             .build()
             .map_err(|e| eyre::eyre!("failed to compile glob patterns: {e}"))?;
-
-        info!(
-            policy = ?config.policy,
-            patterns = config.source_ports.len(),
-            "packet filter initialized"
-        );
 
         Ok(Self {
             policy: config.policy,
