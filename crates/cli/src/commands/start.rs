@@ -125,15 +125,18 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
             log_relay_exit(result);
             shutdown_token.cancel();
         }
-        _ = shutdown_signal() => {
+        () = shutdown_signal() => {
             tracing::info!("shutdown signal received, draining in-flight transactions");
             shutdown_token.cancel();
         }
     }
 
-    if tokio::time::timeout(SHUTDOWN_GRACE_PERIOD, futures::future::join_all(&mut handles))
-        .await
-        .is_err()
+    if tokio::time::timeout(
+        SHUTDOWN_GRACE_PERIOD,
+        futures::future::join_all(&mut handles),
+    )
+    .await
+    .is_err()
     {
         tracing::warn!("grace period expired, aborting remaining tasks");
         for h in &handles {
