@@ -238,12 +238,12 @@ Each counterparty crate's `register()` function registers its `ChainPlugin`. `Re
 ```mermaid
 graph TD
     CLI[mercury-cli<br/><i>CLI binary</i>]
-    COSMOS[mercury-cosmos<br/><i>chains/cosmos — RPC, protobuf, tx signing</i>]
-    ETH[mercury-ethereum<br/><i>chains/ethereum — alloy, EVM contracts</i>]
-    COSMOS_BR[mercury-cosmos-counterparties<br/><i>counterparties/cosmos — wrapper + cross-chain impls</i>]
-    ETH_BR[mercury-ethereum-counterparties<br/><i>counterparties/ethereum — wrapper + cross-chain impls</i>]
-    CCR[mercury-cosmos-cosmos-relay<br/><i>relay-pairs/cosmos-cosmos — relay pair plugin</i>]
-    CER[mercury-cosmos-ethereum-relay<br/><i>relay-pairs/cosmos-ethereum — relay pair plugins</i>]
+    COSMOS[mercury-cosmos<br/><i>crates/chains/core/cosmos — RPC, protobuf, tx signing</i>]
+    ETH[mercury-ethereum<br/><i>crates/chains/core/ethereum — alloy, EVM contracts</i>]
+    COSMOS_BR[mercury-cosmos-counterparties<br/><i>crates/chains/counterparties/cosmos — wrapper + cross-chain impls</i>]
+    ETH_BR[mercury-ethereum-counterparties<br/><i>crates/chains/counterparties/ethereum — wrapper + cross-chain impls</i>]
+    CCR[mercury-cosmos-cosmos-relay<br/><i>crates/chains/relay-pairs/cosmos-cosmos — relay pair plugin</i>]
+    CER[mercury-cosmos-ethereum-relay<br/><i>crates/chains/relay-pairs/cosmos-ethereum — relay pair plugins</i>]
     RELAY[mercury-relay<br/><i>Worker pipeline, generic over chain traits</i>]
     TRAITS[mercury-chain-traits<br/><i>Chain types, messaging, queries, relay traits</i>]
     CORE[mercury-core<br/><i>Error types, encoding, worker trait, membership proofs</i>]

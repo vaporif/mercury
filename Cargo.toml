@@ -5,12 +5,12 @@ members = [
   "crates/core",
   "crates/chain-traits",
   "crates/chain-cache",
-  "crates/chains/cosmos",
-  "crates/counterparties/cosmos",
-  "crates/chains/ethereum",
-  "crates/counterparties/ethereum",
-  "crates/relay-pairs/cosmos-cosmos",
-  "crates/relay-pairs/cosmos-ethereum",
+  "crates/chains/core/cosmos",
+  "crates/chains/core/ethereum",
+  "crates/chains/counterparties/cosmos",
+  "crates/chains/counterparties/ethereum",
+  "crates/chains/relay-pairs/cosmos-cosmos",
+  "crates/chains/relay-pairs/cosmos-ethereum",
   "crates/relay",
   "crates/cli",
   "crates/e2e",
@@ -56,12 +56,12 @@ axum = "0.8"
 mercury-core = { path = "crates/core" }
 mercury-chain-traits = { path = "crates/chain-traits" }
 mercury-chain-cache = { path = "crates/chain-cache" }
-mercury-cosmos = { path = "crates/chains/cosmos" }
-mercury-cosmos-counterparties = { path = "crates/counterparties/cosmos" }
-mercury-ethereum = { path = "crates/chains/ethereum" }
-mercury-ethereum-counterparties = { path = "crates/counterparties/ethereum" }
-mercury-cosmos-cosmos-relay = { path = "crates/relay-pairs/cosmos-cosmos" }
-mercury-cosmos-ethereum-relay = { path = "crates/relay-pairs/cosmos-ethereum" }
+mercury-cosmos = { path = "crates/chains/core/cosmos" }
+mercury-cosmos-counterparties = { path = "crates/chains/counterparties/cosmos" }
+mercury-ethereum = { path = "crates/chains/core/ethereum" }
+mercury-ethereum-counterparties = { path = "crates/chains/counterparties/ethereum" }
+mercury-cosmos-cosmos-relay = { path = "crates/chains/relay-pairs/cosmos-cosmos" }
+mercury-cosmos-ethereum-relay = { path = "crates/chains/relay-pairs/cosmos-ethereum" }
 mercury-relay = { path = "crates/relay" }
 mercury-cli = { path = "crates/cli" }
 
