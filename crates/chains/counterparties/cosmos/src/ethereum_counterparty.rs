@@ -192,16 +192,16 @@ impl<S: CosmosSigner> ClientMessageBuilder<EthereumChain> for CosmosAdapter<S> {
 
 fn evm_packet_to_v2(packet: &EvmPacket) -> V2Packet {
     V2Packet {
-        sequence: packet.sequence.0,
+        sequence: packet.sequence.into(),
         source_client: packet.source_client.clone(),
         destination_client: packet.dest_client.clone(),
-        timeout_timestamp: packet.timeout_timestamp.0,
+        timeout_timestamp: packet.timeout_timestamp.into(),
         payloads: packet
             .payloads
             .iter()
             .map(|p| channel::Payload {
-                source_port: p.source_port.0.clone(),
-                destination_port: p.dest_port.0.clone(),
+                source_port: p.source_port.clone().into(),
+                destination_port: p.dest_port.clone().into(),
                 version: p.version.clone(),
                 encoding: p.encoding.clone(),
                 value: p.value.clone(),

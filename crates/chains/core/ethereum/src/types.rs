@@ -33,12 +33,36 @@ impl std::fmt::Display for BlockNumber {
     }
 }
 
+impl From<u64> for BlockNumber {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<BlockNumber> for u64 {
+    fn from(v: BlockNumber) -> Self {
+        v.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct LogIndex(pub u64);
 
 impl std::fmt::Display for LogIndex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for LogIndex {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<LogIndex> for u64 {
+    fn from(v: LogIndex) -> Self {
+        v.0
     }
 }
 
@@ -51,12 +75,36 @@ impl std::fmt::Display for ProofHeight {
     }
 }
 
+impl From<u64> for ProofHeight {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<ProofHeight> for u64 {
+    fn from(v: ProofHeight) -> Self {
+        v.0
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct GasUsed(pub u64);
 
 impl std::fmt::Display for GasUsed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for GasUsed {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<GasUsed> for u64 {
+    fn from(v: GasUsed) -> Self {
+        v.0
     }
 }
 

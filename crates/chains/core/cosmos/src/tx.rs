@@ -22,6 +22,24 @@ impl std::fmt::Display for Denom {
     }
 }
 
+impl From<String> for Denom {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<Denom> for String {
+    fn from(v: Denom) -> Self {
+        v.0
+    }
+}
+
+impl AsRef<str> for Denom {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Transaction fee amount in smallest denomination.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FeeAmount(pub u64);
@@ -29,6 +47,18 @@ pub struct FeeAmount(pub u64);
 impl std::fmt::Display for FeeAmount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for FeeAmount {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<FeeAmount> for u64 {
+    fn from(v: FeeAmount) -> Self {
+        v.0
     }
 }
 
@@ -42,6 +72,18 @@ impl std::fmt::Display for GasLimit {
     }
 }
 
+impl From<u64> for GasLimit {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<GasLimit> for u64 {
+    fn from(v: GasLimit) -> Self {
+        v.0
+    }
+}
+
 /// Cosmos account number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AccountNumber(pub u64);
@@ -52,6 +94,18 @@ impl std::fmt::Display for AccountNumber {
     }
 }
 
+impl From<u64> for AccountNumber {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<AccountNumber> for u64 {
+    fn from(v: AccountNumber) -> Self {
+        v.0
+    }
+}
+
 /// Transaction sequence (nonce) for ordering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TxSequence(pub u64);
@@ -59,6 +113,18 @@ pub struct TxSequence(pub u64);
 impl std::fmt::Display for TxSequence {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for TxSequence {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<TxSequence> for u64 {
+    fn from(v: TxSequence) -> Self {
+        v.0
     }
 }
 
@@ -125,8 +191,8 @@ fn is_simulation_recoverable(msg: &str) -> bool {
         || msg.contains("empty tx")
 }
 
-const fn message_size(msg: &CosmosMessage) -> usize {
-    msg.type_url.0.len() + msg.value.len() + PROTOBUF_ANY_OVERHEAD
+fn message_size(msg: &CosmosMessage) -> usize {
+    msg.type_url.as_ref().len() + msg.value.len() + PROTOBUF_ANY_OVERHEAD
 }
 
 fn split_batches(
@@ -143,7 +209,7 @@ fn split_batches(
         let msg_size = message_size(&msg);
         if msg_size > budget {
             tracing::error!(
-                type_url = %msg.type_url.0,
+                type_url = %msg.type_url,
                 size = msg_size,
                 budget = budget,
                 "message exceeds max_tx_size, skipping"
@@ -189,7 +255,7 @@ async fn build_tx_bytes(
         messages: messages
             .iter()
             .map(|m| tendermint_proto::google::protobuf::Any {
-                type_url: m.type_url.0.clone(),
+                type_url: m.type_url.clone().into(),
                 value: m.value.clone(),
             })
             .collect(),
@@ -213,15 +279,15 @@ async fn build_tx_bytes(
         mode_info: Some(ModeInfo {
             sum: Some(Sum::Single(Single { mode: 1 })), // SIGN_MODE_DIRECT
         }),
-        sequence: nonce.sequence.0,
+        sequence: nonce.sequence.into(),
     };
 
     let fee_proto = Fee {
         amount: vec![Coin {
-            denom: fee.denom.0.clone(),
-            amount: fee.amount.0.to_string(),
+            denom: fee.denom.clone().into(),
+            amount: fee.amount.to_string(),
         }],
-        gas_limit: fee.gas_limit.0,
+        gas_limit: fee.gas_limit.into(),
         payer: String::new(),
         granter: fee_granter.unwrap_or_default().to_string(),
     };
@@ -240,7 +306,7 @@ async fn build_tx_bytes(
         body_bytes: body_bytes.clone(),
         auth_info_bytes: auth_info_bytes.clone(),
         chain_id: chain_id.to_string(),
-        account_number: nonce.account_number.0,
+        account_number: nonce.account_number.into(),
     };
 
     let hash = Sha256::digest(sign_doc.encode_to_vec());
@@ -382,7 +448,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
         })
     }
 
-    #[instrument(skip_all, name = "submit_tx", fields(chain = %self.chain_label(), seq = nonce.sequence.0, gas = fee.gas_limit.0))]
+    #[instrument(skip_all, name = "submit_tx", fields(chain = %self.chain_label(), seq = u64::from(nonce.sequence), gas = u64::from(fee.gas_limit)))]
     pub async fn submit_tx(
         &self,
         signer: &S,
@@ -404,8 +470,8 @@ impl<S: CosmosSigner> CosmosChain<S> {
 
         debug!(
             num_messages = messages.len(),
-            sequence = nonce.sequence.0,
-            gas_limit = fee.gas_limit.0,
+            sequence = %nonce.sequence,
+            gas_limit = %fee.gas_limit,
             "broadcasting transaction"
         );
 
@@ -606,7 +672,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
         for (i, batch) in batches.iter().enumerate() {
             let nonce_i = CosmosNonce {
                 account_number: nonce.account_number,
-                sequence: TxSequence(nonce.sequence.0 + i as u64),
+                sequence: TxSequence(u64::from(nonce.sequence) + i as u64),
             };
             let fee = self
                 .estimate_fee_with_nonce(&self.signer, &nonce_i, batch)
@@ -620,7 +686,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
         for (i, (batch, fee)) in batches.into_iter().zip(fees).enumerate() {
             let nonce_i = CosmosNonce {
                 account_number: nonce.account_number,
-                sequence: TxSequence(nonce.sequence.0 + i as u64),
+                sequence: TxSequence(u64::from(nonce.sequence) + i as u64),
             };
             let sem = semaphore.clone();
             let chain = self.clone();
@@ -665,7 +731,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
             for (retry_idx, (original_idx, batch)) in failed.into_iter().enumerate() {
                 let nonce_i = CosmosNonce {
                     account_number: fresh_nonce.account_number,
-                    sequence: TxSequence(fresh_nonce.sequence.0 + retry_idx as u64),
+                    sequence: TxSequence(u64::from(fresh_nonce.sequence) + retry_idx as u64),
                 };
                 let fee = self
                     .estimate_fee_with_nonce(&self.signer, &nonce_i, &batch)

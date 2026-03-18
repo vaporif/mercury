@@ -246,7 +246,7 @@ impl PacketStateQuery for EthereumChain {
         sequence: PacketSequence,
         height: &EvmHeight,
     ) -> Result<(Option<EvmPacketCommitment>, EvmCommitmentProof)> {
-        let hashed_path = ics24::packet_commitment_key(&client_id.0, sequence.0);
+        let hashed_path = ics24::packet_commitment_key(&client_id.0, sequence.into());
         let (value, proof) = query_commitment_with_proof(self, hashed_path, height).await?;
         let commitment = (!value.is_zero()).then(|| EvmPacketCommitment(value.to_vec()));
         Ok((commitment, proof))
@@ -259,7 +259,7 @@ impl PacketStateQuery for EthereumChain {
         sequence: PacketSequence,
         height: &EvmHeight,
     ) -> Result<(Option<EvmPacketReceipt>, EvmCommitmentProof)> {
-        let hashed_path = ics24::packet_receipt_key(&client_id.0, sequence.0);
+        let hashed_path = ics24::packet_receipt_key(&client_id.0, sequence.into());
         let (value, proof) = query_commitment_with_proof(self, hashed_path, height).await?;
         let receipt = (!value.is_zero()).then_some(EvmPacketReceipt);
         Ok((receipt, proof))
@@ -272,7 +272,7 @@ impl PacketStateQuery for EthereumChain {
         sequence: PacketSequence,
         height: &EvmHeight,
     ) -> Result<(Option<EvmAcknowledgement>, EvmCommitmentProof)> {
-        let hashed_path = ics24::ack_commitment_key(&client_id.0, sequence.0);
+        let hashed_path = ics24::ack_commitment_key(&client_id.0, sequence.into());
         let (value, proof) = query_commitment_with_proof(self, hashed_path, height).await?;
         let ack = (!value.is_zero()).then(|| EvmAcknowledgement(value.to_vec()));
         Ok((ack, proof))

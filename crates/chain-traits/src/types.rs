@@ -15,6 +15,18 @@ impl Display for PacketSequence {
     }
 }
 
+impl From<u64> for PacketSequence {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<PacketSequence> for u64 {
+    fn from(v: PacketSequence) -> Self {
+        v.0
+    }
+}
+
 /// Packet timeout as a UNIX timestamp in seconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TimeoutTimestamp(pub u64);
@@ -22,6 +34,18 @@ pub struct TimeoutTimestamp(pub u64);
 impl Display for TimeoutTimestamp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for TimeoutTimestamp {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<TimeoutTimestamp> for u64 {
+    fn from(v: TimeoutTimestamp) -> Self {
+        v.0
     }
 }
 
@@ -45,6 +69,12 @@ impl AsRef<str> for Port {
 impl From<String> for Port {
     fn from(s: String) -> Self {
         Self(s)
+    }
+}
+
+impl From<Port> for String {
+    fn from(v: Port) -> Self {
+        v.0
     }
 }
 

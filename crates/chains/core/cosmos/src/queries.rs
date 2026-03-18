@@ -267,7 +267,7 @@ fn extract_proof(
 
 #[async_trait]
 impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
-    #[instrument(skip_all, name = "query_packet_commitment", fields(chain = %self.chain_label(), seq = sequence.0))]
+    #[instrument(skip_all, name = "query_packet_commitment", fields(chain = %self.chain_label(), seq = %sequence))]
     async fn query_packet_commitment(
         &self,
         client_id: &Self::ClientId,
@@ -279,7 +279,11 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
             &self.rpc_client,
             &self.rpc_guard,
             IBC_STORE_PATH,
-            ibc_v2_key(client_id.as_str(), COMMITMENT_DISCRIMINATOR, sequence.0),
+            ibc_v2_key(
+                client_id.as_str(),
+                COMMITMENT_DISCRIMINATOR,
+                sequence.into(),
+            ),
             Some(query_height),
             true,
         )
@@ -294,7 +298,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         Ok((commitment, proof))
     }
 
-    #[instrument(skip_all, name = "query_packet_receipt", fields(chain = %self.chain_label(), seq = sequence.0))]
+    #[instrument(skip_all, name = "query_packet_receipt", fields(chain = %self.chain_label(), seq = %sequence))]
     async fn query_packet_receipt(
         &self,
         client_id: &Self::ClientId,
@@ -306,7 +310,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
             &self.rpc_client,
             &self.rpc_guard,
             IBC_STORE_PATH,
-            ibc_v2_key(client_id.as_str(), RECEIPT_DISCRIMINATOR, sequence.0),
+            ibc_v2_key(client_id.as_str(), RECEIPT_DISCRIMINATOR, sequence.into()),
             Some(query_height),
             true,
         )
@@ -389,7 +393,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         Ok(result)
     }
 
-    #[instrument(skip_all, name = "query_packet_ack", fields(chain = %self.chain_label(), seq = sequence.0))]
+    #[instrument(skip_all, name = "query_packet_ack", fields(chain = %self.chain_label(), seq = %sequence))]
     async fn query_packet_acknowledgement(
         &self,
         client_id: &Self::ClientId,
@@ -401,7 +405,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
             &self.rpc_client,
             &self.rpc_guard,
             IBC_STORE_PATH,
-            ibc_v2_key(client_id.as_str(), ACK_DISCRIMINATOR, sequence.0),
+            ibc_v2_key(client_id.as_str(), ACK_DISCRIMINATOR, sequence.into()),
             Some(query_height),
             true,
         )
@@ -426,7 +430,11 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         Some(mercury_core::MembershipProofEntry {
             path: vec![
                 b"ibc".to_vec(),
-                ibc_v2_key(client_id.as_str(), COMMITMENT_DISCRIMINATOR, sequence.0),
+                ibc_v2_key(
+                    client_id.as_str(),
+                    COMMITMENT_DISCRIMINATOR,
+                    sequence.into(),
+                ),
             ],
             value: commitment.0.clone(),
             proof: proof.proof_bytes.clone(),
@@ -443,7 +451,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         Some(mercury_core::MembershipProofEntry {
             path: vec![
                 b"ibc".to_vec(),
-                ibc_v2_key(client_id.as_str(), ACK_DISCRIMINATOR, sequence.0),
+                ibc_v2_key(client_id.as_str(), ACK_DISCRIMINATOR, sequence.into()),
             ],
             value: ack.0.clone(),
             proof: proof.proof_bytes.clone(),

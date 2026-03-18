@@ -517,7 +517,8 @@ where
             for ps in new_sends {
                 let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
                 let ts = <SrcChain<R> as IbcTypes>::packet_timeout_timestamp(pkt);
-                if ts.0 > 0 && dst_timestamp_secs >= ts.0 {
+                let ts_secs: u64 = ts.into();
+                if ts_secs > 0 && dst_timestamp_secs >= ts_secs {
                     let seq = <SrcChain<R> as IbcTypes>::packet_sequence(pkt);
                     debug!(%seq, "packet timed out, will relay timeout");
                     timed_out.push(ps);

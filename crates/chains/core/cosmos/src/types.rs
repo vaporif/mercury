@@ -19,6 +19,18 @@ impl From<String> for TypeUrl {
     }
 }
 
+impl From<TypeUrl> for String {
+    fn from(v: TypeUrl) -> Self {
+        v.0
+    }
+}
+
+impl AsRef<str> for TypeUrl {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 /// ABCI event
 #[derive(Clone, Debug)]
 pub struct CosmosEvent {
