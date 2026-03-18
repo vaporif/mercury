@@ -58,3 +58,6 @@ dst_client_id = "07-tendermint-0"
 # ics26_router = "0x..."
 # key_file = "keys/eth_key.hex"
 # block_time_secs = 1
+# gas_multiplier = 1.2
+# max_gas = 1000000
+# max_priority_fee_multiplier = 1.5

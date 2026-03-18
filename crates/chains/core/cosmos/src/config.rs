@@ -2,17 +2,24 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use eyre::WrapErr;
+use mercury_core::validate::GasMultiplier;
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct DynamicGasPrice {
     #[serde(default = "default_dynamic_gas_multiplier")]
-    pub multiplier: f64,
+    pub multiplier: GasMultiplier,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     pub max: f64,
 }
 
-const fn default_dynamic_gas_multiplier() -> f64 {
-    1.1
+const fn default_true() -> bool {
+    true
+}
+
+const fn default_dynamic_gas_multiplier() -> GasMultiplier {
+    GasMultiplier::new_unchecked(1.1)
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -39,7 +46,7 @@ pub struct CosmosChainConfig {
     #[serde(default)]
     pub max_clock_drift: Option<Duration>,
     #[serde(default)]
-    pub gas_multiplier: Option<f64>,
+    pub gas_multiplier: Option<GasMultiplier>,
     #[serde(default)]
     pub max_gas: Option<u64>,
     #[serde(default)]
@@ -96,9 +103,6 @@ impl CosmosChainConfig {
             self.gas_price.amount >= 0.0,
             "gas_price.amount must be non-negative"
         );
-        if let Some(m) = self.gas_multiplier {
-            eyre::ensure!(m >= 1.0, "gas_multiplier must be >= 1.0, got {m}");
-        }
         if let Some(max) = self.max_gas {
             require_positive("max_gas", &max)?;
         }
@@ -115,10 +119,6 @@ impl CosmosChainConfig {
             eyre::ensure!(def <= max, "default_gas ({def}) must be <= max_gas ({max})");
         }
         if let Some(ref dgp) = self.dynamic_gas_price {
-            eyre::ensure!(
-                dgp.multiplier >= 1.0,
-                "dynamic_gas_price.multiplier must be >= 1.0"
-            );
             require_positive("dynamic_gas_price.max", &dgp.max)?;
         }
         if let Some(size) = self.max_tx_size {
@@ -223,16 +223,26 @@ mod tests {
     }
 
     #[test]
-    fn gas_multiplier_below_min_fails() {
-        let mut cfg = valid_config();
-        cfg.gas_multiplier = Some(0.9);
-        assert!(cfg.validate().is_err());
+    fn gas_multiplier_below_min_fails_deser() {
+        let toml_str = r#"
+            chain_id = "test-1"
+            rpc_addr = "http://localhost:26657"
+            grpc_addr = "http://localhost:9090"
+            account_prefix = "cosmos"
+            key_name = "default"
+            key_file = "key.toml"
+            gas_multiplier = 0.9
+            [gas_price]
+            amount = 0.025
+            denom = "uatom"
+        "#;
+        assert!(toml::from_str::<CosmosChainConfig>(toml_str).is_err());
     }
 
     #[test]
     fn gas_multiplier_at_min_passes() {
         let mut cfg = valid_config();
-        cfg.gas_multiplier = Some(1.0);
+        cfg.gas_multiplier = Some(GasMultiplier::new_unchecked(1.0));
         assert!(cfg.validate().is_ok());
     }
 
@@ -252,13 +262,22 @@ mod tests {
     }
 
     #[test]
-    fn dynamic_gas_price_multiplier_below_min_fails() {
-        let mut cfg = valid_config();
-        cfg.dynamic_gas_price = Some(DynamicGasPrice {
-            multiplier: 0.5,
-            max: 0.6,
-        });
-        assert!(cfg.validate().is_err());
+    fn dynamic_gas_price_multiplier_below_min_fails_deser() {
+        let toml_str = r#"
+            chain_id = "test-1"
+            rpc_addr = "http://localhost:26657"
+            grpc_addr = "http://localhost:9090"
+            account_prefix = "cosmos"
+            key_name = "default"
+            key_file = "key.toml"
+            [gas_price]
+            amount = 0.025
+            denom = "uatom"
+            [dynamic_gas_price]
+            multiplier = 0.5
+            max = 0.6
+        "#;
+        assert!(toml::from_str::<CosmosChainConfig>(toml_str).is_err());
     }
 
     #[test]
@@ -428,13 +447,14 @@ mod tests {
     #[test]
     fn valid_gas_config_passes() {
         let mut cfg = valid_config();
-        cfg.gas_multiplier = Some(1.1);
+        cfg.gas_multiplier = Some(GasMultiplier::new_unchecked(1.1));
         cfg.max_gas = Some(400_000);
         cfg.default_gas = Some(300_000);
         cfg.fee_granter = Some("cosmos1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5lzv7xu".to_string());
         cfg.max_tx_size = Some(180_000);
         cfg.dynamic_gas_price = Some(DynamicGasPrice {
-            multiplier: 1.1,
+            multiplier: GasMultiplier::new_unchecked(1.1),
+            enabled: true,
             max: 0.6,
         });
         assert!(cfg.validate().is_ok());

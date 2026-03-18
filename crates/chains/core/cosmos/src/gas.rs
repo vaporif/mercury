@@ -193,6 +193,10 @@ pub async fn resolve_gas_price(
     backend_cache: &OnceLock<DynamicGasBackend>,
     rpc_guard: &mercury_core::rpc_guard::RpcGuard,
 ) -> f64 {
+    if !dynamic_config.enabled {
+        return static_price;
+    }
+
     let base_fee = match backend_cache.get() {
         Some(DynamicGasBackend::Osmosis) => query_osmosis_base_fee(channel, rpc_guard).await,
         Some(DynamicGasBackend::Feemarket) => {
@@ -227,7 +231,7 @@ pub async fn resolve_gas_price(
     match base_fee {
         Ok(price) => {
             let effective =
-                apply_dynamic_price(price, dynamic_config.multiplier, dynamic_config.max);
+                apply_dynamic_price(price, dynamic_config.multiplier.value(), dynamic_config.max);
             debug!(base = price, effective, "dynamic gas price resolved");
             effective
         }

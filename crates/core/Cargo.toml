@@ -15,6 +15,7 @@ workspace = true
 
 [dependencies]
 eyre = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
