@@ -5075,7 +5075,9 @@ dependencies = [
  "mercury-cosmos-cosmos-relay",
  "mercury-cosmos-counterparties",
  "mercury-cosmos-ethereum-relay",
+ "mercury-cosmos-solana-relay",
  "mercury-ethereum-counterparties",
+ "mercury-solana-counterparties",
  "mercury-telemetry",
  "serde",
  "serde_json",
@@ -5167,6 +5169,7 @@ dependencies = [
  "mercury-cosmos",
  "mercury-ethereum",
  "mercury-relay",
+ "mercury-solana",
  "prost 0.13.5",
  "serde",
  "serde_json",
@@ -5191,6 +5194,22 @@ dependencies = [
  "mercury-cosmos-counterparties",
  "mercury-ethereum-counterparties",
  "mercury-relay",
+ "tokio-util",
+]
+
+[[package]]
+name = "mercury-cosmos-solana-relay"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "async-trait",
+ "eyre",
+ "futures",
+ "ibc",
+ "mercury-chain-cache",
+ "mercury-core",
+ "mercury-cosmos-counterparties",
+ "mercury-relay",
+ "mercury-solana-counterparties",
  "tokio-util",
 ]
 
@@ -5319,6 +5338,40 @@ dependencies = [
  "mercury-telemetry",
  "serde",
  "tokio",
+ "tokio-util",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "mercury-solana"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "async-trait",
+ "eyre",
+ "mercury-chain-traits",
+ "mercury-core",
+ "serde",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "mercury-solana-counterparties"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "async-trait",
+ "eyre",
+ "ibc",
+ "ibc-client-tendermint",
+ "mercury-chain-cache",
+ "mercury-chain-traits",
+ "mercury-core",
+ "mercury-cosmos",
+ "mercury-relay",
+ "mercury-solana",
+ "serde",
+ "tendermint",
  "tokio-util",
  "toml",
  "tracing",
