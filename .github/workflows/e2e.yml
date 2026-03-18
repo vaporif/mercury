@@ -82,15 +82,23 @@ jobs:
         run: cargo prove build
         working-directory: external/solidity-ibc-eureka/programs/sp1-programs
 
+      - name: Build relayer binary
+        run: cargo build -p mercury-cli --release
+
       - name: Build and archive tests
         run: cargo nextest archive --archive-file mercury-e2e.tar.zst --package mercury-e2e
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: e2e-archive
           path: mercury-e2e.tar.zst
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mercury-relayer
+          path: target/release/mercury-relayer
+
+      - uses: actions/upload-artifact@v7
         with:
           name: sp1-elfs
           path: external/solidity-ibc-eureka/programs/sp1-programs/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/sp1-ics07-tendermint-*
@@ -120,7 +128,7 @@ jobs:
         with:
           tool: cargo-nextest
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: e2e-archive
 
@@ -132,14 +140,25 @@ jobs:
 
       - name: Download SP1 ELFs
         if: contains(toJSON(matrix.setup), '"ethereum"')
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sp1-elfs
-          path: external/solidity-ibc-eureka/programs/sp1-programs/target/elf-compilation/riscv32im-succinct-zkvm-elf/release
+          path: sp1-elfs
+
+      - name: Download relayer binary
+        uses: actions/download-artifact@v8
+        with:
+          name: mercury-relayer
+          path: .
+
+      - name: Make relayer binary executable
+        run: chmod +x mercury-relayer
 
       - name: Run test
         env:
           NEXTEST_PROFILE: ci
+          MERCURY_RELAYER_BIN: ${{ github.workspace }}/mercury-relayer
+          SP1_ELF_DIR: ${{ github.workspace }}/sp1-elfs
         run: |
           cargo nextest run \
             --archive-file mercury-e2e.tar.zst \

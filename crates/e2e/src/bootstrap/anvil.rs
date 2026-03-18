@@ -267,6 +267,15 @@ pub struct Sp1Vkeys {
 /// Build SP1 program ELF files if not already present.
 /// Returns the path to the ELF output directory.
 pub fn build_sp1_programs() -> Result<PathBuf> {
+    if let Ok(dir) = std::env::var("SP1_ELF_DIR") {
+        let elf_dir = PathBuf::from(dir);
+        info!(
+            ?elf_dir,
+            "using pre-built SP1 ELF programs from SP1_ELF_DIR"
+        );
+        return Ok(elf_dir);
+    }
+
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let sp1_programs_dir =
         manifest_dir.join("../../external/solidity-ibc-eureka/programs/sp1-programs");
