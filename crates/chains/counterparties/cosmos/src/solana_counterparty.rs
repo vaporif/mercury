@@ -47,8 +47,6 @@ impl<S: CosmosSigner> ClientQuery<SolanaChain> for CosmosAdapter<S> {
         consensus_height: &SolanaHeight,
         query_height: &Self::Height,
     ) -> Result<Self::ConsensusState> {
-        // The consensus height for a Solana light client is a slot number.
-        // Convert to Tendermint height for the gRPC query.
         let tm_consensus_height = tendermint::block::Height::try_from(consensus_height.0)
             .map_err(|e| eyre::eyre!("invalid consensus height: {e}"))?;
         self.0
@@ -57,8 +55,6 @@ impl<S: CosmosSigner> ClientQuery<SolanaChain> for CosmosAdapter<S> {
     }
 
     fn trusting_period(client_state: &Self::ClientState) -> Option<Duration> {
-        // Solana's slot time is ~400ms; trusting period depends on the WASM light client.
-        // Use a conservative default.
         const SOLANA_TRUSTING_PERIOD: Duration = Duration::from_secs(24 * 3600);
 
         match client_state {
@@ -104,9 +100,6 @@ impl<S: CosmosSigner> ClientMessageBuilder<SolanaChain> for CosmosAdapter<S> {
         let checksum =
             hex::decode(checksum_hex).map_err(|e| eyre::eyre!("decoding wasm_checksum: {e}"))?;
 
-        // Decode the client state to extract the latest slot for WASM wrapper height.
-        // The inner client state is opaque bytes from the Solana light client.
-        // We store the raw payload slot as revision_height with revision_number 0.
         let latest_slot = extract_latest_slot(&payload.client_state);
 
         let wasm_client_state = WasmClientState {
@@ -202,12 +195,7 @@ fn solana_packet_to_v2(packet: &SolanaPacket) -> V2Packet {
     }
 }
 
-/// Try to extract the latest slot from opaque Solana client state bytes.
-/// Falls back to 0 if the format is not recognized.
 fn extract_latest_slot(client_state_bytes: &[u8]) -> u64 {
-    // The Solana light client state is opaque at this layer.
-    // If the payload builder has encoded a slot in a known format, extract it.
-    // For now, attempt to read the first 8 bytes as a little-endian u64 slot.
     client_state_bytes
         .get(..8)
         .and_then(|b| b.try_into().ok())
