@@ -284,15 +284,16 @@ dst_client_id = "{client_b}"
 
 #[must_use]
 #[allow(clippy::missing_panics_doc)]
-pub fn parse_client_id_from_stdout(stdout: &str) -> String {
-    stdout
+pub fn parse_client_id_from_output(output: &str) -> String {
+    output
         .lines()
+        .filter(|line| line.contains("client created"))
         .find_map(|line| {
-            line.strip_prefix("Created client ")
-                .and_then(|rest| rest.split(" on ").next())
-                .map(str::to_string)
+            line.split_whitespace()
+                .find(|tok| tok.starts_with("client_id="))
+                .map(|tok| tok.trim_start_matches("client_id=").to_string())
         })
-        .unwrap_or_else(|| panic!("could not parse client ID from stdout:\n{stdout}"))
+        .unwrap_or_else(|| panic!("could not parse client_id from output:\n{output}"))
 }
 
 #[must_use]

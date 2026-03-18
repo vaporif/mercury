@@ -2,7 +2,7 @@ use std::process::Command;
 
 use mercury_e2e::bootstrap::cosmos_docker::CosmosDockerBootstrap;
 use mercury_e2e::bootstrap::traits::{ChainBootstrap, ChainHandle};
-use mercury_e2e::relayer::{find_or_build_binary, parse_client_id_from_stdout};
+use mercury_e2e::relayer::{find_or_build_binary, parse_client_id_from_output};
 
 struct CosmosCosmosInfra {
     handle_a: mercury_e2e::bootstrap::cosmos_docker::CosmosDockerHandle,
@@ -105,14 +105,13 @@ fn run_create_client(
         .output()
         .expect("run create client");
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "create client failed (host={host}, ref={reference}):\nstdout: {stdout}\nstderr: {stderr}"
+        "create client failed (host={host}, ref={reference}):\nstderr: {stderr}"
     );
 
-    parse_client_id_from_stdout(&stdout)
+    parse_client_id_from_output(&stderr)
 }
 
 #[tokio::test]

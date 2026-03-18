@@ -7,7 +7,7 @@ use mercury_e2e::bootstrap::cosmos_docker::{
 };
 use mercury_e2e::bootstrap::traits::{ChainBootstrap, ChainHandle};
 use mercury_e2e::cosmos_eth_context::build_sp1_client_state;
-use mercury_e2e::relayer::{find_or_build_binary, parse_client_id_from_stdout};
+use mercury_e2e::relayer::{find_or_build_binary, parse_client_id_from_output};
 
 use super::*;
 
@@ -147,14 +147,13 @@ async fn create_client_cosmos_host_eth_reference() {
         .output()
         .expect("run create client");
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "create client (cosmos host, eth ref) failed:\nstdout: {stdout}\nstderr: {stderr}"
+        "create client (cosmos host, eth ref) failed:\nstderr: {stderr}"
     );
 
-    let client_id = parse_client_id_from_stdout(&stdout);
+    let client_id = parse_client_id_from_output(&stderr);
     assert!(
         client_id
             .parse::<ibc::core::host::types::identifiers::ClientId>()
@@ -188,13 +187,12 @@ async fn create_client_eth_host_cosmos_reference() {
         .output()
         .expect("run create client");
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "create client (eth host, cosmos ref) failed:\nstdout: {stdout}\nstderr: {stderr}"
+        "create client (eth host, cosmos ref) failed:\nstderr: {stderr}"
     );
 
-    let client_id = parse_client_id_from_stdout(&stdout);
+    let client_id = parse_client_id_from_output(&stderr);
     assert!(!client_id.is_empty(), "EVM client ID should not be empty");
 }
