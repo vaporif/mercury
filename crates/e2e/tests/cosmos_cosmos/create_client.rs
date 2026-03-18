@@ -92,6 +92,7 @@ fn run_create_client(
     reference: &str,
 ) -> String {
     let output = Command::new(binary)
+        .env("RUST_LOG", "info")
         .args([
             "create",
             "client",

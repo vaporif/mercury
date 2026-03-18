@@ -134,6 +134,7 @@ async fn create_client_cosmos_host_eth_reference() {
     let binary = find_or_build_binary();
 
     let output = Command::new(&binary)
+        .env("RUST_LOG", "info")
         .args([
             "create",
             "client",
@@ -174,6 +175,7 @@ async fn create_client_eth_host_cosmos_reference() {
     let binary = find_or_build_binary();
 
     let output = Command::new(&binary)
+        .env("RUST_LOG", "info")
         .args([
             "create",
             "client",
