@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use alloy::primitives::Address;
 use eyre::WrapErr;
+use mercury_core::validate::GasMultiplier;
 use serde::Deserialize;
 
 const fn default_quorum() -> usize {
@@ -85,6 +86,12 @@ pub struct EthereumChainConfig {
     pub rpc_timeout_secs: u64,
     #[serde(default = "mercury_core::rpc_guard::default_rate_limit")]
     pub rpc_rate_limit: u64,
+    #[serde(default)]
+    pub gas_multiplier: Option<GasMultiplier>,
+    #[serde(default)]
+    pub max_gas: Option<u64>,
+    #[serde(default)]
+    pub max_priority_fee_multiplier: Option<GasMultiplier>,
 }
 
 const fn default_block_time_secs() -> u64 {
@@ -111,7 +118,7 @@ impl EthereumChainConfig {
     }
 
     fn validate_inner(&self) -> eyre::Result<()> {
-        use mercury_core::validate::{require_http_url, require_ws_url};
+        use mercury_core::validate::{require_http_url, require_positive, require_ws_url};
 
         require_http_url("rpc_addr", &self.rpc_addr)?;
         if let Some(ref ws) = self.ws_addr {
@@ -141,6 +148,9 @@ impl EthereumChainConfig {
                 );
             }
             ClientPayloadMode::Mock => {}
+        }
+        if let Some(max) = self.max_gas {
+            require_positive("max_gas", &max)?;
         }
         if let Some(ref sp1) = self.sp1_prover {
             #[cfg(not(feature = "sp1"))]
@@ -211,6 +221,9 @@ mod tests {
             sp1_prover: None,
             rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
             rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
+            gas_multiplier: None,
+            max_gas: None,
+            max_priority_fee_multiplier: None,
         }
     }
 
@@ -696,5 +709,58 @@ mod tests {
 
         #[cfg(feature = "sp1")]
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn gas_multiplier_below_one_fails_deser() {
+        let toml_str = format!(
+            r#"
+            chain_id = 31337
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            gas_multiplier = 0.9
+            {BEACON_TOML_SECTION}
+            "#
+        );
+        assert!(toml::from_str::<EthereumChainConfig>(&toml_str).is_err());
+    }
+
+    #[test]
+    fn gas_multiplier_at_one_passes() {
+        let toml_str = format!(
+            r#"
+            chain_id = 31337
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            gas_multiplier = 1.0
+            {BEACON_TOML_SECTION}
+            "#
+        );
+        let config: EthereumChainConfig = toml::from_str(&toml_str).unwrap();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_zero_max_gas() {
+        let mut config = valid_config();
+        config.max_gas = Some(0);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn max_priority_fee_multiplier_below_one_fails_deser() {
+        let toml_str = format!(
+            r#"
+            chain_id = 31337
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+            max_priority_fee_multiplier = 0.5
+            {BEACON_TOML_SECTION}
+            "#
+        );
+        assert!(toml::from_str::<EthereumChainConfig>(&toml_str).is_err());
     }
 }
