@@ -13,6 +13,4 @@ pub use types::*;
 #[doc(hidden)]
 pub use async_trait as _async_trait;
 #[doc(hidden)]
-pub use futures as _futures;
-#[doc(hidden)]
 pub use mercury_core as _mercury_core;
