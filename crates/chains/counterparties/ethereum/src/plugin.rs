@@ -29,11 +29,11 @@ fn downcast_eth(chain: &AnyChain) -> eyre::Result<&EthCached> {
         .ok_or_else(|| eyre::eyre!("expected ethereum chain handle"))
 }
 
-async fn resolve_query_params(
-    chain: &AnyChain,
+async fn resolve_query_params<'a>(
+    chain: &'a AnyChain,
     client_id: &str,
     height: Option<u64>,
-) -> eyre::Result<(&EthCached, EvmClientId, EvmHeight)> {
+) -> eyre::Result<(&'a EthCached, EvmClientId, EvmHeight)> {
     let c = downcast_eth(chain)?;
     let parsed_id = EvmClientId(client_id.to_string());
     let query_height = match height {
