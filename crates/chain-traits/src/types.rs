@@ -96,6 +96,7 @@ pub trait ChainTypes: ThreadSafe {
     fn increment_height(height: &Self::Height) -> Option<Self::Height>;
     fn sub_height(height: &Self::Height, n: u64) -> Option<Self::Height>;
     fn block_time(&self) -> Duration;
+    // TODO: make Option — Solana has no chain ID
     fn chain_id(&self) -> &Self::ChainId;
     fn chain_label(&self) -> ChainLabel;
 }

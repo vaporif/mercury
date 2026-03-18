@@ -41,7 +41,20 @@ ethereum-light-client = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
 
+# Cross-chain (optional — Solana)
+mercury-solana = { workspace = true, optional = true }
+
 [features]
+solana = [
+    "dep:mercury-solana",
+    "dep:ibc-proto",
+    "dep:prost",
+    "dep:ibc-client-tendermint",
+    "dep:tendermint",
+    "dep:tendermint-rpc",
+    "dep:tokio",
+    "dep:hex",
+]
 ethereum-beacon = [
     "dep:mercury-ethereum",
     "dep:ibc-proto",

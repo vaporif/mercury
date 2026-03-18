@@ -11,6 +11,9 @@ members = [
   "crates/chains/counterparties/ethereum",
   "crates/chains/relay-pairs/cosmos-cosmos",
   "crates/chains/relay-pairs/cosmos-ethereum",
+  "crates/chains/core/solana",
+  "crates/chains/counterparties/solana",
+  "crates/chains/relay-pairs/cosmos-solana",
   "crates/relay",
   "crates/cli",
   "crates/e2e",
@@ -62,6 +65,9 @@ mercury-ethereum = { path = "crates/chains/core/ethereum" }
 mercury-ethereum-counterparties = { path = "crates/chains/counterparties/ethereum" }
 mercury-cosmos-cosmos-relay = { path = "crates/chains/relay-pairs/cosmos-cosmos" }
 mercury-cosmos-ethereum-relay = { path = "crates/chains/relay-pairs/cosmos-ethereum" }
+mercury-solana = { path = "crates/chains/core/solana" }
+mercury-solana-counterparties = { path = "crates/chains/counterparties/solana" }
+mercury-cosmos-solana-relay = { path = "crates/chains/relay-pairs/cosmos-solana" }
 mercury-relay = { path = "crates/relay" }
 mercury-cli = { path = "crates/cli" }
 
@@ -73,6 +79,15 @@ ibc = { version = "0.57", default-features = false, features = ["serde"] }
 ibc-proto = { git = "https://github.com/cosmos/ibc-proto-rs", branch = "main", default-features = false, features = ["serde", "client", "transport"] }
 ibc-client-tendermint = { version = "0.57", default-features = false }
 ibc-core-commitment-types = { version = "0.57", default-features = false }
+
+solana-client             = { version = "3" }
+solana-sdk                = { version = "4" }
+solana-commitment-config  = { version = "3" }
+solana-transaction-status = { version = "3" }
+bincode                   = { version = "3" }
+anchor-lang               = { version = "0.32.1" }
+anchor-client             = { version = "0.32.1" }
+
 prost = "0.13"
 prost-types = "0.13"
 # TODO: upgrade to tonic 0.14 once ibc-proto/cosmos-sdk-proto support it
