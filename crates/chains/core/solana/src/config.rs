@@ -6,7 +6,6 @@ use serde::Deserialize;
 pub struct SolanaChainConfig {
     #[serde(default)]
     pub chain_name: Option<String>,
-    pub chain_id: String,
     pub rpc_addr: String,
     #[serde(default)]
     pub ws_addr: Option<String>,

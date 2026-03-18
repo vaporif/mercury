@@ -61,17 +61,18 @@ impl ChainPlugin for SolanaPlugin {
         let height = SolanaCached::chain_status_height(&status);
         let timestamp = SolanaCached::chain_status_timestamp(&status);
         Ok(ChainStatusInfo {
-            chain_id: ChainId::from(c.chain_id().0.clone()),
+            chain_id: ChainId::from(c.chain_id().to_string()),
             height: height.0,
             timestamp: timestamp.0.to_string(),
         })
     }
 
     fn chain_id_from_config(&self, raw: &toml::Table) -> eyre::Result<ChainId> {
-        raw.get("chain_id")
+        let name = raw
+            .get("chain_name")
             .and_then(toml::Value::as_str)
-            .map(ChainId::from)
-            .ok_or_else(|| eyre::eyre!("missing 'chain_id' in solana config"))
+            .unwrap_or("solana");
+        Ok(ChainId::from(name))
     }
 
     fn rpc_addr_from_config(&self, raw: &toml::Table) -> eyre::Result<String> {

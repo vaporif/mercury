@@ -26,21 +26,14 @@ use crate::types::{
 #[derive(Clone, Debug)]
 pub struct SolanaChain {
     pub config: SolanaChainConfig,
-    pub chain_id: SolanaChainId,
     label: mercury_core::ChainLabel,
 }
 
 impl SolanaChain {
     pub fn new(config: SolanaChainConfig) -> Result<Self> {
-        // TODO: connect to Solana RPC, validate chain state
-        let chain_id = SolanaChainId(config.chain_id.clone());
         let name = config.chain_name.as_deref().unwrap_or("solana");
-        let label = mercury_core::ChainLabel::with_id(name, config.chain_id.clone());
-        Ok(Self {
-            config,
-            chain_id,
-            label,
-        })
+        let label = mercury_core::ChainLabel::new(name);
+        Ok(Self { config, label })
     }
 }
 
@@ -83,7 +76,7 @@ impl ChainTypes for SolanaChain {
     }
 
     fn chain_id(&self) -> &Self::ChainId {
-        &self.chain_id
+        &SolanaChainId
     }
 
     fn chain_label(&self) -> mercury_core::ChainLabel {
@@ -319,7 +312,6 @@ impl PacketMessageBuilder<Self> for SolanaChain {
     }
 }
 
-/// Placeholder misbehaviour evidence.
 #[derive(Clone, Debug)]
 pub struct SolanaMisbehaviourEvidence;
 
