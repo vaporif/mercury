@@ -96,6 +96,9 @@ impl CosmosEthTestContext {
             }),
             rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
             rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
+            gas_multiplier: None,
+            max_gas: None,
+            max_priority_fee_multiplier: None,
         };
 
         let eth_chain = EthereumAdapter::new(eth_config, eth_signer)
