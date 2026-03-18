@@ -31,8 +31,7 @@ pub struct SolanaChain {
 
 impl SolanaChain {
     pub fn new(config: SolanaChainConfig) -> Result<Self> {
-        let name = config.chain_name.as_deref().unwrap_or("solana");
-        let label = mercury_core::ChainLabel::new(name);
+        let label = mercury_core::ChainLabel::new("solana");
         Ok(Self { config, label })
     }
 }

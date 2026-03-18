@@ -67,12 +67,8 @@ impl ChainPlugin for SolanaPlugin {
         })
     }
 
-    fn chain_id_from_config(&self, raw: &toml::Table) -> eyre::Result<ChainId> {
-        let name = raw
-            .get("chain_name")
-            .and_then(toml::Value::as_str)
-            .unwrap_or("solana");
-        Ok(ChainId::from(name))
+    fn chain_id_from_config(&self, _raw: &toml::Table) -> eyre::Result<ChainId> {
+        Ok(ChainId::from("n/a"))
     }
 
     fn rpc_addr_from_config(&self, raw: &toml::Table) -> eyre::Result<String> {
