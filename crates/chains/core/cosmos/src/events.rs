@@ -1,8 +1,11 @@
 use async_trait::async_trait;
-use mercury_chain_traits::events::PacketEvents;
+use futures::{Stream, StreamExt};
+use mercury_chain_traits::events::{BlockEvents, PacketEvents};
 use mercury_core::error::Result;
 use prost::Message as _;
-use tendermint_rpc::Client;
+use tendermint_rpc::event::EventData;
+use tendermint_rpc::query::EventType;
+use tendermint_rpc::{Client, SubscriptionClient, WebSocketClient};
 use tracing::warn;
 
 use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
@@ -189,6 +192,127 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
 
         Ok(None)
     }
+
+    async fn subscribe_block_events(
+        &self,
+    ) -> Result<
+        Option<
+            mercury_chain_traits::events::BlockEventStream<tendermint::block::Height, CosmosEvent>,
+        >,
+    > {
+        let ws_addr = match &self.config.ws_addr {
+            Some(addr) => addr.clone(),
+            None => return Ok(None),
+        };
+
+        let (client, driver) = WebSocketClient::new(ws_addr.as_str())
+            .await
+            .map_err(|e| eyre::eyre!("websocket connect failed: {e}"))?;
+
+        tokio::spawn(driver.run());
+
+        let subscription = client
+            .subscribe(tendermint_rpc::query::Query::from(EventType::Tx))
+            .await
+            .map_err(|e| eyre::eyre!("websocket subscription failed: {e}"))?;
+
+        let flush_timeout = self.config.block_time * 2;
+        Ok(Some(Box::pin(cosmos_ws_stream(
+            subscription,
+            client,
+            flush_timeout,
+        ))))
+    }
+}
+
+fn cosmos_ws_stream(
+    subscription: tendermint_rpc::Subscription,
+    client: WebSocketClient,
+    flush_timeout: std::time::Duration,
+) -> impl Stream<Item = Result<BlockEvents<tendermint::block::Height, CosmosEvent>>> {
+    type State = (
+        tendermint_rpc::Subscription,
+        WebSocketClient,
+        Option<(tendermint::block::Height, Vec<CosmosEvent>)>,
+        std::time::Duration,
+        Option<eyre::Report>,
+    );
+
+    futures::stream::unfold(
+        (subscription, client, None, flush_timeout, None) as State,
+        |(mut sub, client, mut pending, flush_timeout, deferred_err)| async move {
+            if let Some(err) = deferred_err {
+                return Some((Err(err), (sub, client, None, flush_timeout, None)));
+            }
+
+            let flush = |pending: (tendermint::block::Height, Vec<CosmosEvent>), state: State| {
+                let flushed = BlockEvents {
+                    height: pending.0,
+                    events: pending.1,
+                };
+                Some((Ok(flushed), state))
+            };
+
+            loop {
+                let next = tokio::time::timeout(flush_timeout, sub.next()).await;
+
+                match next {
+                    Ok(Some(Ok(event))) => {
+                        let EventData::Tx { tx_result } = &event.data else {
+                            continue;
+                        };
+
+                        let height = tendermint::block::Height::try_from(tx_result.height)
+                            .unwrap_or_default();
+                        let events: Vec<CosmosEvent> = tx_result
+                            .result
+                            .events
+                            .iter()
+                            .map(abci_event_to_cosmos_event)
+                            .collect();
+
+                        match &mut pending {
+                            Some((pending_height, pending_events)) if *pending_height == height => {
+                                pending_events.extend(events);
+                            }
+                            Some((pending_height, pending_events)) => {
+                                let flushed = BlockEvents {
+                                    height: *pending_height,
+                                    events: std::mem::take(pending_events),
+                                };
+                                *pending_height = height;
+                                *pending_events = events;
+                                return Some((
+                                    Ok(flushed),
+                                    (sub, client, pending, flush_timeout, None),
+                                ));
+                            }
+                            None => {
+                                pending = Some((height, events));
+                            }
+                        }
+                    }
+                    Ok(Some(Err(e))) => {
+                        let err = eyre::eyre!("websocket stream error: {e}");
+                        if let Some(p) = pending.take() {
+                            return flush(p, (sub, client, None, flush_timeout, Some(err)));
+                        }
+                        return Some((Err(err), (sub, client, None, flush_timeout, None)));
+                    }
+                    Ok(None) => {
+                        return pending
+                            .take()
+                            .and_then(|p| flush(p, (sub, client, None, flush_timeout, None)));
+                    }
+                    Err(_timeout) => {
+                        if let Some(p) = pending.take() {
+                            return flush(p, (sub, client, None, flush_timeout, None));
+                        }
+                    }
+                }
+            }
+        },
+    )
 }
 
 #[cfg(test)]

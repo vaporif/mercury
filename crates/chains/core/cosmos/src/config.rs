@@ -21,6 +21,8 @@ pub struct CosmosChainConfig {
     pub chain_name: Option<String>,
     pub chain_id: String,
     pub rpc_addr: String,
+    #[serde(default)]
+    pub ws_addr: Option<String>,
     pub grpc_addr: String,
     pub account_prefix: String,
     pub key_name: String,
@@ -83,10 +85,13 @@ impl CosmosChainConfig {
     }
 
     fn validate_inner(&self) -> eyre::Result<()> {
-        use mercury_core::validate::{require_http_url, require_positive};
+        use mercury_core::validate::{require_http_url, require_positive, require_ws_url};
 
         require_http_url("rpc_addr", &self.rpc_addr)?;
         require_http_url("grpc_addr", &self.grpc_addr)?;
+        if let Some(ref ws) = self.ws_addr {
+            require_ws_url("ws_addr", ws)?;
+        }
         eyre::ensure!(
             self.gas_price.amount >= 0.0,
             "gas_price.amount must be non-negative"
@@ -157,6 +162,7 @@ mod tests {
             chain_name: None,
             chain_id: "cosmoshub-4".to_string(),
             rpc_addr: "http://localhost:26657".to_string(),
+            ws_addr: None,
             grpc_addr: "http://localhost:9090".to_string(),
             account_prefix: "cosmos".to_string(),
             key_name: "default".to_string(),
@@ -389,6 +395,33 @@ mod tests {
     fn trusting_period_without_unbonding_passes() {
         let mut cfg = valid_config();
         cfg.trusting_period = Some(Duration::from_secs(86400 * 14));
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn ws_addr_valid_ws_passes() {
+        let mut cfg = valid_config();
+        cfg.ws_addr = Some("ws://localhost:26657/websocket".to_string());
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn ws_addr_valid_wss_passes() {
+        let mut cfg = valid_config();
+        cfg.ws_addr = Some("wss://rpc.cosmos.network/websocket".to_string());
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn ws_addr_rejects_http() {
+        let mut cfg = valid_config();
+        cfg.ws_addr = Some("http://localhost:26657".to_string());
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn ws_addr_none_passes() {
+        let cfg = valid_config();
         assert!(cfg.validate().is_ok());
     }
 

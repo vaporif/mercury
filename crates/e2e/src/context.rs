@@ -339,6 +339,7 @@ fn make_test_cosmos_config(handle: &CosmosDockerHandle, key_name: &str) -> Cosmo
         chain_name: None,
         chain_id: handle.chain_id().to_string(),
         rpc_addr: handle.rpc_endpoint().to_string(),
+        ws_addr: None,
         grpc_addr: handle.grpc_endpoint().to_string(),
         account_prefix: "cosmos".to_string(),
         key_name: key_name.to_string(),

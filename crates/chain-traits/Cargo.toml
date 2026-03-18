@@ -17,4 +17,5 @@ workspace = true
 mercury-core = { workspace = true }
 async-trait = { workspace = true }
 eyre = { workspace = true }
+futures = { workspace = true }
 serde = { workspace = true }

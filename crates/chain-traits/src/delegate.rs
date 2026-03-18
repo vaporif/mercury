@@ -232,6 +232,14 @@ macro_rules! delegate_chain {
             ) -> $crate::_mercury_core::error::Result<Option<Self::SendPacketEvent>> {
                 self.0.query_send_packet_event(client_id, sequence).await
             }
+
+            async fn subscribe_block_events(
+                &self,
+            ) -> $crate::_mercury_core::error::Result<
+                Option<$crate::events::BlockEventStream<Self::Height, Self::Event>>,
+            > {
+                self.0.subscribe_block_events().await
+            }
         }
 
         #[$crate::_async_trait::async_trait]
