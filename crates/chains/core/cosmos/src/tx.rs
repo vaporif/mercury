@@ -7,6 +7,7 @@ use tracing::{debug, info, instrument, warn};
 
 use mercury_chain_traits::types::{ChainTypes, MessageSender, TxReceipt};
 use mercury_core::error::{Result, TxError};
+use mercury_core::validate::GasMultiplier;
 
 use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
@@ -369,7 +370,10 @@ impl<S: CosmosSigner> CosmosChain<S> {
             SimulateRequest, service_client::ServiceClient as TxServiceClient,
         };
 
-        let gas_multiplier = self.config.gas_multiplier.unwrap_or(DEFAULT_GAS_MULTIPLIER);
+        let gas_multiplier = self
+            .config
+            .gas_multiplier
+            .map_or(DEFAULT_GAS_MULTIPLIER, GasMultiplier::value);
         let default_gas = self.config.default_gas.unwrap_or(DEFAULT_GAS);
 
         let dummy_fee = CosmosFee {
