@@ -62,8 +62,10 @@ impl QueryClientStateCmd {
 
         let chain_cfg = cfg.find_chain(&registry, &self.chain)?;
 
-        let plugin = registry.chain(&chain_cfg.chain_type)?;
-        let _chain = plugin.connect(&chain_cfg.raw, config_dir).await?;
+        let _chain = registry
+            .chain(&chain_cfg.chain_type)?
+            .connect(&chain_cfg.raw, config_dir)
+            .await?;
 
         todo!("implement query client state for chain '{}'", self.chain)
     }
@@ -110,8 +112,10 @@ impl QueryPacketCommitmentsCmd {
 
         let chain_cfg = cfg.find_chain(&registry, &self.chain)?;
 
-        let plugin = registry.chain(&chain_cfg.chain_type)?;
-        let _chain = plugin.connect(&chain_cfg.raw, config_dir).await?;
+        let _chain = registry
+            .chain(&chain_cfg.chain_type)?
+            .connect(&chain_cfg.raw, config_dir)
+            .await?;
 
         todo!(
             "implement query packet commitments for chain '{}'",
@@ -152,8 +156,10 @@ impl QueryPacketPendingCmd {
 
         let _counterparty_cfg = cfg.find_chain(&registry, &self.counterparty_chain)?;
 
-        let plugin = registry.chain(&chain_cfg.chain_type)?;
-        let _chain = plugin.connect(&chain_cfg.raw, config_dir).await?;
+        let _chain = registry
+            .chain(&chain_cfg.chain_type)?
+            .connect(&chain_cfg.raw, config_dir)
+            .await?;
 
         todo!("implement query packet pending for chain '{}'", self.chain)
     }
