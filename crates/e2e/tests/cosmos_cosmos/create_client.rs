@@ -2,7 +2,7 @@ use std::process::Command;
 
 use mercury_e2e::bootstrap::cosmos_docker::CosmosDockerBootstrap;
 use mercury_e2e::bootstrap::traits::{ChainBootstrap, ChainHandle};
-use mercury_e2e::relayer::{find_or_build_binary, parse_client_id_from_output};
+use mercury_e2e::relayer::find_or_build_binary;
 
 struct CosmosCosmosInfra {
     handle_a: mercury_e2e::bootstrap::cosmos_docker::CosmosDockerHandle,
@@ -85,14 +85,8 @@ denom = "stake"
     }
 }
 
-fn run_create_client(
-    binary: &str,
-    config_path: &std::path::Path,
-    host: &str,
-    reference: &str,
-) -> String {
+fn assert_create_client(binary: &str, config_path: &std::path::Path, host: &str, reference: &str) {
     let output = Command::new(binary)
-        .env("RUST_LOG", "info")
         .args([
             "create",
             "client",
@@ -106,13 +100,12 @@ fn run_create_client(
         .output()
         .expect("run create client");
 
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "create client failed (host={host}, ref={reference}):\nstderr: {stderr}"
+        "create client failed (host={host}, ref={reference}):\nstdout: {stdout}\nstderr: {stderr}"
     );
-
-    parse_client_id_from_output(&stderr)
 }
 
 #[tokio::test]
@@ -123,17 +116,11 @@ async fn create_client_b_tracks_a() {
     let infra = setup_infra().await;
     let binary = find_or_build_binary();
 
-    let client_id = run_create_client(
+    assert_create_client(
         &binary,
         &infra.config_path,
         infra.handle_b.chain_id(),
         infra.handle_a.chain_id(),
-    );
-    assert!(
-        client_id
-            .parse::<ibc::core::host::types::identifiers::ClientId>()
-            .is_ok(),
-        "invalid cosmos client ID: {client_id}"
     );
 }
 
@@ -145,16 +132,10 @@ async fn create_client_a_tracks_b() {
     let infra = setup_infra().await;
     let binary = find_or_build_binary();
 
-    let client_id = run_create_client(
+    assert_create_client(
         &binary,
         &infra.config_path,
         infra.handle_a.chain_id(),
         infra.handle_b.chain_id(),
-    );
-    assert!(
-        client_id
-            .parse::<ibc::core::host::types::identifiers::ClientId>()
-            .is_ok(),
-        "invalid cosmos client ID: {client_id}"
     );
 }

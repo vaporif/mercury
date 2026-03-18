@@ -284,20 +284,6 @@ dst_client_id = "{client_b}"
 
 #[must_use]
 #[allow(clippy::missing_panics_doc)]
-pub fn parse_client_id_from_output(output: &str) -> String {
-    output
-        .lines()
-        .filter(|line| line.contains("client created"))
-        .find_map(|line| {
-            line.split_whitespace()
-                .find(|tok| tok.starts_with("client_id="))
-                .map(|tok| tok.trim_start_matches("client_id=").to_string())
-        })
-        .unwrap_or_else(|| panic!("could not parse client_id from output:\n{output}"))
-}
-
-#[must_use]
-#[allow(clippy::missing_panics_doc)]
 pub fn find_or_build_binary() -> String {
     std::env::var("MERCURY_RELAYER_BIN").unwrap_or_else(|_| {
         let output = Command::new("cargo")

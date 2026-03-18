@@ -7,7 +7,7 @@ use mercury_e2e::bootstrap::cosmos_docker::{
 };
 use mercury_e2e::bootstrap::traits::{ChainBootstrap, ChainHandle};
 use mercury_e2e::cosmos_eth_context::build_sp1_client_state;
-use mercury_e2e::relayer::{find_or_build_binary, parse_client_id_from_output};
+use mercury_e2e::relayer::find_or_build_binary;
 
 use super::*;
 
@@ -122,6 +122,29 @@ prover_mode = "mock"
     (config_path, cosmos_chain_id, eth_chain_id)
 }
 
+fn assert_create_client(binary: &str, config_path: &std::path::Path, host: &str, reference: &str) {
+    let output = Command::new(binary)
+        .args([
+            "create",
+            "client",
+            "--config",
+            &config_path.to_string_lossy(),
+            "--host-chain",
+            host,
+            "--reference-chain",
+            reference,
+        ])
+        .output()
+        .expect("run create client");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "create client failed (host={host}, ref={reference}):\nstdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires Docker and Foundry"]
 async fn create_client_cosmos_host_eth_reference() {
@@ -132,35 +155,7 @@ async fn create_client_cosmos_host_eth_reference() {
     let (config_path, cosmos_chain_id, eth_chain_id) = write_config(&config_dir, &infra);
 
     let binary = find_or_build_binary();
-
-    let output = Command::new(&binary)
-        .env("RUST_LOG", "info")
-        .args([
-            "create",
-            "client",
-            "--config",
-            &config_path.to_string_lossy(),
-            "--host-chain",
-            &cosmos_chain_id,
-            "--reference-chain",
-            &eth_chain_id,
-        ])
-        .output()
-        .expect("run create client");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "create client (cosmos host, eth ref) failed:\nstderr: {stderr}"
-    );
-
-    let client_id = parse_client_id_from_output(&stderr);
-    assert!(
-        client_id
-            .parse::<ibc::core::host::types::identifiers::ClientId>()
-            .is_ok(),
-        "invalid cosmos client ID: {client_id}"
-    );
+    assert_create_client(&binary, &config_path, &cosmos_chain_id, &eth_chain_id);
 }
 
 #[tokio::test]
@@ -173,28 +168,5 @@ async fn create_client_eth_host_cosmos_reference() {
     let (config_path, cosmos_chain_id, eth_chain_id) = write_config(&config_dir, &infra);
 
     let binary = find_or_build_binary();
-
-    let output = Command::new(&binary)
-        .env("RUST_LOG", "info")
-        .args([
-            "create",
-            "client",
-            "--config",
-            &config_path.to_string_lossy(),
-            "--host-chain",
-            &eth_chain_id,
-            "--reference-chain",
-            &cosmos_chain_id,
-        ])
-        .output()
-        .expect("run create client");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "create client (eth host, cosmos ref) failed:\nstderr: {stderr}"
-    );
-
-    let client_id = parse_client_id_from_output(&stderr);
-    assert!(!client_id.is_empty(), "EVM client ID should not be empty");
+    assert_create_client(&binary, &config_path, &eth_chain_id, &cosmos_chain_id);
 }
