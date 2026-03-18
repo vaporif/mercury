@@ -5059,6 +5059,7 @@ dependencies = [
  "eyre",
  "futures",
  "mercury-core",
+ "serde",
 ]
 
 [[package]]

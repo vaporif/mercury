@@ -1,6 +1,8 @@
 use alloy::primitives::{Address, B256, U256};
 use alloy::rpc::types::Log;
 
+use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EvmHeight(pub u64);
 
@@ -22,14 +24,98 @@ impl std::fmt::Display for EvmChainId {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EvmTimestamp(pub u64);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BlockNumber(pub u64);
+
+impl std::fmt::Display for BlockNumber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for BlockNumber {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<BlockNumber> for u64 {
+    fn from(v: BlockNumber) -> Self {
+        v.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct LogIndex(pub u64);
+
+impl std::fmt::Display for LogIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for LogIndex {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<LogIndex> for u64 {
+    fn from(v: LogIndex) -> Self {
+        v.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProofHeight(pub u64);
+
+impl std::fmt::Display for ProofHeight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for ProofHeight {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<ProofHeight> for u64 {
+    fn from(v: ProofHeight) -> Self {
+        v.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct GasUsed(pub u64);
+
+impl std::fmt::Display for GasUsed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for GasUsed {
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
+}
+
+impl From<GasUsed> for u64 {
+    fn from(v: GasUsed) -> Self {
+        v.0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct EvmEvent {
     pub address: Address,
     pub topics: Vec<B256>,
     pub data: Vec<u8>,
-    pub block_number: u64,
+    pub block_number: BlockNumber,
     pub tx_hash: B256,
-    pub log_index: u64,
+    pub log_index: LogIndex,
 }
 
 impl EvmEvent {
@@ -38,9 +124,9 @@ impl EvmEvent {
             address: log.address(),
             topics: log.topics().to_vec(),
             data: log.data().data.to_vec(),
-            block_number: log.block_number.unwrap_or(0),
+            block_number: BlockNumber(log.block_number.unwrap_or(0)),
             tx_hash: log.transaction_hash.unwrap_or_default(),
-            log_index: log.log_index.unwrap_or(0),
+            log_index: LogIndex(log.log_index.unwrap_or(0)),
         }
     }
 }
@@ -55,8 +141,8 @@ pub struct EvmMessage {
 #[derive(Clone, Debug)]
 pub struct EvmTxResponse {
     pub tx_hash: B256,
-    pub block_number: u64,
-    pub gas_used: u64,
+    pub block_number: BlockNumber,
+    pub gas_used: GasUsed,
     pub logs: Vec<EvmEvent>,
 }
 
@@ -79,15 +165,15 @@ impl std::fmt::Display for EvmClientId {
 pub struct EvmPacket {
     pub source_client: String,
     pub dest_client: String,
-    pub sequence: u64,
-    pub timeout_timestamp: u64,
+    pub sequence: PacketSequence,
+    pub timeout_timestamp: TimeoutTimestamp,
     pub payloads: Vec<EvmPayload>,
 }
 
 #[derive(Clone, Debug)]
 pub struct EvmPayload {
-    pub source_port: String,
-    pub dest_port: String,
+    pub source_port: Port,
+    pub dest_port: Port,
     pub version: String,
     pub encoding: String,
     pub value: Vec<u8>,
@@ -96,7 +182,7 @@ pub struct EvmPayload {
 /// EIP-1186 storage proof for a single slot, obtained via `eth_getProof`.
 #[derive(Clone, Debug)]
 pub struct EvmCommitmentProof {
-    pub proof_height: u64,
+    pub proof_height: ProofHeight,
     pub storage_root: B256,
     pub account_proof: Vec<Vec<u8>>,
     pub storage_key: B256,
@@ -122,14 +208,14 @@ pub struct EvmAcknowledgement(pub Vec<u8>);
 #[derive(Clone, Debug)]
 pub struct EvmSendPacketEvent {
     pub packet: EvmPacket,
-    pub block_number: u64,
+    pub block_number: BlockNumber,
 }
 
 #[derive(Clone, Debug)]
 pub struct EvmWriteAckEvent {
     pub packet: EvmPacket,
     pub ack: EvmAcknowledgement,
-    pub block_number: u64,
+    pub block_number: BlockNumber,
 }
 
 #[cfg(test)]

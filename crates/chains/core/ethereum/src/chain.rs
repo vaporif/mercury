@@ -13,7 +13,7 @@ use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, UpdateClientOutput,
 };
 use mercury_chain_traits::queries::ChainStatusQuery;
-use mercury_chain_traits::types::{ChainTypes, IbcTypes};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes, PacketSequence, Port, TimeoutTimestamp};
 
 use crate::aggregator::AggregatorClient;
 use crate::builders::{CreateClientPayload, UpdateClientPayload};
@@ -207,15 +207,15 @@ impl IbcTypes for EthereumChain {
     type PacketReceipt = EvmPacketReceipt;
     type Acknowledgement = EvmAcknowledgement;
 
-    fn packet_sequence(packet: &EvmPacket) -> u64 {
+    fn packet_sequence(packet: &EvmPacket) -> PacketSequence {
         packet.sequence
     }
 
-    fn packet_timeout_timestamp(packet: &EvmPacket) -> u64 {
+    fn packet_timeout_timestamp(packet: &EvmPacket) -> TimeoutTimestamp {
         packet.timeout_timestamp
     }
 
-    fn packet_source_ports(packet: &EvmPacket) -> Vec<String> {
+    fn packet_source_ports(packet: &EvmPacket) -> Vec<Port> {
         packet
             .payloads
             .iter()
@@ -650,11 +650,14 @@ mod tests {
         let packet = EvmPacket {
             source_client: "client-0".to_string(),
             dest_client: "client-1".to_string(),
-            sequence: 42,
-            timeout_timestamp: 0,
+            sequence: PacketSequence(42),
+            timeout_timestamp: TimeoutTimestamp(0),
             payloads: vec![],
         };
-        assert_eq!(<EthereumChain as IbcTypes>::packet_sequence(&packet), 42);
+        assert_eq!(
+            <EthereumChain as IbcTypes>::packet_sequence(&packet),
+            PacketSequence(42)
+        );
     }
 
     #[test]
@@ -662,13 +665,13 @@ mod tests {
         let packet = EvmPacket {
             source_client: "client-0".to_string(),
             dest_client: "client-1".to_string(),
-            sequence: 1,
-            timeout_timestamp: 1_700_000_000,
+            sequence: PacketSequence(1),
+            timeout_timestamp: TimeoutTimestamp(1_700_000_000),
             payloads: vec![],
         };
         assert_eq!(
             <EthereumChain as IbcTypes>::packet_timeout_timestamp(&packet),
-            1_700_000_000
+            TimeoutTimestamp(1_700_000_000)
         );
     }
 }

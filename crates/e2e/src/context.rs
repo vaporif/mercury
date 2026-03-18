@@ -155,7 +155,7 @@ impl TestContext {
         };
 
         let cosmos_msg = CosmosMessage {
-            type_url: MsgSendPacket::type_url(),
+            type_url: MsgSendPacket::type_url().into(),
             value: msg.encode_to_vec(),
         };
 
@@ -207,7 +207,7 @@ impl TestContext {
         };
 
         let cosmos_msg = CosmosMessage {
-            type_url: MsgSendPacket::type_url(),
+            type_url: MsgSendPacket::type_url().into(),
             value: msg.encode_to_vec(),
         };
 

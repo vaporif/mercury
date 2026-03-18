@@ -9,7 +9,7 @@ use eyre::Context;
 use tracing::instrument;
 
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
-use mercury_chain_traits::types::ChainTypes;
+use mercury_chain_traits::types::{ChainTypes, PacketSequence};
 use mercury_core::error::{ProofError, QueryError, Result};
 
 use crate::chain::EthereumChain;
@@ -18,7 +18,7 @@ use crate::contracts::{ICS26Router, SP1ICS07Tendermint};
 use crate::ics24;
 use crate::types::{
     EvmAcknowledgement, EvmChainStatus, EvmClientId, EvmClientState, EvmCommitmentProof,
-    EvmConsensusState, EvmHeight, EvmPacketCommitment, EvmPacketReceipt, EvmTimestamp,
+    EvmConsensusState, EvmHeight, EvmPacketCommitment, EvmPacketReceipt, EvmTimestamp, ProofHeight,
 };
 
 #[async_trait]
@@ -196,7 +196,7 @@ async fn get_storage_proof(
     let sp = proof.storage_proof.first().ok_or(ProofError::Missing)?;
 
     Ok(EvmCommitmentProof {
-        proof_height: height.0,
+        proof_height: ProofHeight(height.0),
         storage_root: proof.storage_hash,
         account_proof: proof.account_proof.iter().map(|b| b.to_vec()).collect(),
         storage_key: sp.key.as_b256(),
@@ -239,40 +239,40 @@ async fn query_commitment_with_proof(
 
 #[async_trait]
 impl PacketStateQuery for EthereumChain {
-    #[instrument(skip_all, name = "query_packet_commitment", fields(chain = %self.chain_label(), seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_commitment", fields(chain = %self.chain_label(), seq = %sequence))]
     async fn query_packet_commitment(
         &self,
         client_id: &EvmClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &EvmHeight,
     ) -> Result<(Option<EvmPacketCommitment>, EvmCommitmentProof)> {
-        let hashed_path = ics24::packet_commitment_key(&client_id.0, sequence);
+        let hashed_path = ics24::packet_commitment_key(&client_id.0, sequence.into());
         let (value, proof) = query_commitment_with_proof(self, hashed_path, height).await?;
         let commitment = (!value.is_zero()).then(|| EvmPacketCommitment(value.to_vec()));
         Ok((commitment, proof))
     }
 
-    #[instrument(skip_all, name = "query_packet_receipt", fields(chain = %self.chain_label(), seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_receipt", fields(chain = %self.chain_label(), seq = %sequence))]
     async fn query_packet_receipt(
         &self,
         client_id: &EvmClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &EvmHeight,
     ) -> Result<(Option<EvmPacketReceipt>, EvmCommitmentProof)> {
-        let hashed_path = ics24::packet_receipt_key(&client_id.0, sequence);
+        let hashed_path = ics24::packet_receipt_key(&client_id.0, sequence.into());
         let (value, proof) = query_commitment_with_proof(self, hashed_path, height).await?;
         let receipt = (!value.is_zero()).then_some(EvmPacketReceipt);
         Ok((receipt, proof))
     }
 
-    #[instrument(skip_all, name = "query_packet_ack", fields(chain = %self.chain_label(), seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_ack", fields(chain = %self.chain_label(), seq = %sequence))]
     async fn query_packet_acknowledgement(
         &self,
         client_id: &EvmClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &EvmHeight,
     ) -> Result<(Option<EvmAcknowledgement>, EvmCommitmentProof)> {
-        let hashed_path = ics24::ack_commitment_key(&client_id.0, sequence);
+        let hashed_path = ics24::ack_commitment_key(&client_id.0, sequence.into());
         let (value, proof) = query_commitment_with_proof(self, hashed_path, height).await?;
         let ack = (!value.is_zero()).then(|| EvmAcknowledgement(value.to_vec()));
         Ok((ack, proof))
@@ -283,7 +283,7 @@ impl PacketStateQuery for EthereumChain {
         &self,
         client_id: &EvmClientId,
         height: &EvmHeight,
-    ) -> Result<Vec<u64>> {
+    ) -> Result<Vec<PacketSequence>> {
         let filter = Filter::new()
             .address(self.router_address)
             .event_signature(ICS26Router::SendPacket::SIGNATURE_HASH)
@@ -300,12 +300,12 @@ impl PacketStateQuery for EthereumChain {
             })
             .await?;
 
-        let mut sequences: Vec<u64> = logs
+        let mut sequences: Vec<PacketSequence> = logs
             .iter()
             .filter_map(|log| {
                 let decoded = ICS26Router::SendPacket::decode_log(log.as_ref()).ok()?;
                 if decoded.data.packet.sourceClient == client_id.0 {
-                    Some(decoded.data.packet.sequence)
+                    Some(PacketSequence(decoded.data.packet.sequence))
                 } else {
                     None
                 }

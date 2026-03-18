@@ -8,6 +8,8 @@ use tendermint_rpc::query::EventType;
 use tendermint_rpc::{Client, SubscriptionClient, WebSocketClient};
 use tracing::warn;
 
+use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+
 use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
 use crate::types::{
@@ -26,14 +28,14 @@ fn v2_packet_to_cosmos(pkt: channel::Packet) -> CosmosPacket {
     CosmosPacket {
         source_client_id: pkt.source_client.into(),
         dest_client_id: pkt.destination_client.into(),
-        sequence: pkt.sequence,
-        timeout_timestamp: pkt.timeout_timestamp,
+        sequence: PacketSequence(pkt.sequence),
+        timeout_timestamp: TimeoutTimestamp(pkt.timeout_timestamp),
         payloads: pkt
             .payloads
             .into_iter()
             .map(|p| PacketPayload {
-                source_port: p.source_port,
-                dest_port: p.destination_port,
+                source_port: Port(p.source_port),
+                dest_port: Port(p.destination_port),
                 version: p.version,
                 encoding: p.encoding,
                 data: p.value,
@@ -156,12 +158,12 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
     async fn query_send_packet_event(
         &self,
         client_id: &ibc::core::host::types::identifiers::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
     ) -> Result<Option<SendPacketEvent>> {
         use tendermint_rpc::query::{EventType, Query};
 
-        let query =
-            Query::from(EventType::Tx).and_eq("send_packet.packet_sequence", sequence.to_string());
+        let query = Query::from(EventType::Tx)
+            .and_eq("send_packet.packet_sequence", sequence.0.to_string());
 
         let response = self
             .rpc_client
@@ -182,7 +184,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
 
         if response.txs.is_empty() {
             warn!(
-                sequence,
+                sequence = sequence.0,
                 %client_id,
                 "tx_search returned no results — event may have been pruned from node's tx index"
             );
@@ -317,6 +319,7 @@ fn cosmos_ws_stream(
 mod tests {
     use super::*;
     use mercury_chain_traits::events::PacketEvents;
+    use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
     use prost::Message;
 
     use crate::keys::Secp256k1KeyPair;
@@ -363,12 +366,12 @@ mod tests {
         };
 
         let result = v2_packet_to_cosmos(pkt);
-        assert_eq!(result.sequence, 42);
+        assert_eq!(result.sequence, PacketSequence(42));
         assert_eq!(result.source_client_id.as_ref(), "07-tendermint-0");
         assert_eq!(result.dest_client_id.as_ref(), "07-tendermint-1");
-        assert_eq!(result.timeout_timestamp, 1_700_000_000);
+        assert_eq!(result.timeout_timestamp, TimeoutTimestamp(1_700_000_000));
         assert_eq!(result.payloads.len(), 1);
-        assert_eq!(result.payloads[0].source_port, "transfer");
+        assert_eq!(result.payloads[0].source_port, Port("transfer".to_string()));
         assert_eq!(result.payloads[0].data, b"hello");
     }
 
@@ -415,7 +418,7 @@ mod tests {
         let result = TestChain::try_extract_send_packet_event(&event);
         assert!(result.is_some());
         let send_event = result.unwrap();
-        assert_eq!(send_event.packet.sequence, 7);
+        assert_eq!(send_event.packet.sequence, PacketSequence(7));
     }
 
     #[test]
@@ -463,7 +466,7 @@ mod tests {
         let result = TestChain::try_extract_write_ack_event(&event);
         assert!(result.is_some());
         let write_ack = result.unwrap();
-        assert_eq!(write_ack.packet.sequence, 3);
+        assert_eq!(write_ack.packet.sequence, PacketSequence(3));
         assert_eq!(write_ack.ack.0, ack.encode_to_vec());
     }
 }

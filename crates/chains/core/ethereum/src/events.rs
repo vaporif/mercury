@@ -10,8 +10,10 @@ use mercury_core::error::Result;
 
 use crate::chain::EthereumChain;
 use crate::contracts::{ICS26Router, IICS26RouterMsgs};
+use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+
 use crate::types::{
-    EvmAcknowledgement, EvmClientId, EvmEvent, EvmHeight, EvmPacket, EvmPayload,
+    BlockNumber, EvmAcknowledgement, EvmClientId, EvmEvent, EvmHeight, EvmPacket, EvmPayload,
     EvmSendPacketEvent, EvmWriteAckEvent,
 };
 
@@ -19,14 +21,14 @@ fn sol_packet_to_evm(p: &IICS26RouterMsgs::Packet) -> EvmPacket {
     EvmPacket {
         source_client: p.sourceClient.clone(),
         dest_client: p.destClient.clone(),
-        sequence: p.sequence,
-        timeout_timestamp: p.timeoutTimestamp,
+        sequence: PacketSequence(p.sequence),
+        timeout_timestamp: TimeoutTimestamp(p.timeoutTimestamp),
         payloads: p
             .payloads
             .iter()
             .map(|pl| EvmPayload {
-                source_port: pl.sourcePort.clone(),
-                dest_port: pl.destPort.clone(),
+                source_port: Port(pl.sourcePort.clone()),
+                dest_port: Port(pl.destPort.clone()),
                 version: pl.version.clone(),
                 encoding: pl.encoding.clone(),
                 value: pl.value.to_vec(),
@@ -117,13 +119,13 @@ impl PacketEvents for EthereumChain {
     async fn query_send_packet_event(
         &self,
         client_id: &EvmClientId,
-        sequence: u64,
+        sequence: PacketSequence,
     ) -> Result<Option<EvmSendPacketEvent>> {
         let filter = Filter::new()
             .address(self.router_address)
             .event_signature(ICS26Router::SendPacket::SIGNATURE_HASH)
             .topic1(keccak256(client_id.0.as_bytes()))
-            .topic2(B256::from(U256::from(sequence)))
+            .topic2(B256::from(U256::from(sequence.0)))
             .from_block(self.config.deployment_block);
 
         let logs = self
@@ -140,7 +142,7 @@ impl PacketEvents for EthereumChain {
             let decoded = ICS26Router::SendPacket::decode_log(log.as_ref()).ok()?;
             Some(EvmSendPacketEvent {
                 packet: sol_packet_to_evm(&decoded.data.packet),
-                block_number: log.block_number?,
+                block_number: BlockNumber(log.block_number?),
             })
         });
 
@@ -151,7 +153,7 @@ impl PacketEvents for EthereumChain {
         if event.is_none() {
             tracing::warn!(
                 client_id = %client_id,
-                sequence,
+                sequence = %sequence,
                 "matched SendPacket log but failed to decode"
             );
         }

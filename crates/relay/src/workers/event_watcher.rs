@@ -74,7 +74,7 @@ impl<R: Relay> EventWatcher<R> {
                 let allowed = filter.allows(&ports);
                 if !allowed {
                     let seq = <R::SrcChain as IbcTypes>::packet_sequence(packet);
-                    debug!(seq, ?ports, "packet filtered out");
+                    debug!(%seq, ?ports, "packet filtered out");
                 }
                 allowed
             });

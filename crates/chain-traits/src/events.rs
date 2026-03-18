@@ -5,7 +5,7 @@ use futures::Stream;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
-use crate::types::IbcTypes;
+use crate::types::{IbcTypes, PacketSequence};
 
 #[derive(Debug, Clone)]
 pub struct BlockEvents<H, E> {
@@ -32,7 +32,7 @@ pub trait PacketEvents: IbcTypes {
     async fn query_send_packet_event(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
     ) -> Result<Option<Self::SendPacketEvent>>;
 
     async fn subscribe_block_events(

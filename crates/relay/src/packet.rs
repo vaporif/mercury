@@ -14,7 +14,7 @@ where
     Dst: RelayChain + PacketMessageBuilder<Core<Src>>,
     Self: Relay<SrcChain = Src, DstChain = Dst>,
 {
-    #[instrument(skip_all, name = "build_receive_packet", fields(src_chain = %self.src_chain.chain_label(), seq = Src::packet_sequence(packet)))]
+    #[instrument(skip_all, name = "build_receive_packet", fields(src_chain = %self.src_chain.chain_label(), seq = %Src::packet_sequence(packet)))]
     async fn build_receive_packet_messages(
         &self,
         packet: &<Src as IbcTypes>::Packet,
@@ -28,7 +28,7 @@ where
             .await?;
 
         let Some(commitment) = commitment else {
-            debug!(seq = sequence, "packet commitment not found, skipping");
+            debug!(seq = %sequence, "packet commitment not found, skipping");
             return Ok((vec![], vec![]));
         };
 
@@ -52,7 +52,7 @@ where
         Ok((vec![msg], membership_entries))
     }
 
-    #[instrument(skip_all, name = "build_ack_packet", fields(src_chain = %self.src_chain.chain_label(), seq = Src::packet_sequence(packet)))]
+    #[instrument(skip_all, name = "build_ack_packet", fields(src_chain = %self.src_chain.chain_label(), seq = %Src::packet_sequence(packet)))]
     async fn build_ack_packet_messages(
         &self,
         packet: &<Src as IbcTypes>::Packet,
@@ -67,7 +67,7 @@ where
             .await?;
 
         let Some(ack_value) = ack_value else {
-            debug!(seq = sequence, "acknowledgement not found, skipping");
+            debug!(seq = %sequence, "acknowledgement not found, skipping");
             return Ok((vec![], vec![]));
         };
 
@@ -91,7 +91,7 @@ where
         Ok((vec![msg], membership_entries))
     }
 
-    #[instrument(skip_all, name = "build_timeout_packet", fields(src_chain = %self.src_chain.chain_label(), seq = Src::packet_sequence(packet)))]
+    #[instrument(skip_all, name = "build_timeout_packet", fields(src_chain = %self.src_chain.chain_label(), seq = %Src::packet_sequence(packet)))]
     async fn build_timeout_packet_messages(
         &self,
         packet: &<Src as IbcTypes>::Packet,
@@ -106,7 +106,7 @@ where
 
         if receipt.is_some() {
             debug!(
-                seq = sequence,
+                seq = %sequence,
                 "packet already received, timeout not needed"
             );
             return Ok(vec![]);

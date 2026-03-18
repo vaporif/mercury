@@ -1,6 +1,36 @@
 use prost::Message;
 use tendermint::block::Height as TmHeight;
 
+use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+
+/// Protobuf type URL identifier.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TypeUrl(pub String);
+
+impl std::fmt::Display for TypeUrl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<String> for TypeUrl {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<TypeUrl> for String {
+    fn from(v: TypeUrl) -> Self {
+        v.0
+    }
+}
+
+impl AsRef<str> for TypeUrl {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
 /// ABCI event
 #[derive(Clone, Debug)]
 pub struct CosmosEvent {
@@ -11,7 +41,7 @@ pub struct CosmosEvent {
 /// Protobuf-encoded message
 #[derive(Clone, Debug)]
 pub struct CosmosMessage {
-    pub type_url: String,
+    pub type_url: TypeUrl,
     pub value: Vec<u8>,
 }
 
@@ -19,7 +49,7 @@ pub struct CosmosMessage {
 #[must_use]
 pub fn to_any<M: prost::Name + Message>(msg: &M) -> CosmosMessage {
     CosmosMessage {
-        type_url: M::type_url(),
+        type_url: M::type_url().into(),
         value: msg.encode_to_vec(),
     }
 }
@@ -70,16 +100,16 @@ impl AsRef<str> for RawClientId {
 pub struct CosmosPacket {
     pub source_client_id: RawClientId,
     pub dest_client_id: RawClientId,
-    pub sequence: u64,
-    pub timeout_timestamp: u64,
+    pub sequence: PacketSequence,
+    pub timeout_timestamp: TimeoutTimestamp,
     pub payloads: Vec<PacketPayload>,
 }
 
 /// A single payload within a packet, carrying application data.
 #[derive(Clone, Debug)]
 pub struct PacketPayload {
-    pub source_port: String,
-    pub dest_port: String,
+    pub source_port: Port,
+    pub dest_port: Port,
     pub version: String,
     pub encoding: String,
     pub data: Vec<u8>,
@@ -127,7 +157,7 @@ mod tests {
         };
 
         let result = to_any(&msg);
-        assert_eq!(result.type_url, MsgRegisterCounterparty::type_url());
+        assert_eq!(result.type_url, MsgRegisterCounterparty::type_url().into());
         assert_eq!(result.value, msg.encode_to_vec());
     }
 }

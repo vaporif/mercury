@@ -11,7 +11,7 @@ use tendermint_rpc::{Client, HttpClient};
 use tracing::{instrument, warn};
 
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
-use mercury_chain_traits::types::ChainTypes;
+use mercury_chain_traits::types::{ChainTypes, PacketSequence};
 use mercury_core::error::{ProofError, QueryError, Result};
 
 use crate::chain::CosmosChain;
@@ -267,11 +267,11 @@ fn extract_proof(
 
 #[async_trait]
 impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
-    #[instrument(skip_all, name = "query_packet_commitment", fields(chain = %self.chain_label(), seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_commitment", fields(chain = %self.chain_label(), seq = %sequence))]
     async fn query_packet_commitment(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &Self::Height,
     ) -> Result<(Option<PacketCommitment>, MerkleProof)> {
         let query_height = proof_query_height(*height)?;
@@ -279,7 +279,11 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
             &self.rpc_client,
             &self.rpc_guard,
             IBC_STORE_PATH,
-            ibc_v2_key(client_id.as_str(), COMMITMENT_DISCRIMINATOR, sequence),
+            ibc_v2_key(
+                client_id.as_str(),
+                COMMITMENT_DISCRIMINATOR,
+                sequence.into(),
+            ),
             Some(query_height),
             true,
         )
@@ -294,11 +298,11 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         Ok((commitment, proof))
     }
 
-    #[instrument(skip_all, name = "query_packet_receipt", fields(chain = %self.chain_label(), seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_receipt", fields(chain = %self.chain_label(), seq = %sequence))]
     async fn query_packet_receipt(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &Self::Height,
     ) -> Result<(Option<PacketReceipt>, MerkleProof)> {
         let query_height = proof_query_height(*height)?;
@@ -306,7 +310,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
             &self.rpc_client,
             &self.rpc_guard,
             IBC_STORE_PATH,
-            ibc_v2_key(client_id.as_str(), RECEIPT_DISCRIMINATOR, sequence),
+            ibc_v2_key(client_id.as_str(), RECEIPT_DISCRIMINATOR, sequence.into()),
             Some(query_height),
             true,
         )
@@ -327,7 +331,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         &self,
         client_id: &Self::ClientId,
         _height: &Self::Height,
-    ) -> Result<Vec<u64>> {
+    ) -> Result<Vec<PacketSequence>> {
         use std::collections::HashSet;
         use tendermint_rpc::query::{EventType, Query};
 
@@ -373,7 +377,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
                             ibc_proto::ibc::core::channel::v2::Packet::decode(bytes.as_slice())
                         && pkt.source_client == client_id.as_str()
                     {
-                        sequences.insert(pkt.sequence);
+                        sequences.insert(PacketSequence(pkt.sequence));
                     }
                 }
             }
@@ -384,16 +388,16 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
             page += 1;
         }
 
-        let mut result: Vec<u64> = sequences.into_iter().collect();
+        let mut result: Vec<PacketSequence> = sequences.into_iter().collect();
         result.sort_unstable();
         Ok(result)
     }
 
-    #[instrument(skip_all, name = "query_packet_ack", fields(chain = %self.chain_label(), seq = sequence))]
+    #[instrument(skip_all, name = "query_packet_ack", fields(chain = %self.chain_label(), seq = %sequence))]
     async fn query_packet_acknowledgement(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &Self::Height,
     ) -> Result<(Option<PacketAcknowledgement>, MerkleProof)> {
         let query_height = proof_query_height(*height)?;
@@ -401,7 +405,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
             &self.rpc_client,
             &self.rpc_guard,
             IBC_STORE_PATH,
-            ibc_v2_key(client_id.as_str(), ACK_DISCRIMINATOR, sequence),
+            ibc_v2_key(client_id.as_str(), ACK_DISCRIMINATOR, sequence.into()),
             Some(query_height),
             true,
         )
@@ -419,14 +423,18 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
     fn commitment_to_membership_entry(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         commitment: &PacketCommitment,
         proof: &MerkleProof,
     ) -> Option<mercury_core::MembershipProofEntry> {
         Some(mercury_core::MembershipProofEntry {
             path: vec![
                 b"ibc".to_vec(),
-                ibc_v2_key(client_id.as_str(), COMMITMENT_DISCRIMINATOR, sequence),
+                ibc_v2_key(
+                    client_id.as_str(),
+                    COMMITMENT_DISCRIMINATOR,
+                    sequence.into(),
+                ),
             ],
             value: commitment.0.clone(),
             proof: proof.proof_bytes.clone(),
@@ -436,14 +444,14 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
     fn ack_to_membership_entry(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         ack: &PacketAcknowledgement,
         proof: &MerkleProof,
     ) -> Option<mercury_core::MembershipProofEntry> {
         Some(mercury_core::MembershipProofEntry {
             path: vec![
                 b"ibc".to_vec(),
-                ibc_v2_key(client_id.as_str(), ACK_DISCRIMINATOR, sequence),
+                ibc_v2_key(client_id.as_str(), ACK_DISCRIMINATOR, sequence.into()),
             ],
             value: ack.0.clone(),
             proof: proof.proof_bytes.clone(),

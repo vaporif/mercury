@@ -261,7 +261,7 @@ where
         for (ps, seq, result) in results {
             match result {
                 Ok((receipt, _proof)) if receipt.is_some() => {
-                    debug!(seq, "receipt exists on dst, packet delivered");
+                    debug!(%seq, "receipt exists on dst, packet delivered");
                 }
                 Ok(_) => {
                     still_pending.push(PendingSend {
@@ -270,7 +270,7 @@ where
                     });
                 }
                 Err(e) => {
-                    debug!(seq, error = %e, "receipt query failed, keeping pending");
+                    debug!(%seq, error = %e, "receipt query failed, keeping pending");
                     still_pending.push(ps);
                 }
             }
@@ -517,9 +517,10 @@ where
             for ps in new_sends {
                 let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
                 let ts = <SrcChain<R> as IbcTypes>::packet_timeout_timestamp(pkt);
-                if ts > 0 && dst_timestamp_secs >= ts {
+                let ts_secs: u64 = ts.into();
+                if ts_secs > 0 && dst_timestamp_secs >= ts_secs {
                     let seq = <SrcChain<R> as IbcTypes>::packet_sequence(pkt);
-                    debug!(seq, "packet timed out, will relay timeout");
+                    debug!(%seq, "packet timed out, will relay timeout");
                     timed_out.push(ps);
                 } else {
                     deliverable.push(ps);
