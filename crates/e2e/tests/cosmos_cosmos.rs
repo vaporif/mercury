@@ -9,6 +9,8 @@ use mercury_e2e::context::TestContext;
 mod binary;
 #[path = "cosmos_cosmos/bootstrap.rs"]
 mod bootstrap;
+#[path = "cosmos_cosmos/create_client.rs"]
+mod create_client;
 #[path = "cosmos_cosmos/transfer.rs"]
 mod transfer;
 

@@ -282,7 +282,22 @@ dst_client_id = "{client_b}"
     }
 }
 
-fn find_or_build_binary() -> String {
+#[must_use]
+#[allow(clippy::missing_panics_doc)]
+pub fn parse_client_id_from_stdout(stdout: &str) -> String {
+    stdout
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Created client ")
+                .and_then(|rest| rest.split(" on ").next())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| panic!("could not parse client ID from stdout:\n{stdout}"))
+}
+
+#[must_use]
+#[allow(clippy::missing_panics_doc)]
+pub fn find_or_build_binary() -> String {
     std::env::var("MERCURY_RELAYER_BIN").unwrap_or_else(|_| {
         let output = Command::new("cargo")
             .args(["build", "-p", "mercury-cli", "--message-format=json"])

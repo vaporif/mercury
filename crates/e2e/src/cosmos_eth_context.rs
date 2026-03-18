@@ -474,7 +474,8 @@ impl CosmosEthTestContext {
     }
 }
 
-async fn build_sp1_client_state(
+#[allow(clippy::future_not_send)]
+pub async fn build_sp1_client_state(
     cosmos_handle: &CosmosDockerHandle,
 ) -> Result<(Vec<u8>, alloy::primitives::B256)> {
     use alloy::primitives::{B256, keccak256};
