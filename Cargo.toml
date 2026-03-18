@@ -105,7 +105,19 @@ globset = "0.4"
 toml = "0.8"
 zeroize = "1"
 url = "2"
-alloy = { version = "1", features = ["full", "signer-local"] }
+alloy = { version = "1", default-features = false, features = [
+  "consensus",
+  "contract",
+  "eips",
+  "network",
+  "provider-http",
+  "provider-ws",
+  "reqwest",
+  "rpc-types",
+  "signer-local",
+  "signers",
+  "sol-types",
+] }
 testcontainers = "0.27"
 reqwest = { version = "0.12", default-features = false, features = [
   "json",
@@ -122,8 +134,15 @@ ibc-proto-eureka = { package = "ibc-proto", version = "0.51", default-features =
 sp1-sdk = { version = "5.0", default-features = false, features = ["network"] }
 sp1-prover = { version = "5.0", default-features = false }
 ibc-eureka-solidity-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee", features = ["rpc"] }
-governor = "0.7"
+governor = "0.10.4"
 metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.16", default-features = false, features = ["http-listener"] }
+metrics-exporter-prometheus = { version = "0.18", default-features = false, features = ["http-listener"] }
 metrics-process = "2.4"
 mercury-telemetry = { path = "crates/telemetry" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 1
+debug = false
