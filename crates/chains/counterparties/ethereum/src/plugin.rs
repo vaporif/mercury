@@ -6,16 +6,19 @@ use alloy::sol_types::SolEvent;
 use async_trait::async_trait;
 use mercury_chain_cache::CachedChain;
 use mercury_chain_traits::builders::ClientPayloadBuilder;
-use mercury_chain_traits::queries::ChainStatusQuery;
+use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_chain_traits::types::ChainTypes;
-use mercury_core::plugin::{self, AnyChain, AnyClientId, ChainId, ChainPlugin, ChainStatusInfo};
+use mercury_core::plugin::{
+    self, AnyChain, AnyClientId, ChainId, ChainPlugin, ChainStatusInfo, ClientStateInfo,
+};
 use mercury_core::registry::ChainRegistry;
 
 use crate::chain::EthereumChain;
 use crate::config::EthereumChainConfig;
 use crate::contracts::ICS26Router;
 use crate::keys::load_ethereum_signer;
-use crate::types::{EvmClientId, EvmTxResponse};
+use crate::queries::decode_client_state;
+use crate::types::{EvmClientId, EvmHeight, EvmTxResponse};
 use crate::wrapper::EthereumAdapter;
 
 type EthCached = CachedChain<EthereumAdapter>;
@@ -24,6 +27,20 @@ fn downcast_eth(chain: &AnyChain) -> eyre::Result<&EthCached> {
     (**chain)
         .downcast_ref::<EthCached>()
         .ok_or_else(|| eyre::eyre!("expected ethereum chain handle"))
+}
+
+async fn resolve_query_params<'a>(
+    chain: &'a AnyChain,
+    client_id: &str,
+    height: Option<u64>,
+) -> eyre::Result<(&'a EthCached, EvmClientId, EvmHeight)> {
+    let c = downcast_eth(chain)?;
+    let parsed_id = EvmClientId(client_id.to_string());
+    let query_height = match height {
+        Some(h) => EvmHeight(h),
+        None => c.query_latest_height().await?,
+    };
+    Ok((c, parsed_id, query_height))
 }
 
 fn table_to_eth_config(raw: &toml::Table) -> eyre::Result<EthereumChainConfig> {
@@ -145,6 +162,45 @@ impl ChainPlugin for EthereumPlugin {
         }
 
         eyre::bail!("unsupported reference chain payload type for ethereum host")
+    }
+
+    async fn query_client_state_info(
+        &self,
+        chain: &AnyChain,
+        client_id: &str,
+        height: Option<u64>,
+    ) -> eyre::Result<ClientStateInfo> {
+        let (c, parsed_id, query_height) = resolve_query_params(chain, client_id, height).await?;
+
+        let cs =
+            ClientQuery::<EthereumChain>::query_client_state(c, &parsed_id, &query_height).await?;
+
+        let decoded = decode_client_state(&cs.0)
+            .ok_or_else(|| eyre::eyre!("failed to decode client state for '{client_id}'"))?;
+
+        Ok(ClientStateInfo {
+            client_id: client_id.to_string(),
+            latest_height: decoded.latestHeight.revisionHeight,
+            trusting_period: Some(std::time::Duration::from_secs(u64::from(
+                decoded.trustingPeriod,
+            ))),
+            frozen: false,
+            client_type: "sp1-tendermint".to_string(),
+            chain_id: decoded.chainId,
+        })
+    }
+
+    async fn query_commitment_sequences(
+        &self,
+        chain: &AnyChain,
+        client_id: &str,
+        height: Option<u64>,
+    ) -> eyre::Result<Vec<u64>> {
+        let (c, parsed_id, query_height) = resolve_query_params(chain, client_id, height).await?;
+
+        let sequences =
+            PacketStateQuery::query_commitment_sequences(c, &parsed_id, &query_height).await?;
+        Ok(sequences.into_iter().map(u64::from).collect())
     }
 }
 

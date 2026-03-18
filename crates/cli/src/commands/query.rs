@@ -61,13 +61,25 @@ impl QueryClientStateCmd {
             .unwrap_or_else(|| std::path::Path::new("."));
 
         let chain_cfg = cfg.find_chain(&registry, &self.chain)?;
+        let plugin = registry.chain(&chain_cfg.chain_type)?;
+        let chain = plugin.connect(&chain_cfg.raw, config_dir).await?;
 
-        let _chain = registry
-            .chain(&chain_cfg.chain_type)?
-            .connect(&chain_cfg.raw, config_dir)
+        let info = plugin
+            .query_client_state_info(&chain, &self.client, self.height)
             .await?;
 
-        todo!("implement query client state for chain '{}'", self.chain)
+        println!("Client:          {}", info.client_id);
+        println!("Type:            {}", info.client_type);
+        if !info.chain_id.is_empty() {
+            println!("Chain ID:        {}", info.chain_id);
+        }
+        println!("Latest height:   {}", info.latest_height);
+        if let Some(tp) = info.trusting_period {
+            println!("Trusting period: {}s", tp.as_secs());
+        }
+        println!("Frozen:          {}", info.frozen);
+
+        Ok(())
     }
 }
 
@@ -111,16 +123,30 @@ impl QueryPacketCommitmentsCmd {
             .unwrap_or_else(|| std::path::Path::new("."));
 
         let chain_cfg = cfg.find_chain(&registry, &self.chain)?;
+        let plugin = registry.chain(&chain_cfg.chain_type)?;
+        let chain = plugin.connect(&chain_cfg.raw, config_dir).await?;
 
-        let _chain = registry
-            .chain(&chain_cfg.chain_type)?
-            .connect(&chain_cfg.raw, config_dir)
+        let sequences = plugin
+            .query_commitment_sequences(&chain, &self.client, None)
             .await?;
 
-        todo!(
-            "implement query packet commitments for chain '{}'",
-            self.chain
-        )
+        if sequences.is_empty() {
+            println!(
+                "No outstanding packet commitments for client '{}'",
+                self.client
+            );
+        } else {
+            println!(
+                "Outstanding packet commitments for client '{}': {} total",
+                self.client,
+                sequences.len()
+            );
+            for seq in &sequences {
+                println!("  sequence {seq}");
+            }
+        }
+
+        Ok(())
     }
 }
 
