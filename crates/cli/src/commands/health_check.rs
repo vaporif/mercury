@@ -36,21 +36,19 @@ impl HealthCheckCmd {
             let plugin = registry.chain(&chain_cfg.chain_type)?;
             let chain_id = plugin.chain_id_from_config(&chain_cfg.raw)?;
 
-            match plugin.connect(&chain_cfg.raw, config_dir).await {
-                Ok(chain) => match plugin.query_status(&chain).await {
-                    Ok(info) => {
-                        println!(
-                            "{chain_id}: healthy (height={}, ts={})",
-                            info.height, info.timestamp
-                        );
-                    }
-                    Err(e) => {
-                        println!("{chain_id}: unhealthy ({e})");
-                        all_healthy = false;
-                    }
-                },
+            let result = async {
+                let chain = plugin.connect(&chain_cfg.raw, config_dir).await?;
+                plugin.query_status(&chain).await
+            }
+            .await;
+
+            match result {
+                Ok(info) => println!(
+                    "{chain_id}: healthy (height={}, ts={})",
+                    info.height, info.timestamp
+                ),
                 Err(e) => {
-                    println!("{chain_id}: unreachable ({e})");
+                    println!("{chain_id}: unhealthy ({e})");
                     all_healthy = false;
                 }
             }
