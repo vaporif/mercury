@@ -23,16 +23,16 @@ pub struct UpdateClientPayload {
 
 fn evm_packet_to_sol(packet: &EvmPacket) -> IICS26RouterMsgs::Packet {
     IICS26RouterMsgs::Packet {
-        sequence: packet.sequence,
+        sequence: packet.sequence.0,
         sourceClient: packet.source_client.clone(),
         destClient: packet.dest_client.clone(),
-        timeoutTimestamp: packet.timeout_timestamp,
+        timeoutTimestamp: packet.timeout_timestamp.0,
         payloads: packet
             .payloads
             .iter()
             .map(|p| IICS26RouterMsgs::Payload {
-                sourcePort: p.source_port.clone(),
-                destPort: p.dest_port.clone(),
+                sourcePort: p.source_port.0.clone(),
+                destPort: p.dest_port.0.clone(),
                 version: p.version.clone(),
                 encoding: p.encoding.clone(),
                 value: p.value.clone().into(),

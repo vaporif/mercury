@@ -15,7 +15,7 @@ use crate::types::{
     CosmosChainStatus, CosmosEvent, CosmosMessage, CosmosPacket, CosmosTxResponse, MerkleProof,
     PacketAcknowledgement, PacketCommitment, PacketReceipt,
 };
-use mercury_chain_traits::types::{ChainTypes, IbcTypes};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes, PacketSequence, Port, TimeoutTimestamp};
 
 #[derive(Clone, Debug)]
 pub struct CosmosChain<S: CosmosSigner> {
@@ -160,15 +160,15 @@ impl<S: CosmosSigner> IbcTypes for CosmosChain<S> {
     type PacketReceipt = PacketReceipt;
     type Acknowledgement = PacketAcknowledgement;
 
-    fn packet_sequence(packet: &CosmosPacket) -> u64 {
+    fn packet_sequence(packet: &CosmosPacket) -> PacketSequence {
         packet.sequence
     }
 
-    fn packet_timeout_timestamp(packet: &CosmosPacket) -> u64 {
+    fn packet_timeout_timestamp(packet: &CosmosPacket) -> TimeoutTimestamp {
         packet.timeout_timestamp
     }
 
-    fn packet_source_ports(packet: &CosmosPacket) -> Vec<String> {
+    fn packet_source_ports(packet: &CosmosPacket) -> Vec<Port> {
         packet
             .payloads
             .iter()
@@ -221,7 +221,7 @@ async fn check_min_gas_price(channel: tonic::transport::Channel, config: &Cosmos
 mod tests {
     use super::*;
     use crate::keys::Secp256k1KeyPair;
-    use mercury_chain_traits::types::{ChainTypes, IbcTypes};
+    use mercury_chain_traits::types::{ChainTypes, IbcTypes, PacketSequence, TimeoutTimestamp};
 
     type TestChain = CosmosChain<Secp256k1KeyPair>;
 
@@ -266,12 +266,12 @@ mod tests {
         let packet = CosmosPacket {
             source_client_id: RawClientId("07-tendermint-0".into()),
             dest_client_id: RawClientId("07-tendermint-1".into()),
-            sequence: 99,
-            timeout_timestamp: 0,
+            sequence: PacketSequence(99),
+            timeout_timestamp: TimeoutTimestamp(0),
             payloads: vec![],
         };
         let seq = TestChain::packet_sequence(&packet);
-        assert_eq!(seq, 99);
+        assert_eq!(seq, PacketSequence(99));
     }
 
     #[test]
@@ -301,11 +301,11 @@ mod tests {
         let packet = CosmosPacket {
             source_client_id: RawClientId("07-tendermint-0".into()),
             dest_client_id: RawClientId("07-tendermint-1".into()),
-            sequence: 1,
-            timeout_timestamp: 1_700_000_000,
+            sequence: PacketSequence(1),
+            timeout_timestamp: TimeoutTimestamp(1_700_000_000),
             payloads: vec![],
         };
         let ts = TestChain::packet_timeout_timestamp(&packet);
-        assert_eq!(ts, 1_700_000_000);
+        assert_eq!(ts, TimeoutTimestamp(1_700_000_000));
     }
 }

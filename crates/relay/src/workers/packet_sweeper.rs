@@ -10,7 +10,7 @@ use tracing::{debug, info, instrument, warn};
 use mercury_chain_traits::events::PacketEvents;
 use mercury_chain_traits::queries::{ChainStatusQuery, PacketStateQuery};
 use mercury_chain_traits::relay::{IbcEvent, Relay};
-use mercury_chain_traits::types::{ChainTypes, IbcTypes};
+use mercury_chain_traits::types::{ChainTypes, IbcTypes, PacketSequence};
 use mercury_core::error::Result;
 use mercury_core::worker::Worker;
 
@@ -74,7 +74,7 @@ impl<R: Relay> PacketSweeper<R> {
 
         let dst_client_id = self.relay.dst_client_id().clone();
 
-        let unrelayed: Vec<u64> = stream::iter(commitment_seqs)
+        let unrelayed: Vec<PacketSequence> = stream::iter(commitment_seqs)
             .map(|seq| {
                 let dst_client_id = dst_client_id.clone();
                 let dst_height = dst_height.clone();
@@ -86,7 +86,7 @@ impl<R: Relay> PacketSweeper<R> {
                         Ok((Some(_), _)) => None,
                         Ok((None, _)) => Some(seq),
                         Err(e) => {
-                            warn!(seq, error = %e, "failed to query receipt, skipping sequence");
+                            warn!(%seq, error = %e, "failed to query receipt, skipping sequence");
                             None
                         }
                     }
@@ -112,17 +112,17 @@ impl<R: Relay> PacketSweeper<R> {
                             <R::SrcChain as PacketEvents>::packet_from_send_event(&send_event);
                         let ports = <R::SrcChain as IbcTypes>::packet_source_ports(packet);
                         if !filter.allows(&ports) {
-                            debug!(seq, ?ports, "swept packet filtered out");
+                            debug!(%seq, ?ports, "swept packet filtered out");
                             continue;
                         }
                     }
                     events.push(IbcEvent::SendPacket(send_event));
                 }
                 Ok(None) => {
-                    warn!(seq, "send packet event not found, may have been pruned");
+                    warn!(%seq, "send packet event not found, may have been pruned");
                 }
                 Err(e) => {
-                    warn!(seq, error = %e, "failed to recover send packet event, skipping");
+                    warn!(%seq, error = %e, "failed to recover send packet event, skipping");
                 }
             }
         }

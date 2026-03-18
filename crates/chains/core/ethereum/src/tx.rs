@@ -7,7 +7,7 @@ use mercury_core::error::{Result, TxError};
 use tracing::{info, warn};
 
 use crate::chain::EthereumChain;
-use crate::types::{EvmEvent, EvmMessage, EvmTxResponse};
+use crate::types::{BlockNumber, EvmEvent, EvmMessage, EvmTxResponse, GasUsed};
 
 impl EthereumChain {
     // TODO: remove
@@ -80,8 +80,8 @@ impl EthereumChain {
 
             responses.push(EvmTxResponse {
                 tx_hash,
-                block_number: receipt.block_number.unwrap_or(0),
-                gas_used: receipt.gas_used,
+                block_number: BlockNumber(receipt.block_number.unwrap_or(0)),
+                gas_used: GasUsed(receipt.gas_used),
                 logs,
             });
         }

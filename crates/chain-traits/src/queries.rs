@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
-use crate::types::{ChainTypes, IbcTypes};
+use crate::types::{ChainTypes, IbcTypes, PacketSequence};
 
 #[async_trait]
 pub trait ChainStatusQuery: ChainTypes {
@@ -60,21 +60,21 @@ pub trait PacketStateQuery: IbcTypes {
     async fn query_packet_commitment(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &Self::Height,
     ) -> Result<(Option<Self::PacketCommitment>, Self::CommitmentProof)>;
 
     async fn query_packet_receipt(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &Self::Height,
     ) -> Result<(Option<Self::PacketReceipt>, Self::CommitmentProof)>;
 
     async fn query_packet_acknowledgement(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &Self::Height,
     ) -> Result<(Option<Self::Acknowledgement>, Self::CommitmentProof)>;
 
@@ -82,12 +82,12 @@ pub trait PacketStateQuery: IbcTypes {
         &self,
         client_id: &Self::ClientId,
         height: &Self::Height,
-    ) -> Result<Vec<u64>>;
+    ) -> Result<Vec<PacketSequence>>;
 
     fn commitment_to_membership_entry(
         &self,
         _client_id: &Self::ClientId,
-        _sequence: u64,
+        _sequence: PacketSequence,
         _commitment: &Self::PacketCommitment,
         _proof: &Self::CommitmentProof,
     ) -> Option<mercury_core::MembershipProofEntry> {
@@ -97,7 +97,7 @@ pub trait PacketStateQuery: IbcTypes {
     fn ack_to_membership_entry(
         &self,
         _client_id: &Self::ClientId,
-        _sequence: u64,
+        _sequence: PacketSequence,
         _ack: &Self::Acknowledgement,
         _proof: &Self::CommitmentProof,
     ) -> Option<mercury_core::MembershipProofEntry> {
