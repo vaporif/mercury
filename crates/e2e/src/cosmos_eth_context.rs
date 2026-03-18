@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use alloy::primitives::{Address, U256};
 use alloy::providers::{Provider as _, ProviderBuilder};
-use alloy::sol_types::SolEvent;
 use eyre::{Context as _, Result, bail};
 use ibc::core::host::types::identifiers::ClientId;
 use ibc_proto::ibc::core::channel::v2::{MsgSendPacket, Payload};
@@ -14,11 +13,13 @@ use mercury_cosmos_counterparties::CosmosAdapter;
 use mercury_cosmos_counterparties::chain::CosmosChain;
 use mercury_cosmos_counterparties::config::{CosmosChainConfig, GasPrice};
 use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
-use mercury_cosmos_counterparties::types::{CosmosMessage, CosmosTxResponse};
+use mercury_cosmos_counterparties::plugin::extract_cosmos_client_id;
+use mercury_cosmos_counterparties::types::CosmosMessage;
 use mercury_ethereum::config::{ClientPayloadMode, EthereumChainConfig};
-use mercury_ethereum::contracts::{IBCERC20, ICS20Transfer, ICS26Router};
-use mercury_ethereum::types::{EvmClientId, EvmTxResponse};
+use mercury_ethereum::contracts::{IBCERC20, ICS20Transfer};
+use mercury_ethereum::types::EvmClientId;
 use mercury_ethereum_counterparties::EthereumAdapter;
+use mercury_ethereum_counterparties::plugin::extract_evm_client_id;
 use mercury_relay::context::{RelayContext, RelayWorkerConfig};
 use prost::Message;
 use prost::Name as _;
@@ -473,7 +474,8 @@ impl CosmosEthTestContext {
     }
 }
 
-async fn build_sp1_client_state(
+#[allow(clippy::future_not_send)]
+pub async fn build_sp1_client_state(
     cosmos_handle: &CosmosDockerHandle,
 ) -> Result<(Vec<u8>, alloy::primitives::B256)> {
     use alloy::primitives::{B256, keccak256};
@@ -537,37 +539,6 @@ async fn build_sp1_client_state(
     let consensus_state_hash = keccak256(consensus_state.abi_encode());
 
     Ok((client_state_abi, consensus_state_hash))
-}
-
-fn extract_cosmos_client_id(responses: &[CosmosTxResponse]) -> Result<ClientId> {
-    for response in responses {
-        for event in &response.events {
-            for (key, value) in &event.attributes {
-                if key == "client_id" {
-                    return value
-                        .parse()
-                        .map_err(|e| eyre::eyre!("parse client_id: {e}"));
-                }
-            }
-        }
-    }
-    bail!("client_id not found in Cosmos tx response events")
-}
-
-fn extract_evm_client_id(responses: &[EvmTxResponse]) -> Result<EvmClientId> {
-    for response in responses {
-        for log in &response.logs {
-            if let Ok(event) = ICS26Router::ICS02ClientAdded::decode_log_data(
-                &alloy::primitives::LogData::new_unchecked(
-                    log.topics.clone(),
-                    log.data.clone().into(),
-                ),
-            ) {
-                return Ok(EvmClientId(event.clientId));
-            }
-        }
-    }
-    bail!("ICS02ClientAdded event not found in EVM tx response logs")
 }
 
 fn make_cosmos_config(

@@ -88,6 +88,17 @@ pub trait ChainPlugin: Send + Sync {
     async fn query_status(&self, chain: &AnyChain) -> eyre::Result<ChainStatusInfo>;
     fn chain_id_from_config(&self, raw: &toml::Table) -> eyre::Result<ChainId>;
     fn rpc_addr_from_config(&self, raw: &toml::Table) -> eyre::Result<String>;
+
+    async fn build_create_client_payload(
+        &self,
+        chain: &AnyChain,
+    ) -> eyre::Result<Box<dyn Any + Send + Sync>>;
+
+    async fn create_client(
+        &self,
+        chain: &AnyChain,
+        payload: Box<dyn Any + Send + Sync>,
+    ) -> eyre::Result<String>;
 }
 
 pub trait RelayPairPlugin: Send + Sync {

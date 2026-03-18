@@ -6,6 +6,8 @@ use eyre::Result;
 mod bootstrap;
 #[path = "cosmos_ethereum/context_setup.rs"]
 mod context_setup;
+#[path = "cosmos_ethereum/create_client.rs"]
+mod create_client;
 #[path = "cosmos_ethereum/transfer.rs"]
 mod transfer;
 

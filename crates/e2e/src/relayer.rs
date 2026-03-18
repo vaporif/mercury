@@ -282,7 +282,9 @@ dst_client_id = "{client_b}"
     }
 }
 
-fn find_or_build_binary() -> String {
+#[must_use]
+#[allow(clippy::missing_panics_doc)]
+pub fn find_or_build_binary() -> String {
     std::env::var("MERCURY_RELAYER_BIN").unwrap_or_else(|_| {
         let output = Command::new("cargo")
             .args(["build", "-p", "mercury-cli", "--message-format=json"])
