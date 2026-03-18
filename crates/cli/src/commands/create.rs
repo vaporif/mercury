@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
-use tracing::info;
 
 #[derive(Subcommand)]
 pub enum CreateCmd {
@@ -50,7 +49,6 @@ impl CreateClientCmd {
         let payload = ref_plugin.build_create_client_payload(&ref_chain).await?;
         let client_id = host_plugin.create_client(&host_chain, payload).await?;
 
-        info!(client_id = %client_id, host = %self.host_chain, reference = %self.reference_chain, "client created");
         println!("Created client {client_id} on {}", self.host_chain);
         Ok(())
     }
