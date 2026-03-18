@@ -209,6 +209,42 @@ impl EventMetrics {
             counter!(metric::packet::FILTERED_PACKETS, &labels).increment(count as u64);
         }
     }
+
+    pub fn record_event_source_mode(&self, websocket: bool) {
+        let labels = build_labels(&self.label, self.counterparty.as_ref());
+        gauge!(metric::event::EVENT_SOURCE_MODE, &labels).set(if websocket { 1.0 } else { 0.0 });
+    }
+
+    pub fn record_ws_reconnect_attempt(&self) {
+        let labels = build_labels(&self.label, self.counterparty.as_ref());
+        counter!(metric::event::WS_RECONNECT_TOTAL, &labels).increment(1);
+    }
+
+    pub fn record_ws_reconnect_failed(&self) {
+        let labels = build_labels(&self.label, self.counterparty.as_ref());
+        counter!(metric::event::WS_RECONNECT_FAILED_TOTAL, &labels).increment(1);
+    }
+
+    pub fn record_ws_events(&self, count: usize) {
+        if count > 0 {
+            let labels = build_labels(&self.label, self.counterparty.as_ref());
+            counter!(metric::event::WS_EVENTS_RECEIVED_TOTAL, &labels).increment(count as u64);
+        }
+    }
+
+    pub fn record_ws_connected(&self) {
+        let labels = build_labels(&self.label, self.counterparty.as_ref());
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+        gauge!(metric::event::WS_LAST_CONNECT_TIMESTAMP_SECONDS, &labels).set(now);
+    }
+
+    pub fn record_ws_fallback(&self) {
+        let labels = build_labels(&self.label, self.counterparty.as_ref());
+        counter!(metric::event::WS_FALLBACK_TOTAL, &labels).increment(1);
+    }
 }
 
 #[derive(Clone)]

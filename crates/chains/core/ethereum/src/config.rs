@@ -63,6 +63,8 @@ pub struct EthereumChainConfig {
     pub chain_name: Option<String>,
     pub chain_id: u64,
     pub rpc_addr: String,
+    #[serde(default)]
+    pub ws_addr: Option<String>,
     pub ics26_router: String,
     pub key_file: PathBuf,
     #[serde(default = "default_block_time_secs")]
@@ -109,9 +111,12 @@ impl EthereumChainConfig {
     }
 
     fn validate_inner(&self) -> eyre::Result<()> {
-        use mercury_core::validate::require_http_url;
+        use mercury_core::validate::{require_http_url, require_ws_url};
 
         require_http_url("rpc_addr", &self.rpc_addr)?;
+        if let Some(ref ws) = self.ws_addr {
+            require_ws_url("ws_addr", ws)?;
+        }
         self.router_address()?;
         if let Some(ref addr) = self.light_client_address {
             addr.parse::<Address>()
@@ -191,6 +196,24 @@ mod tests {
         }
     }
 
+    fn valid_config() -> EthereumChainConfig {
+        EthereumChainConfig {
+            chain_name: None,
+            chain_id: 1,
+            rpc_addr: "http://localhost:8545".to_string(),
+            ws_addr: None,
+            ics26_router: "0x0000000000000000000000000000000000000001".to_string(),
+            key_file: "key.hex".into(),
+            block_time_secs: default_block_time_secs(),
+            deployment_block: 0,
+            light_client_address: None,
+            client_payload_mode: test_payload_mode(),
+            sp1_prover: None,
+            rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
+            rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
+        }
+    }
+
     const BEACON_TOML_SECTION: &str = r#"
             [client_payload_mode]
             type = "beacon"
@@ -214,58 +237,43 @@ mod tests {
 
     #[test]
     fn validate_rejects_empty_rpc() {
-        let config = EthereumChainConfig {
-            chain_name: None,
-            chain_id: 1,
-            rpc_addr: String::new(),
-            ics26_router: "0x0000000000000000000000000000000000000001".to_string(),
-            key_file: "key.hex".into(),
-            block_time_secs: default_block_time_secs(),
-            deployment_block: 0,
-            light_client_address: None,
-            client_payload_mode: test_payload_mode(),
-            sp1_prover: None,
-            rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
-            rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
-        };
+        let mut config = valid_config();
+        config.rpc_addr = String::new();
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn validate_rejects_ws_rpc() {
-        let config = EthereumChainConfig {
-            chain_name: None,
-            chain_id: 1,
-            rpc_addr: "ws://localhost:8545".to_string(),
-            ics26_router: "0x0000000000000000000000000000000000000001".to_string(),
-            key_file: "key.hex".into(),
-            block_time_secs: default_block_time_secs(),
-            deployment_block: 0,
-            light_client_address: None,
-            client_payload_mode: test_payload_mode(),
-            sp1_prover: None,
-            rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
-            rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
-        };
+        let mut config = valid_config();
+        config.rpc_addr = "ws://localhost:8545".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn ws_addr_valid_ws_passes() {
+        let mut config = valid_config();
+        config.ws_addr = Some("ws://localhost:8546".to_string());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn ws_addr_valid_wss_passes() {
+        let mut config = valid_config();
+        config.ws_addr = Some("wss://eth.llamarpc.com".to_string());
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn ws_addr_rejects_http() {
+        let mut config = valid_config();
+        config.ws_addr = Some("http://localhost:8546".to_string());
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn validate_rejects_bad_address() {
-        let config = EthereumChainConfig {
-            chain_name: None,
-            chain_id: 1,
-            rpc_addr: "http://localhost:8545".to_string(),
-            ics26_router: "not-an-address".to_string(),
-            key_file: "key.hex".into(),
-            block_time_secs: default_block_time_secs(),
-            deployment_block: 0,
-            light_client_address: None,
-            client_payload_mode: test_payload_mode(),
-            sp1_prover: None,
-            rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
-            rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
-        };
+        let mut config = valid_config();
+        config.ics26_router = "not-an-address".to_string();
         assert!(config.validate().is_err());
     }
 
