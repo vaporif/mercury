@@ -10,9 +10,9 @@ use crate::chain::EthereumChain;
 use crate::types::{BlockNumber, EvmEvent, EvmMessage, EvmTxResponse, GasUsed};
 
 impl EthereumChain {
-    // TODO: remove
-    /// Send messages and return raw chain responses (for e2e / setup code that
-    /// needs to inspect events). Relay workers should use `MessageSender::send_messages` instead.
+    /// Send messages and return raw chain responses (for CLI commands and setup
+    /// code that need to inspect events). Relay workers should use
+    /// `MessageSender::send_messages` instead.
     pub async fn send_messages_with_responses(
         &self,
         messages: Vec<EvmMessage>,

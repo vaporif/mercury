@@ -1,8 +1,10 @@
+use std::any::Any;
 use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use mercury_chain_cache::CachedChain;
+use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
 use mercury_chain_traits::queries::ChainStatusQuery;
 use mercury_chain_traits::types::ChainTypes;
 use mercury_core::plugin::{self, AnyChain, ChainId, ChainPlugin, ChainStatusInfo, DynRelayConfig};
@@ -10,8 +12,11 @@ use mercury_core::registry::ChainRegistry;
 use mercury_relay::context::RelayWorkerConfig;
 use mercury_relay::filter::PacketFilter;
 
+use crate::builders::CosmosCreateClientPayload;
+use crate::chain::CosmosChain;
 use crate::config::CosmosChainConfig;
 use crate::keys::{Secp256k1KeyPair, load_cosmos_signer};
+use crate::types::CosmosTxResponse;
 use crate::wrapper::CosmosAdapter;
 
 type CosmosCached = CachedChain<CosmosAdapter<Secp256k1KeyPair>>;
@@ -99,6 +104,88 @@ impl ChainPlugin for CosmosPlugin {
             .map(String::from)
             .ok_or_else(|| eyre::eyre!("missing 'rpc_addr' in cosmos config"))
     }
+
+    async fn build_create_client_payload(
+        &self,
+        chain: &AnyChain,
+    ) -> eyre::Result<Box<dyn Any + Send + Sync>> {
+        let c = downcast_cosmos(chain)?;
+        let payload =
+            ClientPayloadBuilder::<CosmosAdapter<Secp256k1KeyPair>>::build_create_client_payload(c)
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+        Ok(Box::new(payload))
+    }
+
+    async fn create_client(
+        &self,
+        chain: &AnyChain,
+        payload: Box<dyn Any + Send + Sync>,
+    ) -> eyre::Result<String> {
+        let c = downcast_cosmos(chain)?;
+
+        let msg;
+
+        #[cfg(feature = "ethereum-beacon")]
+        if let Some(eth_payload) =
+            payload.downcast_ref::<mercury_ethereum::builders::CreateClientPayload>()
+        {
+            msg = ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_create_client_message(
+                c,
+                eth_payload.clone(),
+            )
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        } else if let Some(cosmos_payload) = payload.downcast_ref::<CosmosCreateClientPayload>() {
+            msg =
+                ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_message(
+                    c,
+                    cosmos_payload.clone(),
+                )
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+        } else {
+            eyre::bail!("unsupported reference chain payload type for cosmos host");
+        }
+
+        #[cfg(not(feature = "ethereum-beacon"))]
+        if let Some(cosmos_payload) = payload.downcast_ref::<CosmosCreateClientPayload>() {
+            msg =
+                ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_message(
+                    c,
+                    cosmos_payload.clone(),
+                )
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+        } else {
+            eyre::bail!("unsupported reference chain payload type for cosmos host");
+        }
+
+        let responses = c
+            .inner()
+            .0
+            .send_messages_with_responses(vec![msg])
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        Ok(extract_cosmos_client_id(&responses)?.to_string())
+    }
+}
+
+pub fn extract_cosmos_client_id(
+    responses: &[CosmosTxResponse],
+) -> eyre::Result<ibc::core::host::types::identifiers::ClientId> {
+    for response in responses {
+        for event in &response.events {
+            for (key, value) in &event.attributes {
+                if key == "client_id" {
+                    return value
+                        .parse()
+                        .map_err(|e| eyre::eyre!("parse client_id: {e}"));
+                }
+            }
+        }
+    }
+    eyre::bail!("client_id not found in Cosmos tx response events")
 }
 
 pub fn dyn_to_worker_config(config: &DynRelayConfig) -> eyre::Result<RelayWorkerConfig> {

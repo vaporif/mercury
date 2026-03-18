@@ -21,6 +21,12 @@ pub struct CachedChain<C: IbcTypes> {
     tx_handle: TxCoordinatorHandle<C::Message>,
 }
 
+impl<C: IbcTypes> CachedChain<C> {
+    pub const fn inner(&self) -> &C {
+        &self.inner
+    }
+}
+
 impl<C> CachedChain<C>
 where
     C: IbcTypes + MessageSender + Clone + Send + 'static,
