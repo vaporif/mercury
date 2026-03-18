@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use eyre::WrapErr;
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -61,7 +62,6 @@ pub struct CosmosChainConfig {
     pub rpc_rate_limit: u64,
 }
 
-/// Gas price amount and denomination for fee calculation.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GasPrice {
     pub amount: f64,
@@ -78,97 +78,61 @@ impl CosmosChainConfig {
     }
 
     pub fn validate(&self) -> eyre::Result<()> {
-        for (name, addr) in [("rpc_addr", &self.rpc_addr), ("grpc_addr", &self.grpc_addr)] {
-            if !addr.starts_with("http://") && !addr.starts_with("https://") {
-                eyre::bail!(
-                    "chain '{}': {name} must start with http:// or https://, got '{addr}'",
-                    self.chain_id,
-                );
-            }
+        self.validate_inner()
+            .wrap_err_with(|| format!("chain '{}'", self.chain_id))
+    }
+
+    fn validate_inner(&self) -> eyre::Result<()> {
+        use mercury_core::validate::{require_http_url, require_positive};
+
+        require_http_url("rpc_addr", &self.rpc_addr)?;
+        require_http_url("grpc_addr", &self.grpc_addr)?;
+        eyre::ensure!(
+            self.gas_price.amount >= 0.0,
+            "gas_price.amount must be non-negative"
+        );
+        if let Some(m) = self.gas_multiplier {
+            eyre::ensure!(m >= 1.0, "gas_multiplier must be >= 1.0, got {m}");
         }
-        if self.gas_price.amount < 0.0 {
-            eyre::bail!(
-                "chain '{}': gas_price.amount must be non-negative",
-                self.chain_id,
+        if let Some(max) = self.max_gas {
+            require_positive("max_gas", &max)?;
+        }
+        if let Some(def) = self.default_gas {
+            require_positive("default_gas", &def)?;
+        }
+        if let Some(ref granter) = self.fee_granter {
+            eyre::ensure!(
+                bech32::decode(granter).is_ok(),
+                "fee_granter is not a valid bech32 address: {granter}"
             );
         }
-        if let Some(m) = self.gas_multiplier
-            && m < 1.0
-        {
-            eyre::bail!(
-                "chain '{}': gas_multiplier must be >= 1.0, got {m}",
-                self.chain_id
+        if let (Some(def), Some(max)) = (self.default_gas, self.max_gas) {
+            eyre::ensure!(def <= max, "default_gas ({def}) must be <= max_gas ({max})");
+        }
+        if let Some(ref dgp) = self.dynamic_gas_price {
+            eyre::ensure!(
+                dgp.multiplier >= 1.0,
+                "dynamic_gas_price.multiplier must be >= 1.0"
             );
+            require_positive("dynamic_gas_price.max", &dgp.max)?;
         }
-        if let Some(max) = self.max_gas
-            && max == 0
-        {
-            eyre::bail!("chain '{}': max_gas must be > 0", self.chain_id);
+        if let Some(size) = self.max_tx_size {
+            require_positive("max_tx_size", &size)?;
         }
-        if let Some(def) = self.default_gas
-            && def == 0
-        {
-            eyre::bail!("chain '{}': default_gas must be > 0", self.chain_id);
-        }
-        if let Some(ref granter) = self.fee_granter
-            && bech32::decode(granter).is_err()
-        {
-            eyre::bail!(
-                "chain '{}': fee_granter is not a valid bech32 address: {granter}",
-                self.chain_id
-            );
-        }
-        if let (Some(def), Some(max)) = (self.default_gas, self.max_gas)
-            && def > max
-        {
-            eyre::bail!(
-                "chain '{}': default_gas ({def}) must be <= max_gas ({max})",
-                self.chain_id
-            );
-        }
-        if let Some(ref dgp) = self.dynamic_gas_price
-            && dgp.multiplier < 1.0
-        {
-            eyre::bail!(
-                "chain '{}': dynamic_gas_price.multiplier must be >= 1.0",
-                self.chain_id
-            );
-        }
-        if let Some(ref dgp) = self.dynamic_gas_price
-            && dgp.max <= 0.0
-        {
-            eyre::bail!(
-                "chain '{}': dynamic_gas_price.max must be > 0",
-                self.chain_id
-            );
-        }
-        if let Some(size) = self.max_tx_size
-            && size == 0
-        {
-            eyre::bail!("chain '{}': max_tx_size must be > 0", self.chain_id);
-        }
-        if let (Some(trusting), Some(unbonding)) = (self.trusting_period, self.unbonding_period)
-            && trusting >= unbonding
-        {
-            eyre::bail!(
-                "chain '{}': trusting_period ({trusting:?}) must be less than unbonding_period ({unbonding:?})",
-                self.chain_id
+        if let (Some(trusting), Some(unbonding)) = (self.trusting_period, self.unbonding_period) {
+            eyre::ensure!(
+                trusting < unbonding,
+                "trusting_period ({trusting:?}) must be less than unbonding_period ({unbonding:?})"
             );
         }
         if let Some(ref checksum) = self.wasm_checksum {
-            let bytes = hex::decode(checksum).map_err(|e| {
-                eyre::eyre!(
-                    "chain '{}': wasm_checksum is not valid hex: {e}",
-                    self.chain_id
-                )
-            })?;
-            if bytes.len() != 32 {
-                eyre::bail!(
-                    "chain '{}': wasm_checksum must be 32 bytes (64 hex chars), got {} bytes",
-                    self.chain_id,
-                    bytes.len()
-                );
-            }
+            let bytes = hex::decode(checksum)
+                .map_err(|e| eyre::eyre!("wasm_checksum is not valid hex: {e}"))?;
+            eyre::ensure!(
+                bytes.len() == 32,
+                "wasm_checksum must be 32 bytes (64 hex chars), got {} bytes",
+                bytes.len()
+            );
         }
         Ok(())
     }
