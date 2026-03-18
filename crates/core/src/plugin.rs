@@ -63,6 +63,16 @@ pub struct ChainStatusInfo {
     pub timestamp: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ClientStateInfo {
+    pub client_id: String,
+    pub latest_height: u64,
+    pub trusting_period: Option<std::time::Duration>,
+    pub frozen: bool,
+    pub client_type: String,
+    pub chain_id: String,
+}
+
 pub trait DynRelay: Send + Sync {
     fn run(
         self: Arc<Self>,
@@ -99,6 +109,20 @@ pub trait ChainPlugin: Send + Sync {
         chain: &AnyChain,
         payload: Box<dyn Any + Send + Sync>,
     ) -> eyre::Result<String>;
+
+    async fn query_client_state_info(
+        &self,
+        chain: &AnyChain,
+        client_id: &str,
+        height: Option<u64>,
+    ) -> eyre::Result<ClientStateInfo>;
+
+    async fn query_commitment_sequences(
+        &self,
+        chain: &AnyChain,
+        client_id: &str,
+        height: Option<u64>,
+    ) -> eyre::Result<Vec<u64>>;
 }
 
 pub trait RelayPairPlugin: Send + Sync {

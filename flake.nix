@@ -155,6 +155,10 @@
           ])
           ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
+          ]
+          ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            pkgs.podman
+            (pkgs.writeShellScriptBin "docker" ''exec podman "$@"'')
           ];
 
         env = {

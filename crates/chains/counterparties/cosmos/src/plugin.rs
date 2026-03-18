@@ -5,15 +5,18 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mercury_chain_cache::CachedChain;
 use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
-use mercury_chain_traits::queries::ChainStatusQuery;
+use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_chain_traits::types::ChainTypes;
-use mercury_core::plugin::{self, AnyChain, ChainId, ChainPlugin, ChainStatusInfo, DynRelayConfig};
+use mercury_core::plugin::{
+    self, AnyChain, ChainId, ChainPlugin, ChainStatusInfo, ClientStateInfo, DynRelayConfig,
+};
 use mercury_core::registry::ChainRegistry;
 use mercury_relay::context::RelayWorkerConfig;
 use mercury_relay::filter::PacketFilter;
 
 use crate::builders::CosmosCreateClientPayload;
 use crate::chain::CosmosChain;
+use crate::client_types::CosmosClientState;
 use crate::config::CosmosChainConfig;
 use crate::keys::{Secp256k1KeyPair, load_cosmos_signer};
 use crate::types::CosmosTxResponse;
@@ -25,6 +28,31 @@ pub fn downcast_cosmos(chain: &AnyChain) -> eyre::Result<&CosmosCached> {
     (**chain)
         .downcast_ref::<CosmosCached>()
         .ok_or_else(|| eyre::eyre!("expected cosmos chain handle"))
+}
+
+fn parse_cosmos_client_id(
+    raw: &str,
+) -> eyre::Result<ibc::core::host::types::identifiers::ClientId> {
+    raw.parse()
+        .map_err(|e| eyre::eyre!("invalid cosmos client ID '{raw}': {e}"))
+}
+
+async fn resolve_query_params<'a>(
+    chain: &'a AnyChain,
+    client_id: &str,
+    height: Option<u64>,
+) -> eyre::Result<(
+    &'a CosmosCached,
+    ibc::core::host::types::identifiers::ClientId,
+    tendermint::block::Height,
+)> {
+    let c = downcast_cosmos(chain)?;
+    let parsed_id = parse_cosmos_client_id(client_id)?;
+    let query_height = match height {
+        Some(h) => tendermint::block::Height::try_from(h)?,
+        None => c.query_latest_height().await?,
+    };
+    Ok((c, parsed_id, query_height))
 }
 
 fn table_to_cosmos_config(raw: &toml::Table) -> eyre::Result<CosmosChainConfig> {
@@ -72,10 +100,7 @@ impl ChainPlugin for CosmosPlugin {
     }
 
     fn parse_client_id(&self, raw: &str) -> eyre::Result<plugin::AnyClientId> {
-        let id: ibc::core::host::types::identifiers::ClientId = raw
-            .parse()
-            .map_err(|e| eyre::eyre!("invalid cosmos client ID '{raw}': {e}"))?;
-        Ok(Box::new(id))
+        Ok(Box::new(parse_cosmos_client_id(raw)?))
     }
 
     async fn query_status(&self, chain: &AnyChain) -> eyre::Result<ChainStatusInfo> {
@@ -168,6 +193,55 @@ impl ChainPlugin for CosmosPlugin {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
         Ok(extract_cosmos_client_id(&responses)?.to_string())
+    }
+
+    async fn query_client_state_info(
+        &self,
+        chain: &AnyChain,
+        client_id: &str,
+        height: Option<u64>,
+    ) -> eyre::Result<ClientStateInfo> {
+        let (c, parsed_id, query_height) = resolve_query_params(chain, client_id, height).await?;
+
+        let cs = ClientQuery::<CosmosChain<Secp256k1KeyPair>>::query_client_state(
+            c,
+            &parsed_id,
+            &query_height,
+        )
+        .await?;
+
+        Ok(match &cs {
+            CosmosClientState::Tendermint(tm) => ClientStateInfo {
+                client_id: client_id.to_string(),
+                latest_height: tm.latest_height.revision_height(),
+                trusting_period: Some(tm.trusting_period),
+                frozen: tm.is_frozen(),
+                client_type: "tendermint".to_string(),
+                chain_id: tm.chain_id.to_string(),
+            },
+            // TODO: wasm frozen status not available from proto
+            CosmosClientState::Wasm(wasm) => ClientStateInfo {
+                client_id: client_id.to_string(),
+                latest_height: wasm.latest_height.as_ref().map_or(0, |h| h.revision_height),
+                trusting_period: None,
+                frozen: false,
+                client_type: "wasm".to_string(),
+                chain_id: String::new(),
+            },
+        })
+    }
+
+    async fn query_commitment_sequences(
+        &self,
+        chain: &AnyChain,
+        client_id: &str,
+        height: Option<u64>,
+    ) -> eyre::Result<Vec<u64>> {
+        let (c, parsed_id, query_height) = resolve_query_params(chain, client_id, height).await?;
+
+        let sequences =
+            PacketStateQuery::query_commitment_sequences(c, &parsed_id, &query_height).await?;
+        Ok(sequences.into_iter().map(u64::from).collect())
     }
 }
 

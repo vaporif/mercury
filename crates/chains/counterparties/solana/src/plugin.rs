@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use mercury_chain_cache::CachedChain;
 use mercury_chain_traits::queries::ChainStatusQuery;
 use mercury_chain_traits::types::ChainTypes;
-use mercury_core::plugin::{self, AnyChain, ChainId, ChainPlugin, ChainStatusInfo};
+use mercury_core::plugin::{
+    self, AnyChain, ChainId, ChainPlugin, ChainStatusInfo, ClientStateInfo,
+};
 use mercury_core::registry::ChainRegistry;
 
 use mercury_solana::config::SolanaChainConfig;
@@ -91,6 +93,24 @@ impl ChainPlugin for SolanaPlugin {
         _payload: Box<dyn Any + Send + Sync>,
     ) -> eyre::Result<String> {
         todo!("create client on Solana chain")
+    }
+
+    async fn query_client_state_info(
+        &self,
+        _chain: &AnyChain,
+        _client_id: &str,
+        _height: Option<u64>,
+    ) -> eyre::Result<ClientStateInfo> {
+        todo!("query client state on Solana chain")
+    }
+
+    async fn query_commitment_sequences(
+        &self,
+        _chain: &AnyChain,
+        _client_id: &str,
+        _height: Option<u64>,
+    ) -> eyre::Result<Vec<u64>> {
+        todo!("query commitment sequences on Solana chain")
     }
 }
 
