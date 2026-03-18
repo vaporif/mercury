@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
 
-use crate::types::IbcTypes;
+use crate::types::{IbcTypes, PacketSequence};
 
 /// Extracts IBC packet events from raw chain events and queries block events.
 #[async_trait]
@@ -21,6 +21,6 @@ pub trait PacketEvents: IbcTypes {
     async fn query_send_packet_event(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
     ) -> Result<Option<Self::SendPacketEvent>>;
 }

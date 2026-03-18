@@ -5041,6 +5041,7 @@ dependencies = [
  "async-trait",
  "eyre",
  "mercury-core",
+ "serde",
 ]
 
 [[package]]

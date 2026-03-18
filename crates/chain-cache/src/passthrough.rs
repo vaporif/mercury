@@ -8,7 +8,9 @@ use mercury_chain_traits::builders::{
 use mercury_chain_traits::events::PacketEvents;
 use mercury_chain_traits::inner::HasCore;
 use mercury_chain_traits::queries::{MisbehaviourQuery, PacketStateQuery};
-use mercury_chain_traits::types::{ChainTypes, IbcTypes, MessageSender, TxReceipt};
+use mercury_chain_traits::types::{
+    ChainTypes, IbcTypes, MessageSender, PacketSequence, Port, TimeoutTimestamp, TxReceipt,
+};
 use mercury_core::error::Result;
 
 use crate::CachedChain;
@@ -71,15 +73,15 @@ impl<C: IbcTypes> IbcTypes for CachedChain<C> {
     type PacketReceipt = C::PacketReceipt;
     type Acknowledgement = C::Acknowledgement;
 
-    fn packet_sequence(packet: &Self::Packet) -> u64 {
+    fn packet_sequence(packet: &Self::Packet) -> PacketSequence {
         C::packet_sequence(packet)
     }
 
-    fn packet_timeout_timestamp(packet: &Self::Packet) -> u64 {
+    fn packet_timeout_timestamp(packet: &Self::Packet) -> TimeoutTimestamp {
         C::packet_timeout_timestamp(packet)
     }
 
-    fn packet_source_ports(packet: &Self::Packet) -> Vec<String> {
+    fn packet_source_ports(packet: &Self::Packet) -> Vec<Port> {
         C::packet_source_ports(packet)
     }
 }
@@ -100,7 +102,7 @@ impl<C: PacketStateQuery> PacketStateQuery for CachedChain<C> {
     async fn query_packet_commitment(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &Self::Height,
     ) -> Result<(Option<Self::PacketCommitment>, Self::CommitmentProof)> {
         self.inner
@@ -111,7 +113,7 @@ impl<C: PacketStateQuery> PacketStateQuery for CachedChain<C> {
     async fn query_packet_receipt(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &Self::Height,
     ) -> Result<(Option<Self::PacketReceipt>, Self::CommitmentProof)> {
         self.inner
@@ -122,7 +124,7 @@ impl<C: PacketStateQuery> PacketStateQuery for CachedChain<C> {
     async fn query_packet_acknowledgement(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         height: &Self::Height,
     ) -> Result<(Option<Self::Acknowledgement>, Self::CommitmentProof)> {
         self.inner
@@ -134,7 +136,7 @@ impl<C: PacketStateQuery> PacketStateQuery for CachedChain<C> {
         &self,
         client_id: &Self::ClientId,
         height: &Self::Height,
-    ) -> Result<Vec<u64>> {
+    ) -> Result<Vec<PacketSequence>> {
         self.inner
             .query_commitment_sequences(client_id, height)
             .await
@@ -143,7 +145,7 @@ impl<C: PacketStateQuery> PacketStateQuery for CachedChain<C> {
     fn commitment_to_membership_entry(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         commitment: &Self::PacketCommitment,
         proof: &Self::CommitmentProof,
     ) -> Option<mercury_core::MembershipProofEntry> {
@@ -154,7 +156,7 @@ impl<C: PacketStateQuery> PacketStateQuery for CachedChain<C> {
     fn ack_to_membership_entry(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
         ack: &Self::Acknowledgement,
         proof: &Self::CommitmentProof,
     ) -> Option<mercury_core::MembershipProofEntry> {
@@ -193,7 +195,7 @@ impl<C: PacketEvents> PacketEvents for CachedChain<C> {
     async fn query_send_packet_event(
         &self,
         client_id: &Self::ClientId,
-        sequence: u64,
+        sequence: PacketSequence,
     ) -> Result<Option<Self::SendPacketEvent>> {
         self.inner
             .query_send_packet_event(client_id, sequence)

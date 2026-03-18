@@ -1,4 +1,5 @@
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use mercury_chain_traits::types::Port;
 use serde::Deserialize;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -11,7 +12,7 @@ pub enum FilterPolicy {
 #[derive(Clone, Debug, Deserialize)]
 pub struct PacketFilterConfig {
     pub policy: FilterPolicy,
-    pub source_ports: Vec<String>,
+    pub source_ports: Vec<Port>,
 }
 
 #[derive(Clone, Debug)]
@@ -28,7 +29,7 @@ impl PacketFilter {
 
         let mut builder = GlobSetBuilder::new();
         for pattern in &config.source_ports {
-            let glob = Glob::new(pattern)
+            let glob = Glob::new(pattern.as_ref())
                 .map_err(|e| eyre::eyre!("invalid glob pattern '{pattern}': {e}"))?;
             builder.add(glob);
         }
@@ -47,10 +48,14 @@ impl PacketFilter {
     /// - **Allow:** all ports must match at least one pattern.
     /// - **Deny:** no port may match any pattern.
     #[must_use]
-    pub fn allows(&self, source_ports: &[String]) -> bool {
+    pub fn allows(&self, source_ports: &[Port]) -> bool {
         match self.policy {
-            FilterPolicy::Allow => source_ports.iter().all(|port| self.patterns.is_match(port)),
-            FilterPolicy::Deny => !source_ports.iter().any(|port| self.patterns.is_match(port)),
+            FilterPolicy::Allow => source_ports
+                .iter()
+                .all(|port| self.patterns.is_match(port.as_ref())),
+            FilterPolicy::Deny => !source_ports
+                .iter()
+                .any(|port| self.patterns.is_match(port.as_ref())),
         }
     }
 }
@@ -62,12 +67,12 @@ mod tests {
     fn cfg(policy: FilterPolicy, ports: &[&str]) -> PacketFilterConfig {
         PacketFilterConfig {
             policy,
-            source_ports: ports.iter().map(ToString::to_string).collect(),
+            source_ports: ports.iter().map(|s| Port(s.to_string())).collect(),
         }
     }
 
-    fn ports(values: &[&str]) -> Vec<String> {
-        values.iter().map(ToString::to_string).collect()
+    fn ports(values: &[&str]) -> Vec<Port> {
+        values.iter().map(|s| Port(s.to_string())).collect()
     }
 
     #[test]
@@ -160,7 +165,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(allow.policy, FilterPolicy::Allow);
-        assert_eq!(allow.source_ports, vec!["transfer", "oracle-*"]);
+        assert_eq!(
+            allow.source_ports,
+            vec![Port("transfer".to_string()), Port("oracle-*".to_string())]
+        );
 
         let deny: PacketFilterConfig = toml::from_str(
             r#"

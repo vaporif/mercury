@@ -91,13 +91,13 @@ macro_rules! delegate_chain {
             type PacketReceipt = <$Inner as $crate::IbcTypes>::PacketReceipt;
             type Acknowledgement = <$Inner as $crate::IbcTypes>::Acknowledgement;
 
-            fn packet_sequence(packet: &Self::Packet) -> u64 {
+            fn packet_sequence(packet: &Self::Packet) -> $crate::types::PacketSequence {
                 <$Inner as $crate::IbcTypes>::packet_sequence(packet)
             }
-            fn packet_timeout_timestamp(packet: &Self::Packet) -> u64 {
+            fn packet_timeout_timestamp(packet: &Self::Packet) -> $crate::types::TimeoutTimestamp {
                 <$Inner as $crate::IbcTypes>::packet_timeout_timestamp(packet)
             }
-            fn packet_source_ports(packet: &Self::Packet) -> Vec<String> {
+            fn packet_source_ports(packet: &Self::Packet) -> Vec<$crate::types::Port> {
                 <$Inner as $crate::IbcTypes>::packet_source_ports(packet)
             }
         }
@@ -126,7 +126,7 @@ macro_rules! delegate_chain {
             async fn query_packet_commitment(
                 &self,
                 client_id: &Self::ClientId,
-                sequence: u64,
+                sequence: $crate::types::PacketSequence,
                 height: &Self::Height,
             ) -> $crate::_mercury_core::error::Result<(
                 Option<Self::PacketCommitment>,
@@ -140,7 +140,7 @@ macro_rules! delegate_chain {
             async fn query_packet_receipt(
                 &self,
                 client_id: &Self::ClientId,
-                sequence: u64,
+                sequence: $crate::types::PacketSequence,
                 height: &Self::Height,
             ) -> $crate::_mercury_core::error::Result<(
                 Option<Self::PacketReceipt>,
@@ -154,7 +154,7 @@ macro_rules! delegate_chain {
             async fn query_packet_acknowledgement(
                 &self,
                 client_id: &Self::ClientId,
-                sequence: u64,
+                sequence: $crate::types::PacketSequence,
                 height: &Self::Height,
             ) -> $crate::_mercury_core::error::Result<(
                 Option<Self::Acknowledgement>,
@@ -169,14 +169,14 @@ macro_rules! delegate_chain {
                 &self,
                 client_id: &Self::ClientId,
                 height: &Self::Height,
-            ) -> $crate::_mercury_core::error::Result<Vec<u64>> {
+            ) -> $crate::_mercury_core::error::Result<Vec<$crate::types::PacketSequence>> {
                 self.0.query_commitment_sequences(client_id, height).await
             }
 
             fn commitment_to_membership_entry(
                 &self,
                 client_id: &Self::ClientId,
-                sequence: u64,
+                sequence: $crate::types::PacketSequence,
                 commitment: &Self::PacketCommitment,
                 proof: &Self::CommitmentProof,
             ) -> Option<$crate::_mercury_core::MembershipProofEntry> {
@@ -187,7 +187,7 @@ macro_rules! delegate_chain {
             fn ack_to_membership_entry(
                 &self,
                 client_id: &Self::ClientId,
-                sequence: u64,
+                sequence: $crate::types::PacketSequence,
                 ack: &Self::Acknowledgement,
                 proof: &Self::CommitmentProof,
             ) -> Option<$crate::_mercury_core::MembershipProofEntry> {
@@ -228,7 +228,7 @@ macro_rules! delegate_chain {
             async fn query_send_packet_event(
                 &self,
                 client_id: &Self::ClientId,
-                sequence: u64,
+                sequence: $crate::types::PacketSequence,
             ) -> $crate::_mercury_core::error::Result<Option<Self::SendPacketEvent>> {
                 self.0.query_send_packet_event(client_id, sequence).await
             }

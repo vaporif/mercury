@@ -288,16 +288,16 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
 #[must_use]
 pub fn cosmos_packet_to_v2(packet: &CosmosPacket) -> V2Packet {
     V2Packet {
-        sequence: packet.sequence,
+        sequence: packet.sequence.into(),
         source_client: packet.source_client_id.0.clone(),
         destination_client: packet.dest_client_id.0.clone(),
-        timeout_timestamp: packet.timeout_timestamp,
+        timeout_timestamp: packet.timeout_timestamp.into(),
         payloads: packet
             .payloads
             .iter()
             .map(|p| channel::Payload {
-                source_port: p.source_port.clone(),
-                destination_port: p.dest_port.clone(),
+                source_port: p.source_port.clone().into(),
+                destination_port: p.dest_port.clone().into(),
                 version: p.version.clone(),
                 encoding: p.encoding.clone(),
                 value: p.data.clone(),
@@ -377,17 +377,18 @@ impl<S: CosmosSigner> PacketMessageBuilder<Self> for CosmosChain<S> {
 mod tests {
     use super::*;
     use crate::types::{PacketPayload, RawClientId};
+    use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
 
     #[test]
     fn cosmos_packet_to_v2_converts_fields() {
         let packet = CosmosPacket {
             source_client_id: RawClientId("07-tendermint-0".into()),
             dest_client_id: RawClientId("07-tendermint-1".into()),
-            sequence: 5,
-            timeout_timestamp: 12345,
+            sequence: PacketSequence(5),
+            timeout_timestamp: TimeoutTimestamp(12345),
             payloads: vec![PacketPayload {
-                source_port: "transfer".to_string(),
-                dest_port: "transfer".to_string(),
+                source_port: Port("transfer".to_string()),
+                dest_port: Port("transfer".to_string()),
                 version: "ics20-1".to_string(),
                 encoding: "json".to_string(),
                 data: b"test".to_vec(),
@@ -410,8 +411,8 @@ mod tests {
         let packet = CosmosPacket {
             source_client_id: RawClientId("07-tendermint-0".into()),
             dest_client_id: RawClientId("07-tendermint-1".into()),
-            sequence: 1,
-            timeout_timestamp: 0,
+            sequence: PacketSequence(1),
+            timeout_timestamp: TimeoutTimestamp(0),
             payloads: vec![],
         };
         let v2 = cosmos_packet_to_v2(&packet);

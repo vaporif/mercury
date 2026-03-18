@@ -145,14 +145,14 @@ impl IbcTypes for MockChain {
     type PacketReceipt = ();
     type Acknowledgement = ();
 
-    fn packet_sequence(_packet: &Self::Packet) -> u64 {
-        0
+    fn packet_sequence(_packet: &Self::Packet) -> PacketSequence {
+        PacketSequence(0)
     }
-    fn packet_timeout_timestamp(_packet: &Self::Packet) -> u64 {
-        0
+    fn packet_timeout_timestamp(_packet: &Self::Packet) -> TimeoutTimestamp {
+        TimeoutTimestamp(0)
     }
 
-    fn packet_source_ports(_packet: &Self::Packet) -> Vec<String> {
+    fn packet_source_ports(_packet: &Self::Packet) -> Vec<Port> {
         vec![]
     }
 }
@@ -288,7 +288,7 @@ impl PacketEvents for MockChain {
     async fn query_send_packet_event(
         &self,
         _client_id: &String,
-        _sequence: u64,
+        _sequence: PacketSequence,
     ) -> Result<Option<MockSendPacketEvent>> {
         Ok(None)
     }
@@ -342,7 +342,7 @@ impl PacketStateQuery for MockChain {
     async fn query_packet_commitment(
         &self,
         _client_id: &String,
-        _sequence: u64,
+        _sequence: PacketSequence,
         _height: &u64,
     ) -> Result<(Option<()>, MockCommitmentProof)> {
         Ok((None, MockCommitmentProof))
@@ -350,7 +350,7 @@ impl PacketStateQuery for MockChain {
     async fn query_packet_receipt(
         &self,
         _client_id: &String,
-        _sequence: u64,
+        _sequence: PacketSequence,
         _height: &u64,
     ) -> Result<(Option<()>, MockCommitmentProof)> {
         Ok((None, MockCommitmentProof))
@@ -358,7 +358,7 @@ impl PacketStateQuery for MockChain {
     async fn query_packet_acknowledgement(
         &self,
         _client_id: &String,
-        _sequence: u64,
+        _sequence: PacketSequence,
         _height: &u64,
     ) -> Result<(Option<()>, MockCommitmentProof)> {
         Ok((None, MockCommitmentProof))
@@ -367,7 +367,7 @@ impl PacketStateQuery for MockChain {
         &self,
         _client_id: &String,
         _height: &u64,
-    ) -> Result<Vec<u64>> {
+    ) -> Result<Vec<PacketSequence>> {
         Ok(vec![])
     }
 }
