@@ -42,17 +42,12 @@
             (crane.mkLib pkgs).overrideToolchain
             fenix.packages.${system}.stable.toolchain;
         });
-  in {
-    formatter = nixpkgs.lib.genAttrs systems (system: nixpkgs.legacyPackages.${system}.alejandra);
 
-    overlays.default = final: _prev: {
-      mercury-relayer = self.packages.${final.stdenv.hostPlatform.system}.default;
-    };
-
-    packages = forAllSystems ({
+    # Per-system build context shared by packages, checks, and devShells.
+    perSystem = forAllSystems ({
       pkgs,
+      fenixPkgs,
       craneLib,
-      ...
     }: let
       # Overlay ABI JSON files from the solidity-ibc-eureka flake input
       # since Nix flakes don't include git submodules.
@@ -118,16 +113,7 @@
         license = pkgs.lib.licenses.mit;
         mainProgram = "mercury-relayer";
       };
-    in {
-      default = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts meta;});
-    });
 
-    devShells = forAllSystems ({
-      pkgs,
-      fenixPkgs,
-      ...
-    }: let
-      system = pkgs.stdenv.hostPlatform.system;
       toolchain = fenixPkgs.stable.withComponents [
         "cargo"
         "clippy"
@@ -137,7 +123,36 @@
         "rust-analyzer"
       ];
     in {
-      default = pkgs.mkShell {
+      packages.default = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts meta;});
+
+      checks = {
+        clippy = craneLib.cargoClippy (commonArgs
+          // {
+            inherit cargoArtifacts;
+            cargoClippyExtraArgs = "-- -D warnings";
+          });
+        nextest = craneLib.cargoNextest (commonArgs
+          // {
+            inherit cargoArtifacts;
+            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [pkgs.cargo-nextest];
+          });
+        fmt = craneLib.cargoFmt {inherit src;};
+        deny = craneLib.cargoDeny (commonArgs // {inherit src;});
+        typos = pkgs.runCommand "typos" {nativeBuildInputs = [pkgs.typos];} ''
+          typos ${src}
+          touch $out
+        '';
+        taplo = pkgs.runCommand "taplo" {nativeBuildInputs = [pkgs.taplo];} ''
+          taplo check ${src}
+          touch $out
+        '';
+        nix-fmt = pkgs.runCommand "nix-fmt" {nativeBuildInputs = [pkgs.alejandra];} ''
+          alejandra --check ${self}/flake.nix
+          touch $out
+        '';
+      };
+
+      devShells.default = pkgs.mkShell {
         packages =
           [
             toolchain
@@ -146,6 +161,7 @@
             pkgs.typos
             pkgs.actionlint
             pkgs.cargo-nextest
+            pkgs.cargo-deny
             pkgs.foundry
             pkgs.bun
           ]
@@ -167,5 +183,15 @@
         };
       };
     });
+  in {
+    formatter = nixpkgs.lib.genAttrs systems (system: nixpkgs.legacyPackages.${system}.alejandra);
+
+    overlays.default = final: _prev: {
+      mercury-relayer = self.packages.${final.stdenv.hostPlatform.system}.default;
+    };
+
+    packages = nixpkgs.lib.genAttrs systems (system: perSystem.${system}.packages);
+    checks = nixpkgs.lib.genAttrs systems (system: perSystem.${system}.checks);
+    devShells = nixpkgs.lib.genAttrs systems (system: perSystem.${system}.devShells);
   };
 }
