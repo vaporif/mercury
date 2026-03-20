@@ -73,13 +73,49 @@
         outputHashes = {
           "git+https://github.com/srdtrk/ibc-proto-rs?rev=3613891e18478811216cce02dc867b7c6ff8811b#3613891e18478811216cce02dc867b7c6ff8811b" = "sha256-tzo5lOTVAAxNHXtP7+vZVsi41BvkYE8JrcBn54CIDaQ=";
         };
+        # sp1-core-machine 5.2.4's build.rs runs cbindgen which calls
+        # `cargo metadata` against its own Cargo.toml. This fails in Nix's
+        # sealed vendor dir because optional/dev deps aren't vendored.
+        # Patch build.rs to skip the cbindgen FFI generation entirely.
+        # Safe to remove once upgraded to sp1 >= 6.0.2 (no build.rs).
         overrideVendorCargoPackage = p: drv:
-          if p.name == "sp1-core-machine"
+          if builtins.elem p.name ["sp1-core-machine" "sp1-recursion-core"]
           then
-            drv.overrideAttrs (_old: {
-              postPatch = ''
-                rm -f Cargo.lock
-              '';
+            # cbindgen runs `cargo metadata` in build.rs which fails in Nix's
+            # sealed vendor dir (unvendored optional/dev deps). Strip dev-deps,
+            # remove stale Cargo.lock. Safe to remove with sp1 >= 6.0.2.
+            drv.overrideAttrs (old: {
+              nativeBuildInputs = (old.nativeBuildInputs or []) ++ [pkgs.gnused pkgs.gawk];
+              postPatch =
+                (old.postPatch or "")
+                + ''
+                  rm -f Cargo.lock
+                  awk '/^\[dev-dependencies/{skip=1; next} /^\[/{skip=0} !skip' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
+                '';
+            })
+          else if p.name == "cbindgen"
+          then
+            drv.overrideAttrs (old: {
+              nativeBuildInputs = (old.nativeBuildInputs or []) ++ [pkgs.gnused];
+              # Copy manifest dir to writable tmpdir before calling cargo metadata
+              # so cargo can write Cargo.lock. Nix store is read-only.
+              postPatch =
+                (old.postPatch or "")
+                + ''
+                  sed -i 's|cmd\.arg(manifest_path);|{ let tmp = std::env::temp_dir().join(format!("cbindgen-meta-{}", std::process::id())); let _ = std::fs::create_dir_all(\&tmp); let src = manifest_path.parent().unwrap(); for e in std::fs::read_dir(src).into_iter().flatten().flatten() { let p = e.path(); if p.is_file() { let _ = std::fs::copy(\&p, tmp.join(e.file_name())); } else if p.is_dir() { let dst = tmp.join(e.file_name()); let _ = std::os::unix::fs::symlink(\&p, \&dst); } } cmd.arg(tmp.join("Cargo.toml")); }|' src/bindgen/cargo/cargo_metadata.rs
+                '';
+            })
+          else if p.name == "sp1-curves"
+          then
+            # Strip unvendored optional dep `rug` — cargo metadata verifies
+            # all deps exist even when their feature isn't enabled.
+            drv.overrideAttrs (old: {
+              nativeBuildInputs = (old.nativeBuildInputs or []) ++ [pkgs.gnused];
+              postPatch =
+                (old.postPatch or "")
+                + ''
+                  sed -i '/^\[dependencies\.rug\]/,/^$/d; s/bigint-rug = \["rug"\]/bigint-rug = []/' Cargo.toml
+                '';
             })
           else drv;
         overrideVendorGitCheckout = ps: drv:
@@ -90,6 +126,12 @@
               postPatch = ''
                 find . -name Cargo.toml -exec \
                   sed -i '/^readme\s*=.*\.\.\/.*README/d' {} +
+              '';
+              postInstall = ''
+                cp -r ${solidity-ibc-eureka}/contracts $out/
+                cp -r ${solidity-ibc-eureka}/abi $out/
+                find $out -name '*.rs' -exec \
+                  sed -i 's|"\.\./\.\./contracts|"../contracts|g; s|"\.\./\.\./abi|"../abi|g' {} +
               '';
             })
           else drv;
