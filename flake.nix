@@ -68,6 +68,12 @@
       # 1. solidity-ibc-eureka has relative readme paths that don't exist when crane extracts the git dep
       # 2. sp1-core-machine ships a stale Cargo.lock pinning cfg-if 1.0.0; its build.rs uses cbindgen
       #    which runs `cargo metadata` and picks up that lockfile, but the vendor dir has cfg-if 1.0.4
+      # sp1-prover build.rs downloads vk_map.bin from S3 at build time.
+      # Pre-fetch it so the sandboxed Nix build doesn't need network.
+      sp1VkMap = pkgs.fetchurl {
+        url = "https://sp1-circuits.s3.us-east-2.amazonaws.com/vk-map-v5.0.0";
+        hash = "sha256-XnNfbkT1bp7ukeViYlJmOvzFJjKH0cWYA2ez+fkwoOg=";
+      };
       cargoVendorDir = craneLib.vendorCargoDeps {
         inherit src;
         outputHashes = {
@@ -79,7 +85,18 @@
         # Patch build.rs to skip the cbindgen FFI generation entirely.
         # Safe to remove once upgraded to sp1 >= 6.0.2 (no build.rs).
         overrideVendorCargoPackage = p: drv:
-          if builtins.elem p.name ["sp1-core-machine" "sp1-recursion-core"]
+          if p.name == "sp1-prover"
+          then
+            # Provide pre-fetched vk_map.bin so build.rs doesn't need network
+            drv.overrideAttrs (old: {
+              postPatch =
+                (old.postPatch or "")
+                + ''
+                  mkdir -p src
+                  cp ${sp1VkMap} src/vk_map.bin
+                '';
+            })
+          else if builtins.elem p.name ["sp1-core-machine" "sp1-recursion-core"]
           then
             # cbindgen runs `cargo metadata` in build.rs which fails in Nix's
             # sealed vendor dir (unvendored optional/dev deps). Strip dev-deps,
