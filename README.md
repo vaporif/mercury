@@ -1,4 +1,4 @@
-# Mercury IBC v2 Relayer
+# Mercury
 
 [![Cosmos ecosystem][cosmos-shield]][cosmos-link]
 
@@ -8,15 +8,17 @@
 
 <!-- [![Nix](https://github.com/vaporif/mercury/actions/workflows/nix.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/nix.yml) -->
 
-A cross-chain IBC v2 relayer in Rust. Plugin architecture with plain traits, no frameworks.
+An IBC v2 relayer in Rust. Plain traits, no frameworks.
 
-Mercury relays packets between IBC-connected blockchains, including across fundamentally different chain types. Cosmos↔Cosmos works today; Cosmos→EVM is in progress. Unlike [hermes](https://github.com/informalsystems/hermes) (primarily Cosmos/Tendermint chains, sync architecture) and [hermes-sdk](https://github.com/informalsystems/hermes-sdk) (correct cross-chain approach buried under 250+ component traits), Mercury shares all relay logic across chain pairs through ~21 plain Rust traits with an adapter pattern for orphan rule avoidance.
+Mercury moves packets between IBC-connected blockchains, even when the chains are completely different types. Cosmos↔Cosmos works today. Cosmos→EVM is in progress.
 
-**Adding a new chain never requires modifying Mercury's core.** Chain support is implemented as independent crates with plugin traits — no forks, no rebasing on upstream, no enum variants to extend. See [Why Rewrite](./docs/why-rewrite.md#the-fork-problem) and [Adding a Chain](./docs/adding-a-chain.md).
+[Hermes](https://github.com/informalsystems/hermes) handles Cosmos/Tendermint chains with a sync architecture. [hermes-sdk](https://github.com/informalsystems/hermes-sdk) gets the cross-chain abstraction right but buries it under 250+ component traits. Mercury takes the same insight and keeps it simple: ~21 plain Rust traits, an adapter pattern for orphan rules, and all relay logic shared across chain pairs.
+
+Adding a new chain doesn't touch Mercury's core. Chain support lives in independent crates with plugin traits. No forks, no rebasing, no enum variants to extend. See [why rewrite](./docs/why-rewrite.md#the-fork-problem) and [adding a chain](./docs/adding-a-chain.md).
 
 ## Status
 
-Early active development. Core IBC v2 relay pipeline with Cosmos↔Cosmos packet relay working in E2E tests. Cosmos→EVM cross-chain relay in progress. Not yet tested against live chains — use at your own risk.
+Early development. Cosmos↔Cosmos packet relay works in E2E tests. Cosmos→EVM is in progress. Not tested against live chains yet, so use at your own risk.
 
 ## How it works
 
@@ -30,43 +32,43 @@ ClientRefreshWorker → TxWorker (dst chain)
 MisbehaviourWorker (independent, cancels relay on detection)
 ```
 
-Each relay direction (A→B, B→A) runs its own set of workers connected by `tokio::mpsc` channels. See [Architecture](./docs/architecture.md) for the full pipeline, crate layout, and trait hierarchy.
+Each relay direction (A→B, B→A) runs its own workers connected by `tokio::mpsc` channels. See [architecture](./docs/architecture.md) for the full pipeline and trait hierarchy.
 
 ## Crates
 
-| Crate | Description |
+| Crate | What it does |
 |-------|-------------|
-| `mercury-cli` | CLI binary — `mercury-relayer start`, `mercury-relayer status` |
-| `mercury-cosmos` | Cosmos chain — RPC, protobuf, tx signing |
-| `mercury-ethereum` | EVM chain — alloy, ICS07 contract interaction |
-| `mercury-cosmos-counterparties` | Cosmos — supported counterparties (currently: Ethereum) |
-| `mercury-ethereum-counterparties` | Ethereum — supported counterparties (currently: Cosmos) |
+| `mercury-cli` | CLI binary: `mercury-relayer start`, `mercury-relayer status` |
+| `mercury-cosmos` | Cosmos chain: RPC, protobuf, tx signing |
+| `mercury-ethereum` | EVM chain: alloy, ICS07 contract interaction |
+| `mercury-cosmos-counterparties` | Cosmos counterparties (currently Ethereum) |
+| `mercury-ethereum-counterparties` | Ethereum counterparties (currently Cosmos) |
 | `mercury-relay` | Worker pipeline, generic over chain traits |
 | `mercury-chain-traits` | Chain types, messaging, queries, relay traits |
-| `mercury-core` | Plugin traits, chain registry, typed error hierarchy, encoding, worker trait, membership proofs |
+| `mercury-core` | Plugin traits, chain registry, typed errors, encoding, membership proofs |
 
 ## Docs
 
-- [Why rewrite?](./docs/why-rewrite.md) — Hermes limitations, what CGP gets right, how Mercury applies the same insight without the framework
-- [Architecture](./docs/architecture.md) — trait hierarchy, cross-chain design, crate layout, worker pipeline
+- [Why rewrite?](./docs/why-rewrite.md) — Hermes limitations, what CGP gets right, Mercury's approach
+- [Architecture](./docs/architecture.md) — trait hierarchy, crate layout, worker pipeline
 - [IBC v2](./docs/ibc-v2.md) — Eureka protocol changes vs v1
-- [Adding a new chain](./docs/adding-a-chain.md) — step-by-step guide
+- [Adding a new chain](./docs/adding-a-chain.md) — step by step
 
 ## Usage
 
 ```bash
-# Start the relayer
+# start the relayer
 mercury-relayer start --config relayer.toml
 
-# Query chain status
+# query chain status
 mercury-relayer status --config relayer.toml --chain cosmoshub-4
 ```
 
-See [`examples/relayer.toml`](./examples/relayer.toml) for a full config example.
+See [`examples/relayer.toml`](./examples/relayer.toml) for config.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, building, testing, CI, and code style.
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
