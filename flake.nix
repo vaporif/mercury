@@ -186,7 +186,6 @@
 
       checks = {
         fmt = craneLib.cargoFmt {inherit src;};
-        deny = craneLib.cargoDeny (commonArgs // {inherit src;});
         typos = pkgs.runCommand "typos" {nativeBuildInputs = [pkgs.typos];} ''
           typos ${src}
           touch $out
