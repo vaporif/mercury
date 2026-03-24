@@ -18,6 +18,8 @@ ignore = [
   "RUSTSEC-2025-0141",
   # derivative unmaintained — transitive via ark-ff -> sp1-recursion-core, waiting on upstream
   "RUSTSEC-2024-0388",
+  # rustls-webpki CRL distribution point logic error — pinned by tendermint-rpc 0.40 -> rustls 0.22, waiting on upstream
+  "RUSTSEC-2026-0049",
 ]
 
 [licenses]
