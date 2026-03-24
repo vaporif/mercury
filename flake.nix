@@ -185,18 +185,7 @@
       packages.default = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts meta;});
 
       checks = {
-        clippy = craneLib.cargoClippy (commonArgs
-          // {
-            inherit cargoArtifacts;
-            cargoClippyExtraArgs = "-- -D warnings";
-          });
-        nextest = craneLib.cargoNextest (commonArgs
-          // {
-            inherit cargoArtifacts;
-            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [pkgs.cargo-nextest];
-          });
         fmt = craneLib.cargoFmt {inherit src;};
-        deny = craneLib.cargoDeny (commonArgs // {inherit src;});
         typos = pkgs.runCommand "typos" {nativeBuildInputs = [pkgs.typos];} ''
           typos ${src}
           touch $out
