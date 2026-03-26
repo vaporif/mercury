@@ -487,7 +487,8 @@ pub async fn bootstrap_cosmos(
 
     let wasm_checksum = store_wasm_light_client(&cosmos_handle, wasm_lc_path).await?;
 
-    let cosmos_chain = build_cosmos_chain(&cosmos_handle, Some(&wasm_checksum), mock_proofs).await?;
+    let cosmos_chain =
+        build_cosmos_chain(&cosmos_handle, Some(&wasm_checksum), mock_proofs).await?;
 
     Ok((cosmos_handle, wasm_checksum, cosmos_chain))
 }
@@ -551,9 +552,12 @@ async fn build_cosmos_chain_with_user(
         .map_err(|e| eyre::eyre!("invalid secret key: {e}"))?;
     let signer = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
 
-    CosmosAdapter::new(make_cosmos_config(handle, wasm_checksum, mock_proofs), signer)
-        .await
-        .map_err(|e| eyre::eyre!("{e}"))
+    CosmosAdapter::new(
+        make_cosmos_config(handle, wasm_checksum, mock_proofs),
+        signer,
+    )
+    .await
+    .map_err(|e| eyre::eyre!("{e}"))
 }
 
 #[allow(clippy::future_not_send)]

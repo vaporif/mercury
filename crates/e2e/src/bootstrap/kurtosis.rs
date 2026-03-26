@@ -32,9 +32,7 @@ pub struct PreFundedKey {
 static KURTOSIS: OnceCell<KurtosisHandle> = OnceCell::const_new();
 
 pub async fn get_or_init_kurtosis() -> Result<&'static KurtosisHandle> {
-    KURTOSIS
-        .get_or_try_init(start_kurtosis)
-        .await
+    KURTOSIS.get_or_try_init(start_kurtosis).await
 }
 
 fn kurtosis_config() -> String {
@@ -84,8 +82,7 @@ async fn start_kurtosis() -> Result<KurtosisHandle> {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let beacon_api_url =
-        kurtosis_port_print(&enclave_name, "cl-1-lodestar-geth", "http").await?;
+    let beacon_api_url = kurtosis_port_print(&enclave_name, "cl-1-lodestar-geth", "http").await?;
     let el_rpc_raw = kurtosis_port_print(&enclave_name, "el-1-geth-lodestar", "rpc").await?;
     let el_rpc_url = if el_rpc_raw.starts_with("http") {
         el_rpc_raw
@@ -185,8 +182,7 @@ async fn check_sync_committee_update(
     client: &reqwest::Client,
     beacon_api_url: &str,
 ) -> Result<bool> {
-    let url =
-        format!("{beacon_api_url}/eth/v1/beacon/light_client/updates?start_period=0&count=1");
+    let url = format!("{beacon_api_url}/eth/v1/beacon/light_client/updates?start_period=0&count=1");
     let resp: serde_json::Value = client.get(&url).send().await?.json().await?;
 
     let has_finalized_header = resp

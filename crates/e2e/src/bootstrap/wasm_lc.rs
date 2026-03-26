@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use eyre::{ensure, Result};
+use eyre::{Result, ensure};
 use tracing::info;
 
 static WASM_PATH: OnceLock<PathBuf> = OnceLock::new();

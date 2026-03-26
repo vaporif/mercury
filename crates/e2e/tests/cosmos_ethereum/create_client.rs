@@ -5,7 +5,6 @@ use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery};
 use mercury_cosmos_counterparties::CosmosAdapter;
 use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
 use mercury_e2e::beacon_lc_context::BeaconLcTestContext;
-use mercury_ethereum::chain::EthereumChain;
 use mercury_e2e::bootstrap::anvil::{self, AnvilHandle, start_anvil};
 use mercury_e2e::bootstrap::cosmos_docker::{
     CosmosDockerBootstrap, CosmosDockerHandle, store_dummy_wasm_light_client,
@@ -13,6 +12,7 @@ use mercury_e2e::bootstrap::cosmos_docker::{
 use mercury_e2e::bootstrap::traits::{ChainBootstrap, ChainHandle};
 use mercury_e2e::cosmos_eth_context::build_sp1_client_state;
 use mercury_e2e::relayer::find_or_build_binary;
+use mercury_ethereum::chain::EthereumChain;
 
 use super::*;
 
@@ -192,7 +192,10 @@ async fn create_eth_client_on_cosmos_beacon() -> Result<()> {
     let height =
         <CosmosAdapter<Secp256k1KeyPair> as ClientQuery<EthereumChain>>::client_latest_height(&cs);
 
-    assert!(height.0 > 0, "real beacon client should have non-zero initial height");
+    assert!(
+        height.0 > 0,
+        "real beacon client should have non-zero initial height"
+    );
 
     Ok(())
 }

@@ -28,7 +28,9 @@ async fn eth_client_on_cosmos_advances_height() -> Result<()> {
     .await?;
 
     let initial_height =
-        <CosmosAdapter<Secp256k1KeyPair> as ClientQuery<EthereumChain>>::client_latest_height(&initial_cs);
+        <CosmosAdapter<Secp256k1KeyPair> as ClientQuery<EthereumChain>>::client_latest_height(
+            &initial_cs,
+        );
     tracing::info!("Initial ETH client height on Cosmos: {initial_height:?}");
 
     let target_height = EvmHeight(initial_height.0 + 1);
@@ -62,7 +64,9 @@ async fn eth_client_on_cosmos_advances_height() -> Result<()> {
     )
     .await?;
     let updated_height =
-        <CosmosAdapter<Secp256k1KeyPair> as ClientQuery<EthereumChain>>::client_latest_height(&updated_cs);
+        <CosmosAdapter<Secp256k1KeyPair> as ClientQuery<EthereumChain>>::client_latest_height(
+            &updated_cs,
+        );
     tracing::info!("Updated ETH client height on Cosmos: {updated_height:?}");
 
     assert!(
@@ -89,7 +93,9 @@ async fn eth_client_on_cosmos_advances_height_beacon() -> Result<()> {
     .await?;
 
     let initial_height =
-        <CosmosAdapter<Secp256k1KeyPair> as ClientQuery<EthereumChain>>::client_latest_height(&initial_cs);
+        <CosmosAdapter<Secp256k1KeyPair> as ClientQuery<EthereumChain>>::client_latest_height(
+            &initial_cs,
+        );
     tracing::info!("Initial beacon ETH client height on Cosmos: {initial_height:?}");
 
     // Wait for new finalized block beyond initial height
@@ -126,7 +132,9 @@ async fn eth_client_on_cosmos_advances_height_beacon() -> Result<()> {
     )
     .await?;
     let updated_height =
-        <CosmosAdapter<Secp256k1KeyPair> as ClientQuery<EthereumChain>>::client_latest_height(&updated_cs);
+        <CosmosAdapter<Secp256k1KeyPair> as ClientQuery<EthereumChain>>::client_latest_height(
+            &updated_cs,
+        );
     tracing::info!("Updated beacon ETH client height on Cosmos: {updated_height:?}");
 
     assert!(

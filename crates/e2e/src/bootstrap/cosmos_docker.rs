@@ -396,7 +396,7 @@ pub async fn store_wasm_light_client(
 
 #[allow(clippy::future_not_send)]
 pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Result<String> {
-    let mock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz");
+    let mock_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz");
     store_wasm_light_client(handle, &mock_path).await
 }

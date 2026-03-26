@@ -157,9 +157,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<EthereumChain> for CosmosAdapter<S> {
             .headers
             .into_iter()
             .map(|header_bytes| {
-                let wasm_client_message = WasmClientMessage {
-                    data: header_bytes,
-                };
+                let wasm_client_message = WasmClientMessage { data: header_bytes };
                 let msg = MsgUpdateClient {
                     client_id: client_id.to_string(),
                     client_message: Some(ibc_proto::google::protobuf::Any {

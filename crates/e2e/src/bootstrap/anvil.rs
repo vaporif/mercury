@@ -180,7 +180,10 @@ pub fn deploy_ibc_contracts(
     faucet_address: &Address,
 ) -> Result<DeployedContracts> {
     if !eureka_dir.exists() {
-        bail!("{} not found — did you init submodules?", eureka_dir.display());
+        bail!(
+            "{} not found — did you init submodules?",
+            eureka_dir.display()
+        );
     }
 
     install_solidity_deps(eureka_dir);

@@ -24,3 +24,6 @@ target
 result
 
 .envrc
+
+# Compiled WASM artifacts
+*.wasm.gz
