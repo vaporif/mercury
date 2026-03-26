@@ -1,6 +1,11 @@
 use std::process::Command;
 
 use eyre::Result;
+use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery};
+use mercury_cosmos_counterparties::CosmosAdapter;
+use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
+use mercury_e2e::beacon_lc_context::BeaconLcTestContext;
+use mercury_ethereum::chain::EthereumChain;
 use mercury_e2e::bootstrap::anvil::{self, AnvilHandle, start_anvil};
 use mercury_e2e::bootstrap::cosmos_docker::{
     CosmosDockerBootstrap, CosmosDockerHandle, store_dummy_wasm_light_client,
@@ -34,7 +39,7 @@ async fn setup_infra() -> Result<CrossChainInfra> {
 
     let sp1_light_client = anvil::deploy_sp1_light_client(
         &anvil_handle.rpc_endpoint,
-        &anvil_handle.relayer_wallet,
+        &anvil_handle.relayer_wallet.private_key,
         anvil_handle.mock_verifier,
         &vkeys,
         &client_state_abi,
@@ -169,4 +174,25 @@ async fn create_client_eth_host_cosmos_reference() {
 
     let binary = find_or_build_binary();
     assert_create_client(&binary, &config_path, &eth_chain_id, &cosmos_chain_id);
+}
+
+#[tokio::test]
+#[ignore = "requires Kurtosis"]
+async fn create_eth_client_on_cosmos_beacon() -> Result<()> {
+    init_tracing();
+    let ctx = BeaconLcTestContext::setup().await?;
+
+    let query_height = ctx.cosmos_chain.query_latest_height().await?;
+    let cs = ClientQuery::<EthereumChain>::query_client_state(
+        &ctx.cosmos_chain,
+        &ctx.client_id_on_cosmos,
+        &query_height,
+    )
+    .await?;
+    let height =
+        <CosmosAdapter<Secp256k1KeyPair> as ClientQuery<EthereumChain>>::client_latest_height(&cs);
+
+    assert!(height.0 > 0, "real beacon client should have non-zero initial height");
+
+    Ok(())
 }

@@ -6,7 +6,9 @@ use tracing::info;
 
 pub mod anvil;
 pub mod cosmos_docker;
+pub mod kurtosis;
 pub mod traits;
+pub mod wasm_lc;
 
 static BUN_INSTALL: Once = Once::new();
 

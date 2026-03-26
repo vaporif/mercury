@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,7 +28,7 @@ use tracing::info;
 
 use crate::bootstrap::anvil::{AnvilHandle, start_anvil};
 use crate::bootstrap::cosmos_docker::{
-    CosmosDockerBootstrap, CosmosDockerHandle, store_dummy_wasm_light_client,
+    CosmosDockerBootstrap, CosmosDockerHandle, store_wasm_light_client,
 };
 use crate::bootstrap::traits::{ChainBootstrap, ChainHandle};
 use crate::relayer::RelayHandle;
@@ -45,14 +45,12 @@ pub struct CosmosEthTestContext {
 impl CosmosEthTestContext {
     #[allow(clippy::future_not_send, clippy::too_many_lines)]
     pub async fn setup() -> Result<Self> {
-        let cosmos_bootstrap = CosmosDockerBootstrap::new("mercury-cosmos");
-        let cosmos_handle = cosmos_bootstrap.start().await?;
+        let mock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz");
+        let (cosmos_handle, _wasm_checksum, cosmos_chain) =
+            bootstrap_cosmos(&mock_path, true).await?;
 
         let anvil_handle = start_anvil().await?;
-
-        let wasm_checksum = store_dummy_wasm_light_client(&cosmos_handle).await?;
-
-        let cosmos_chain = build_cosmos_chain(&cosmos_handle, Some(&wasm_checksum)).await?;
 
         info!("building SP1 programs and deriving vkeys");
         let elf_dir = crate::bootstrap::anvil::build_sp1_programs()?;
@@ -63,7 +61,7 @@ impl CosmosEthTestContext {
 
         let sp1_light_client = crate::bootstrap::anvil::deploy_sp1_light_client(
             &anvil_handle.rpc_endpoint,
-            &anvil_handle.relayer_wallet,
+            &anvil_handle.relayer_wallet.private_key,
             anvil_handle.mock_verifier,
             &vkeys,
             &client_state_abi,
@@ -105,73 +103,8 @@ impl CosmosEthTestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
 
-        info!("creating IBC client on Cosmos for Ethereum");
-        let eth_payload =
-            ClientPayloadBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_payload(
-                &eth_chain,
-            )
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
-        let msg_create_cosmos =
-            ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_create_client_message(
-                &cosmos_chain, eth_payload,
-            )
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
-        let cosmos_responses = cosmos_chain
-            .send_messages_with_responses(vec![msg_create_cosmos])
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
-        let client_id_on_cosmos = extract_cosmos_client_id(&cosmos_responses)?;
-        info!(client_id = %client_id_on_cosmos, "created client on Cosmos");
-
-        info!("creating IBC client on Ethereum for Cosmos");
-        let cosmos_payload =
-            ClientPayloadBuilder::<EthereumAdapter>::build_create_client_payload(&cosmos_chain)
-                .await
-                .map_err(|e| eyre::eyre!("{e}"))?;
-        let msg_create_eth =
-            ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_message(
-                &eth_chain,
-                cosmos_payload,
-            )
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
-        let eth_responses = eth_chain
-            .send_messages_with_responses(vec![msg_create_eth])
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
-        let client_id_on_eth = extract_evm_client_id(&eth_responses)?;
-        info!(client_id = %client_id_on_eth, "created client on Ethereum");
-
-        info!("registering counterparties");
-        let msg_register_cosmos =
-            ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_register_counterparty_message(
-                &cosmos_chain,
-                &client_id_on_cosmos,
-                &client_id_on_eth,
-                mercury_core::MerklePrefix::ibc_default(),
-            )
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
-        cosmos_chain
-            .send_messages(vec![msg_register_cosmos])
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
-
-        let msg_register_eth =
-            ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_register_counterparty_message(
-                &eth_chain,
-                &client_id_on_eth,
-                &client_id_on_cosmos,
-                mercury_core::MerklePrefix::ibc_default(),
-            )
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
-        eth_chain
-            .send_messages(vec![msg_register_eth])
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
+        let (client_id_on_cosmos, client_id_on_eth) =
+            create_ibc_clients(&cosmos_chain, &eth_chain).await?;
 
         info!("Cosmos-Ethereum IBC v2 setup complete");
 
@@ -234,7 +167,7 @@ impl CosmosEthTestContext {
         let eth_user = &self.anvil_handle.user_wallets[0];
 
         let user_chain =
-            build_cosmos_chain_with_user(&self.cosmos_handle, cosmos_user, None).await?;
+            build_cosmos_chain_with_user(&self.cosmos_handle, cosmos_user, None, true).await?;
 
         let packet_data = FungibleTokenPacketData {
             denom: denom.to_string(),
@@ -544,9 +477,25 @@ pub async fn build_sp1_client_state(
     Ok((client_state_abi, consensus_state_hash))
 }
 
+#[allow(clippy::future_not_send)]
+pub async fn bootstrap_cosmos(
+    wasm_lc_path: &Path,
+    mock_proofs: bool,
+) -> Result<(CosmosDockerHandle, String, CosmosAdapter<Secp256k1KeyPair>)> {
+    let cosmos_bootstrap = CosmosDockerBootstrap::new("mercury-cosmos");
+    let cosmos_handle = cosmos_bootstrap.start().await?;
+
+    let wasm_checksum = store_wasm_light_client(&cosmos_handle, wasm_lc_path).await?;
+
+    let cosmos_chain = build_cosmos_chain(&cosmos_handle, Some(&wasm_checksum), mock_proofs).await?;
+
+    Ok((cosmos_handle, wasm_checksum, cosmos_chain))
+}
+
 fn make_cosmos_config(
     handle: &CosmosDockerHandle,
     wasm_checksum: Option<&str>,
+    mock_proofs: bool,
 ) -> CosmosChainConfig {
     CosmosChainConfig {
         chain_name: None,
@@ -573,7 +522,7 @@ fn make_cosmos_config(
         dynamic_gas_price: None,
         max_tx_size: None,
         wasm_checksum: wasm_checksum.map(String::from),
-        mock_proofs: true,
+        mock_proofs,
         rpc_timeout_secs: mercury_core::rpc_guard::RpcConfig::DEFAULT_TIMEOUT_SECS,
         rpc_rate_limit: mercury_core::rpc_guard::RpcConfig::DEFAULT_RATE_LIMIT,
     }
@@ -582,14 +531,16 @@ fn make_cosmos_config(
 async fn build_cosmos_chain(
     handle: &CosmosDockerHandle,
     wasm_checksum: Option<&str>,
+    mock_proofs: bool,
 ) -> Result<CosmosAdapter<Secp256k1KeyPair>> {
-    build_cosmos_chain_with_user(handle, handle.relayer_wallet(), wasm_checksum).await
+    build_cosmos_chain_with_user(handle, handle.relayer_wallet(), wasm_checksum, mock_proofs).await
 }
 
 async fn build_cosmos_chain_with_user(
     handle: &CosmosDockerHandle,
     wallet: &crate::bootstrap::traits::Wallet,
     wasm_checksum: Option<&str>,
+    mock_proofs: bool,
 ) -> Result<CosmosAdapter<Secp256k1KeyPair>> {
     let secret_bytes =
         hex::decode(&wallet.secret_key_hex).wrap_err("decoding wallet secret key hex")?;
@@ -600,7 +551,83 @@ async fn build_cosmos_chain_with_user(
         .map_err(|e| eyre::eyre!("invalid secret key: {e}"))?;
     let signer = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
 
-    CosmosAdapter::new(make_cosmos_config(handle, wasm_checksum), signer)
+    CosmosAdapter::new(make_cosmos_config(handle, wasm_checksum, mock_proofs), signer)
         .await
         .map_err(|e| eyre::eyre!("{e}"))
+}
+
+#[allow(clippy::future_not_send)]
+pub async fn create_ibc_clients(
+    cosmos_chain: &CosmosAdapter<Secp256k1KeyPair>,
+    eth_chain: &EthereumAdapter,
+) -> Result<(ClientId, EvmClientId)> {
+    info!("creating IBC client on Cosmos for Ethereum");
+    let eth_payload =
+        ClientPayloadBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_payload(
+            eth_chain,
+        )
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+    let msg_create_cosmos =
+        ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_create_client_message(
+            cosmos_chain, eth_payload,
+        )
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+    let cosmos_responses = cosmos_chain
+        .send_messages_with_responses(vec![msg_create_cosmos])
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+    let client_id_on_cosmos = extract_cosmos_client_id(&cosmos_responses)?;
+    info!(client_id = %client_id_on_cosmos, "created client on Cosmos");
+
+    info!("creating IBC client on Ethereum for Cosmos");
+    let cosmos_payload =
+        ClientPayloadBuilder::<EthereumAdapter>::build_create_client_payload(cosmos_chain)
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+    let msg_create_eth =
+        ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_message(
+            eth_chain,
+            cosmos_payload,
+        )
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+    let eth_responses = eth_chain
+        .send_messages_with_responses(vec![msg_create_eth])
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+    let client_id_on_eth = extract_evm_client_id(&eth_responses)?;
+    info!(client_id = %client_id_on_eth, "created client on Ethereum");
+
+    info!("registering counterparties");
+    let msg_register_cosmos =
+        ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_register_counterparty_message(
+            cosmos_chain,
+            &client_id_on_cosmos,
+            &client_id_on_eth,
+            mercury_core::MerklePrefix::ibc_default(),
+        )
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+    cosmos_chain
+        .send_messages(vec![msg_register_cosmos])
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+
+    let msg_register_eth =
+        ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_register_counterparty_message(
+            eth_chain,
+            &client_id_on_eth,
+            &client_id_on_cosmos,
+            mercury_core::MerklePrefix::ibc_default(),
+        )
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+    eth_chain
+        .send_messages(vec![msg_register_eth])
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+
+    Ok((client_id_on_cosmos, client_id_on_eth))
 }

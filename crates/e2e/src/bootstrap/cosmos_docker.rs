@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -313,19 +314,16 @@ async fn poll_proposal_status(
     .and_then(|r| r)
 }
 
-/// Store the dummy Wasm light client on the Cosmos chain and return its SHA256 checksum.
-///
-/// Submits a governance proposal to store the Wasm binary, votes on it,
-/// and waits for it to pass (requires 1s voting period in genesis).
+/// Store a Wasm light client on the Cosmos chain via governance and return its checksum.
 #[allow(clippy::future_not_send)]
-pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Result<String> {
+pub async fn store_wasm_light_client(
+    handle: &CosmosDockerHandle,
+    wasm_gz_path: &Path,
+) -> Result<String> {
     use sha2::{Digest, Sha256};
     use std::io::Read as _;
 
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let wasm_gz_path = manifest_dir
-        .join("../../external/solidity-ibc-eureka/e2e/interchaintestv8/wasm/cw_dummy_light_client.wasm.gz");
-    let gz_bytes = std::fs::read(&wasm_gz_path)
+    let gz_bytes = std::fs::read(wasm_gz_path)
         .wrap_err_with(|| format!("reading {}", wasm_gz_path.display()))?;
 
     let mut decoder = flate2::read::GzDecoder::new(&gz_bytes[..]);
@@ -337,19 +335,24 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
     let checksum = hex::encode(Sha256::digest(&wasm_bytes));
     info!(checksum = %checksum, "computed Wasm light client checksum");
 
-    // Copy gzipped Wasm into the container via base64
+    // Copy gzipped Wasm into the container via base64 chunks to avoid shell arg limits
     let wasm_b64 = base64::engine::general_purpose::STANDARD.encode(&gz_bytes);
+    handle.exec_cmd("rm -f /tmp/wasm_lc.b64").await?;
+    for chunk in wasm_b64.as_bytes().chunks(65536) {
+        let chunk_str = std::str::from_utf8(chunk).expect("base64 is ascii");
+        handle
+            .exec_cmd(&format!("printf '%s' '{chunk_str}' >> /tmp/wasm_lc.b64"))
+            .await?;
+    }
     handle
-        .exec_cmd(&format!(
-            "echo '{wasm_b64}' | base64 -d > /tmp/dummy_lc.wasm.gz"
-        ))
+        .exec_cmd("base64 -d /tmp/wasm_lc.b64 > /tmp/wasm_lc.wasm.gz")
         .await?;
 
     let chain_id = handle.chain_id();
 
     handle
         .exec_cmd(&format!(
-            "simd tx ibc-wasm store-code /tmp/dummy_lc.wasm.gz \
+            "simd tx ibc-wasm store-code /tmp/wasm_lc.wasm.gz \
          --title 'Store dummy LC' --summary 'E2E test' \
          --deposit 10000000stake \
          --from validator --keyring-backend test --home /root/.simapp \
@@ -379,7 +382,6 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
         .await
         .wrap_err("waiting for proposal to pass")?;
 
-    // Verify the Wasm code was stored
     let result = handle
         .exec_cmd("simd query ibc-wasm checksums --home /root/.simapp --output json")
         .await?;
@@ -390,4 +392,11 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
     }
 
     Ok(checksum)
+}
+
+#[allow(clippy::future_not_send)]
+pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Result<String> {
+    let mock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz");
+    store_wasm_light_client(handle, &mock_path).await
 }

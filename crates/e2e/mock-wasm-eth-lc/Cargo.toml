@@ -1,0 +1,18 @@
+[package]
+name = "mock-wasm-eth-lc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+cosmwasm-std = { version = "2", features = ["staking"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+prost = "0.13"
+ibc-proto = { git = "https://github.com/cosmos/ibc-proto-rs", branch = "main", default-features = false, features = ["serde"] }
+
+[features]
+library = []
