@@ -7,3 +7,8 @@ timeout = 20
 
 [binary.cosmos_ethereum]
 setup = ["cosmos", "ethereum"]
+
+[test_overrides.beacon]
+pattern = "_beacon"
+extra_setup = ["kurtosis"]
+timeout = 25

@@ -140,6 +140,9 @@ jobs:
       - uses: ./.github/actions/ethereum-setup
         if: contains(toJSON(matrix.setup), '"ethereum"')
 
+      - uses: ./.github/actions/kurtosis-setup
+        if: contains(toJSON(matrix.setup), '"kurtosis"')
+
       - name: Download SP1 ELFs
         if: contains(toJSON(matrix.setup), '"ethereum"')
         uses: actions/download-artifact@v8

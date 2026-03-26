@@ -1,0 +1,14 @@
+name: Kurtosis Setup
+description: Install Kurtosis CLI and start the engine
+
+runs:
+  using: composite
+  steps:
+    - name: Install Kurtosis
+      shell: bash
+      run: |
+        echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+        sudo apt-get update
+        sudo apt-get install -y kurtosis-cli
+        kurtosis analytics disable
+        kurtosis engine start

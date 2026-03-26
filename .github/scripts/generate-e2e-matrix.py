@@ -28,6 +28,7 @@ def main() -> None:
 
     chain_types = manifest.get("chain_types", {})
     binaries = manifest.get("binary", {})
+    test_overrides = manifest.get("test_overrides", {})
 
     try:
         result = subprocess.run(
@@ -74,11 +75,22 @@ def main() -> None:
             if bare_name in skip_tests:
                 continue
 
+            test_setup = list(setup)
+            test_timeout = timeout
+
+            for override in test_overrides.values():
+                if override.get("pattern", "") in test_name:
+                    for s in override.get("extra_setup", []):
+                        if s not in test_setup:
+                            test_setup.append(s)
+                    if "timeout" in override:
+                        test_timeout = max(test_timeout, override["timeout"])
+
             matrix.append({
                 "binary": binary_name,
                 "test": test_name,
-                "setup": setup,
-                "timeout": timeout,
+                "setup": test_setup,
+                "timeout": test_timeout,
             })
 
     print(json.dumps(matrix))
