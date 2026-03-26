@@ -81,6 +81,8 @@ jobs:
       - name: Build SP1 programs
         run: cargo prove build
         working-directory: external/solidity-ibc-eureka/programs/sp1-programs
+        env:
+          CARGO_PROFILE_RELEASE_TRIM_PATHS: "false"
 
       - name: Build relayer binary
         run: cargo build -p mercury-cli --release
