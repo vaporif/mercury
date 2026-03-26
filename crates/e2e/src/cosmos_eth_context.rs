@@ -156,7 +156,13 @@ impl CosmosEthTestContext {
 
     #[allow(clippy::future_not_send)]
     pub async fn query_ibcerc20_balance(&self, denom: &str, holder: Address) -> Result<U256> {
-        query_erc20_balance(&self.anvil_handle.rpc_endpoint, self.anvil_handle.ics20_transfer, denom, holder).await
+        query_erc20_balance(
+            &self.anvil_handle.rpc_endpoint,
+            self.anvil_handle.ics20_transfer,
+            denom,
+            holder,
+        )
+        .await
     }
 
     #[allow(clippy::future_not_send)]
@@ -167,7 +173,15 @@ impl CosmosEthTestContext {
         expected: u64,
         timeout: Duration,
     ) -> Result<()> {
-        poll_eth_balance(&self.anvil_handle.rpc_endpoint, self.anvil_handle.ics20_transfer, denom, holder, expected, timeout).await
+        poll_eth_balance(
+            &self.anvil_handle.rpc_endpoint,
+            self.anvil_handle.ics20_transfer,
+            denom,
+            holder,
+            expected,
+            timeout,
+        )
+        .await
     }
 
     #[allow(clippy::future_not_send)]

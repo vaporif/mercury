@@ -181,8 +181,15 @@ impl BeaconLcTestContext {
         expected: u64,
         timeout: Duration,
     ) -> Result<()> {
-        poll_eth_balance(&self.el_rpc_url, self.ics20_transfer, denom, holder, expected, timeout)
-            .await
+        poll_eth_balance(
+            &self.el_rpc_url,
+            self.ics20_transfer,
+            denom,
+            holder,
+            expected,
+            timeout,
+        )
+        .await
     }
 
     #[allow(clippy::future_not_send)]

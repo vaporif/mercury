@@ -83,10 +83,10 @@ $BINARY genesis add-genesis-account $USER2_ADDR 10000000000stake --home $HOME_DI
 $BINARY genesis gentx validator 1000000000stake --chain-id $CHAIN_ID --keyring-backend test --home $HOME_DIR 2>/dev/null
 $BINARY genesis collect-gentxs --home $HOME_DIR 2>/dev/null
 
-# Set 1-second governance voting period for fast Wasm light client deployment
 GENESIS_FILE="$HOME_DIR/config/genesis.json"
 sed -i 's/"voting_period": *"[^"]*"/"voting_period": "10s"/g' "$GENESIS_FILE"
 sed -i 's/"max_deposit_period": *"[^"]*"/"max_deposit_period": "1s"/g' "$GENESIS_FILE"
+sed -i 's/"expedited_voting_period": *"[^"]*"/"expedited_voting_period": "5s"/g' "$GENESIS_FILE"
 
 # Fast block config
 sed -i 's/timeout_commit = ".*"/timeout_commit = "1s"/' $HOME_DIR/config/config.toml
@@ -365,7 +365,7 @@ pub async fn store_wasm_light_client(
         handle,
         1,
         "PROPOSAL_STATUS_VOTING_PERIOD",
-        Duration::from_secs(10),
+        Duration::from_secs(30),
     )
     .await
     .wrap_err("waiting for proposal to enter voting period")?;
@@ -378,7 +378,7 @@ pub async fn store_wasm_light_client(
         ))
         .await?;
 
-    poll_proposal_status(handle, 1, "PROPOSAL_STATUS_PASSED", Duration::from_secs(30))
+    poll_proposal_status(handle, 1, "PROPOSAL_STATUS_PASSED", Duration::from_secs(60))
         .await
         .wrap_err("waiting for proposal to pass")?;
 
