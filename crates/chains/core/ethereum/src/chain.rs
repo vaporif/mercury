@@ -313,14 +313,22 @@ impl EthereumChain {
             ibc_commitment_slot: crate::ics24::IBC_STORE_COMMITMENTS_SLOT,
         };
 
+        // Fetch next_sync_committee from the light client update for the current period.
+        // This allows the relayer to cross sync committee period boundaries on the first update.
         let current_period = client_state.compute_sync_committee_period_at_slot(finalized_slot);
         let next_sync_committee = beacon_api
             .light_client_updates(current_period, 1)
             .await
             .ok()
-            .and_then(|updates| updates.into_iter().next())
-            .and_then(|u| u.data.next_sync_committee)
-            .map(|sc| sc.to_summarized_sync_committee());
+            .and_then(|mut updates| updates.pop())
+            .and_then(|resp| resp.data.next_sync_committee)
+            .map(|c| c.to_summarized_sync_committee());
+
+        if next_sync_committee.is_some() {
+            info!("including next_sync_committee in initial consensus state");
+        } else {
+            info!("next_sync_committee not yet available from beacon API");
+        }
 
         let consensus_state = EthConsensusState {
             slot: finalized_slot,
@@ -404,55 +412,97 @@ impl EthereumChain {
         let trusted_period = eth_client_state.compute_sync_committee_period_at_slot(trusted_slot);
         let target_period = eth_client_state.compute_sync_committee_period_at_slot(target_slot);
 
-        let count = target_period.saturating_sub(trusted_period) + 1;
-        let updates = beacon_api
-            .light_client_updates(trusted_period, count)
-            .await
-            .wrap_err("beacon API light_client_updates")?;
-
         let mut headers = Vec::new();
         let mut current_trusted_slot = trusted_slot;
+        let mut latest_period = trusted_period;
 
-        for update_response in updates {
-            let mut update = update_response.data;
-            let update_finalized_slot = update.finalized_header.beacon.slot;
-
-            if update_finalized_slot <= current_trusted_slot {
-                continue;
-            }
-
-            let update_period =
-                eth_client_state.compute_sync_committee_period_at_slot(update_finalized_slot);
-            let current_period =
-                eth_client_state.compute_sync_committee_period_at_slot(current_trusted_slot);
-
-            let block_root = beacon_api
-                .beacon_block_root(&current_trusted_slot.to_string())
+        // Phase 1: Process period crossings via light_client_updates.
+        // Each update advances the light client across one sync committee period boundary.
+        if target_period > trusted_period {
+            let count = target_period - trusted_period + 1;
+            let updates = beacon_api
+                .light_client_updates(trusted_period, count)
                 .await
-                .wrap_err("beacon API block_root")?;
+                .wrap_err("beacon API light_client_updates")?;
+
+            for update_response in updates {
+                let update = update_response.data;
+                let update_finalized_slot = update.finalized_header.beacon.slot;
+
+                if update_finalized_slot <= current_trusted_slot {
+                    continue;
+                }
+
+                let update_period =
+                    eth_client_state.compute_sync_committee_period_at_slot(update_finalized_slot);
+
+                // Only use light_client_updates for period crossings
+                if update_period == latest_period {
+                    continue;
+                }
+
+                // For period crossings, get the correct sync committee from the bootstrap
+                // at the update's finalized slot. The bootstrap's current_sync_committee at
+                // a slot in period P+1 is the P+1 committee, which is "next" relative to
+                // the stored period P.
+                let block_root = beacon_api
+                    .beacon_block_root(&update_finalized_slot.to_string())
+                    .await
+                    .wrap_err("beacon API block_root for period crossing")?;
+                let bootstrap = beacon_api
+                    .light_client_bootstrap(&block_root)
+                    .await
+                    .wrap_err("beacon API bootstrap for period crossing")?;
+
+                let header = EthHeader {
+                    active_sync_committee: ActiveSyncCommittee::Next(
+                        bootstrap.data.current_sync_committee,
+                    ),
+                    consensus_update: update,
+                    trusted_slot: current_trusted_slot,
+                };
+
+                info!(
+                    from_period = latest_period,
+                    to_period = update_period,
+                    slot = update_finalized_slot,
+                    "adding period crossing header"
+                );
+
+                let header_bytes =
+                    serde_json::to_vec(&header).wrap_err("serializing beacon header")?;
+                headers.push(header_bytes);
+
+                current_trusted_slot = update_finalized_slot;
+                latest_period = update_period;
+            }
+        }
+
+        // Phase 2: Add a finality update to advance to the latest finalized slot.
+        // Uses ActiveSyncCommittee::Current since we're within the same period.
+        let finality_finalized_slot = finality.data.finalized_header.beacon.slot;
+        if finality_finalized_slot > current_trusted_slot {
+            let attested_slot = finality.data.attested_header.beacon.slot;
+            let block_root = beacon_api
+                .beacon_block_root(&attested_slot.to_string())
+                .await
+                .wrap_err("beacon API block_root for finality update")?;
             let bootstrap = beacon_api
                 .light_client_bootstrap(&block_root)
                 .await
-                .wrap_err("beacon API bootstrap")?;
-
-            let active_sync_committee = if update_period == current_period {
-                ActiveSyncCommittee::Current(bootstrap.data.current_sync_committee)
-            } else if let Some(next) = update.next_sync_committee.take() {
-                ActiveSyncCommittee::Next(next)
-            } else {
-                ActiveSyncCommittee::Current(bootstrap.data.current_sync_committee)
-            };
+                .wrap_err("beacon API bootstrap for finality update")?;
 
             let header = EthHeader {
-                active_sync_committee,
-                consensus_update: update,
+                active_sync_committee: ActiveSyncCommittee::Current(
+                    bootstrap.data.current_sync_committee,
+                ),
+                consensus_update: finality.data.into(),
                 trusted_slot: current_trusted_slot,
             };
 
-            let header_bytes = serde_json::to_vec(&header).wrap_err("serializing beacon header")?;
+            let header_bytes =
+                serde_json::to_vec(&header).wrap_err("serializing finality header")?;
             headers.push(header_bytes);
-
-            current_trusted_slot = update_finalized_slot;
         }
 
         Ok(UpdateClientPayload { headers })

@@ -46,7 +46,7 @@ fn kurtosis_config() -> String {
         "network_params": {
             "preset": "minimal",
             "seconds_per_slot": 2,
-            "num_validator_keys_per_node": 128,
+            "num_validator_keys_per_node": 512,
             "genesis_delay": 20
         },
         "additional_services": []
