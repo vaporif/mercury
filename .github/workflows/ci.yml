@@ -41,6 +41,8 @@ jobs:
           name: mercury-relayer
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
       - name: Checks
         run: nix flake check
 
@@ -61,6 +63,8 @@ jobs:
         with:
           name: mercury-relayer
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - uses: Swatinem/rust-cache@v2
 
@@ -85,6 +89,8 @@ jobs:
           name: mercury-relayer
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
       - name: Deny
         run: nix develop --command cargo deny check
 
@@ -105,6 +111,8 @@ jobs:
         with:
           name: mercury-relayer
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - uses: Swatinem/rust-cache@v2
 
@@ -132,6 +140,13 @@ jobs:
       - uses: cachix/install-nix-action@v31
         with:
           nix_path: nixpkgs=channel:nixpkgs-unstable
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: mercury-relayer
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Build
         run: nix build
