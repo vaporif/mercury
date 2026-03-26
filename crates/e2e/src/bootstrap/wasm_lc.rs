@@ -7,6 +7,7 @@ use tracing::info;
 
 static WASM_PATH: OnceLock<PathBuf> = OnceLock::new();
 
+#[allow(clippy::missing_panics_doc)]
 pub fn build_real_wasm_lc() -> &'static Path {
     WASM_PATH
         .get_or_init(|| do_build().expect("failed to build real wasm light client"))

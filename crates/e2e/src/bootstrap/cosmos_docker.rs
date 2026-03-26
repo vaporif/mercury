@@ -315,7 +315,7 @@ async fn poll_proposal_status(
 }
 
 /// Store a Wasm light client on the Cosmos chain via governance and return its checksum.
-#[allow(clippy::future_not_send)]
+#[allow(clippy::future_not_send, clippy::missing_panics_doc)]
 pub async fn store_wasm_light_client(
     handle: &CosmosDockerHandle,
     wasm_gz_path: &Path,

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 const FINALIZATION_TIMEOUT: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
-const KURTOSIS_CHAIN_ID: u64 = 3151908;
+const KURTOSIS_CHAIN_ID: u64 = 3_151_908;
 
 // ethpandaops/ethereum-package faucet key — pre-funded in genesis
 const PRE_FUNDED_PRIVATE_KEY: &str =
