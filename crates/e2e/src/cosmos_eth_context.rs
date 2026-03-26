@@ -118,178 +118,45 @@ impl CosmosEthTestContext {
         })
     }
 
-    /// Start bidirectional Cosmos↔Ethereum relay workers in-process.
     pub fn start_relay_library(&self) -> Result<RelayHandle> {
-        let token = CancellationToken::new();
-
-        let relay_ce = Arc::new(RelayContext {
-            src_chain: self.cosmos_chain.clone(),
-            dst_chain: self.eth_chain.clone(),
-            src_client_id: self.client_id_on_cosmos.clone(),
-            dst_client_id: self.client_id_on_eth.clone(),
-        });
-
-        let relay_ec = Arc::new(RelayContext {
-            src_chain: self.eth_chain.clone(),
-            dst_chain: self.cosmos_chain.clone(),
-            src_client_id: self.client_id_on_eth.clone(),
-            dst_client_id: self.client_id_on_cosmos.clone(),
-        });
-
-        let token_ce = token.clone();
-        let token_ec = token.clone();
-
-        let join_ab = tokio::spawn(async move {
-            relay_ce
-                .run_with_token(token_ce, RelayWorkerConfig::default())
-                .await
-        });
-        let join_ba = tokio::spawn(async move {
-            relay_ec
-                .run_with_token(token_ec, RelayWorkerConfig::default())
-                .await
-        });
-
-        Ok(RelayHandle {
-            cancel: token,
-            join_ab,
-            join_ba,
-        })
+        start_cross_chain_relay(
+            &self.cosmos_chain,
+            &self.eth_chain,
+            &self.client_id_on_cosmos,
+            &self.client_id_on_eth,
+        )
     }
 
-    /// Send an IBC v2 transfer from Cosmos user1 to Ethereum user1.
     #[allow(clippy::future_not_send)]
     pub async fn send_cosmos_to_eth_transfer(&self, amount: u64, denom: &str) -> Result<()> {
-        use alloy::sol_types::SolValue;
-        use ibc_eureka_solidity_types::msgs::IICS20TransferMsgs::FungibleTokenPacketData;
-
-        let cosmos_user = &self.cosmos_handle.user_wallets()[0];
-        let eth_user = &self.anvil_handle.user_wallets[0];
-
-        let user_chain =
-            build_cosmos_chain_with_user(&self.cosmos_handle, cosmos_user, None, true).await?;
-
-        let packet_data = FungibleTokenPacketData {
-            denom: denom.to_string(),
-            sender: cosmos_user.address.clone(),
-            receiver: format!("{:#x}", eth_user.address),
-            amount: U256::from(amount),
-            memo: String::new(),
-        };
-
-        let timeout = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs()
-            + 600;
-
-        let msg = MsgSendPacket {
-            source_client: self.client_id_on_cosmos.to_string(),
-            timeout_timestamp: timeout,
-            payloads: vec![Payload {
-                source_port: "transfer".to_string(),
-                destination_port: "transfer".to_string(),
-                version: "ics20-1".to_string(),
-                encoding: "application/x-solidity-abi".to_string(),
-                value: packet_data.abi_encode(),
-            }],
-            signer: cosmos_user.address.clone(),
-        };
-
-        let cosmos_msg = CosmosMessage {
-            type_url: MsgSendPacket::type_url().into(),
-            value: msg.encode_to_vec(),
-        };
-
-        let responses = user_chain
-            .send_messages_with_responses(vec![cosmos_msg])
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
-
-        info!(
-            tx_hash = %responses.first().map_or("?", |r| r.hash.as_str()),
-            %amount,
-            %denom,
-            "IBC v2 transfer submitted from Cosmos to Ethereum"
-        );
-
-        Ok(())
+        submit_cosmos_to_eth_transfer(
+            &self.cosmos_handle,
+            &self.client_id_on_cosmos,
+            self.anvil_handle.user_wallets[0].address,
+            amount,
+            denom,
+            true,
+        )
+        .await
     }
 
-    /// Send an IBC v2 transfer from Ethereum user1 back to Cosmos user1.
     #[allow(clippy::future_not_send)]
     pub async fn send_eth_to_cosmos_transfer(&self, amount: u64, denom: &str) -> Result<()> {
-        use mercury_ethereum::contracts::ics20_transfer::IICS20TransferMsgs;
-
-        let eth_user = &self.anvil_handle.user_wallets[0];
-        let cosmos_user = &self.cosmos_handle.user_wallets()[0];
-
-        let eth_signer: alloy::signers::local::PrivateKeySigner = eth_user
-            .private_key
-            .parse()
-            .map_err(|e| eyre::eyre!("parsing eth user private key: {e}"))?;
-
-        let provider = ProviderBuilder::new()
-            .wallet(alloy::network::EthereumWallet::from(eth_signer))
-            .connect_http(self.anvil_handle.rpc_endpoint.parse()?)
-            .erased();
-
-        let ics20 = ICS20Transfer::new(self.anvil_handle.ics20_transfer, &provider);
-        let erc20_addr = Address::from(ics20.ibcERC20Contract(denom.to_string()).call().await?.0);
-
-        if erc20_addr == Address::ZERO {
-            bail!("IBCERC20 not found for denom: {denom}");
-        }
-
-        let erc20 = IBCERC20::new(erc20_addr, &provider);
-        let approve_tx = erc20.approve(self.anvil_handle.ics20_transfer, U256::from(amount));
-        let pending = approve_tx.send().await?;
-        pending.watch().await?;
-        info!(%denom, %amount, "approved ICS20Transfer to spend IBCERC20");
-
-        let timeout = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs()
-            + 600;
-
-        let msg = IICS20TransferMsgs::SendTransferMsg {
-            denom: erc20_addr,
-            amount: U256::from(amount),
-            receiver: cosmos_user.address.clone(),
-            sourceClient: self.client_id_on_eth.0.clone(),
-            destPort: "transfer".to_string(),
-            timeoutTimestamp: timeout,
-            memo: String::new(),
-        };
-
-        let tx = ics20.sendTransfer(msg).send().await?;
-        let receipt = tx.watch().await?;
-
-        info!(
-            tx_hash = %receipt,
-            %amount,
-            %denom,
-            "IBC v2 transfer submitted from Ethereum to Cosmos"
-        );
-
-        Ok(())
+        submit_eth_to_cosmos_transfer(
+            &self.anvil_handle.rpc_endpoint,
+            self.anvil_handle.ics20_transfer,
+            &self.anvil_handle.user_wallets[0].private_key,
+            &self.client_id_on_eth,
+            &self.cosmos_handle.user_wallets()[0].address,
+            amount,
+            denom,
+        )
+        .await
     }
 
-    /// `denom` is the full IBC denom path, e.g. `transfer/{client_id_on_eth}/stake`.
     #[allow(clippy::future_not_send)]
     pub async fn query_ibcerc20_balance(&self, denom: &str, holder: Address) -> Result<U256> {
-        let provider = ProviderBuilder::new()
-            .connect_http(self.anvil_handle.rpc_endpoint.parse()?)
-            .erased();
-
-        let ics20 = ICS20Transfer::new(self.anvil_handle.ics20_transfer, &provider);
-        let erc20_addr = Address::from(ics20.ibcERC20Contract(denom.to_string()).call().await?.0);
-
-        if erc20_addr == Address::ZERO {
-            return Ok(U256::ZERO);
-        }
-
-        let erc20 = IBCERC20::new(erc20_addr, &provider);
-        Ok(erc20.balanceOf(holder).call().await?)
+        query_erc20_balance(&self.anvil_handle.rpc_endpoint, self.anvil_handle.ics20_transfer, denom, holder).await
     }
 
     #[allow(clippy::future_not_send)]
@@ -300,68 +167,12 @@ impl CosmosEthTestContext {
         expected: u64,
         timeout: Duration,
     ) -> Result<()> {
-        let expected_u256 = U256::from(expected);
-        let start = std::time::Instant::now();
-
-        loop {
-            if start.elapsed() > timeout {
-                bail!(
-                    "timeout waiting for IBCERC20 balance: denom={denom}, \
-                     holder={holder:#x}, expected={expected}"
-                );
-            }
-
-            match self.query_ibcerc20_balance(denom, holder).await {
-                Ok(actual) if actual >= expected_u256 => {
-                    info!(
-                        %denom,
-                        holder = %format!("{holder:#x}"),
-                        actual = %actual,
-                        expected = %expected,
-                        "IBCERC20 balance assertion passed"
-                    );
-                    return Ok(());
-                }
-                Ok(actual) => {
-                    tracing::debug!(
-                        actual = %actual,
-                        expected = %expected,
-                        %denom,
-                        "IBCERC20 balance not yet sufficient, polling..."
-                    );
-                }
-                Err(e) => {
-                    tracing::debug!(error = %e, "IBCERC20 balance query failed, retrying...");
-                }
-            }
-
-            tokio::time::sleep(Duration::from_secs(2)).await;
-        }
+        poll_eth_balance(&self.anvil_handle.rpc_endpoint, self.anvil_handle.ics20_transfer, denom, holder, expected, timeout).await
     }
 
     #[allow(clippy::future_not_send)]
     pub async fn query_cosmos_balance(&self, address: &str, denom: &str) -> Result<u64> {
-        let cmd = format!(
-            "simd query bank balances {address} \
-             --home /root/.simapp --output json 2>/dev/null"
-        );
-        let output = self.cosmos_handle.exec_cmd(&cmd).await?;
-        let parsed: serde_json::Value =
-            serde_json::from_str(output.trim()).wrap_err("parsing cosmos bank balances output")?;
-        let balances = parsed
-            .get("balances")
-            .and_then(|v| v.as_array())
-            .map_or(&[] as &[_], Vec::as_slice);
-        for bal in balances {
-            let d = bal.get("denom").and_then(|v| v.as_str()).unwrap_or("");
-            if d == denom {
-                let amount_str = bal.get("amount").and_then(|v| v.as_str()).unwrap_or("0");
-                return amount_str
-                    .parse::<u64>()
-                    .map_err(|e| eyre::eyre!("parse balance amount: {e}"));
-            }
-        }
-        Ok(0)
+        query_cosmos_bank_balance(&self.cosmos_handle, address, denom).await
     }
 
     #[allow(clippy::future_not_send)]
@@ -372,41 +183,319 @@ impl CosmosEthTestContext {
         expected: u64,
         timeout: Duration,
     ) -> Result<()> {
-        let start = std::time::Instant::now();
-        loop {
-            if start.elapsed() > timeout {
-                bail!(
-                    "timeout waiting for Cosmos balance: address={address}, \
-                     denom={denom}, expected={expected}"
+        poll_cosmos_balance(&self.cosmos_handle, address, denom, expected, timeout).await
+    }
+}
+
+pub fn start_cross_chain_relay(
+    cosmos_chain: &CosmosAdapter<Secp256k1KeyPair>,
+    eth_chain: &EthereumAdapter,
+    client_id_on_cosmos: &ClientId,
+    client_id_on_eth: &EvmClientId,
+) -> Result<RelayHandle> {
+    let token = CancellationToken::new();
+
+    let relay_ce = Arc::new(RelayContext {
+        src_chain: cosmos_chain.clone(),
+        dst_chain: eth_chain.clone(),
+        src_client_id: client_id_on_cosmos.clone(),
+        dst_client_id: client_id_on_eth.clone(),
+    });
+
+    let relay_ec = Arc::new(RelayContext {
+        src_chain: eth_chain.clone(),
+        dst_chain: cosmos_chain.clone(),
+        src_client_id: client_id_on_eth.clone(),
+        dst_client_id: client_id_on_cosmos.clone(),
+    });
+
+    let token_ce = token.clone();
+    let token_ec = token.clone();
+
+    let join_ab = tokio::spawn(async move {
+        relay_ce
+            .run_with_token(token_ce, RelayWorkerConfig::default())
+            .await
+    });
+    let join_ba = tokio::spawn(async move {
+        relay_ec
+            .run_with_token(token_ec, RelayWorkerConfig::default())
+            .await
+    });
+
+    Ok(RelayHandle {
+        cancel: token,
+        join_ab,
+        join_ba,
+    })
+}
+
+#[allow(clippy::future_not_send)]
+pub async fn submit_cosmos_to_eth_transfer(
+    cosmos_handle: &CosmosDockerHandle,
+    client_id_on_cosmos: &ClientId,
+    eth_receiver: Address,
+    amount: u64,
+    denom: &str,
+    mock_proofs: bool,
+) -> Result<()> {
+    use alloy::sol_types::SolValue;
+    use ibc_eureka_solidity_types::msgs::IICS20TransferMsgs::FungibleTokenPacketData;
+
+    let cosmos_user = &cosmos_handle.user_wallets()[0];
+
+    let user_chain =
+        build_cosmos_chain_with_user(cosmos_handle, cosmos_user, None, mock_proofs).await?;
+
+    let packet_data = FungibleTokenPacketData {
+        denom: denom.to_string(),
+        sender: cosmos_user.address.clone(),
+        receiver: format!("{eth_receiver:#x}"),
+        amount: U256::from(amount),
+        memo: String::new(),
+    };
+
+    let timeout = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs()
+        + 600;
+
+    let msg = MsgSendPacket {
+        source_client: client_id_on_cosmos.to_string(),
+        timeout_timestamp: timeout,
+        payloads: vec![Payload {
+            source_port: "transfer".to_string(),
+            destination_port: "transfer".to_string(),
+            version: "ics20-1".to_string(),
+            encoding: "application/x-solidity-abi".to_string(),
+            value: packet_data.abi_encode(),
+        }],
+        signer: cosmos_user.address.clone(),
+    };
+
+    let cosmos_msg = CosmosMessage {
+        type_url: MsgSendPacket::type_url().into(),
+        value: msg.encode_to_vec(),
+    };
+
+    let responses = user_chain
+        .send_messages_with_responses(vec![cosmos_msg])
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+
+    info!(
+        tx_hash = %responses.first().map_or("?", |r| r.hash.as_str()),
+        %amount,
+        %denom,
+        "IBC v2 transfer submitted from Cosmos to Ethereum"
+    );
+
+    Ok(())
+}
+
+#[allow(clippy::future_not_send)]
+pub async fn submit_eth_to_cosmos_transfer(
+    el_rpc_url: &str,
+    ics20_transfer: Address,
+    eth_private_key: &str,
+    client_id_on_eth: &EvmClientId,
+    cosmos_receiver: &str,
+    amount: u64,
+    denom: &str,
+) -> Result<()> {
+    use mercury_ethereum::contracts::ics20_transfer::IICS20TransferMsgs;
+
+    let eth_signer: alloy::signers::local::PrivateKeySigner = eth_private_key
+        .parse()
+        .map_err(|e| eyre::eyre!("parsing eth user private key: {e}"))?;
+
+    let provider = ProviderBuilder::new()
+        .wallet(alloy::network::EthereumWallet::from(eth_signer))
+        .connect_http(el_rpc_url.parse()?)
+        .erased();
+
+    let ics20 = ICS20Transfer::new(ics20_transfer, &provider);
+    let erc20_addr = Address::from(ics20.ibcERC20Contract(denom.to_string()).call().await?.0);
+
+    if erc20_addr == Address::ZERO {
+        bail!("IBCERC20 not found for denom: {denom}");
+    }
+
+    let erc20 = IBCERC20::new(erc20_addr, &provider);
+    let approve_tx = erc20.approve(ics20_transfer, U256::from(amount));
+    let pending = approve_tx.send().await?;
+    pending.watch().await?;
+    info!(%denom, %amount, "approved ICS20Transfer to spend IBCERC20");
+
+    let timeout = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs()
+        + 600;
+
+    let msg = IICS20TransferMsgs::SendTransferMsg {
+        denom: erc20_addr,
+        amount: U256::from(amount),
+        receiver: cosmos_receiver.to_string(),
+        sourceClient: client_id_on_eth.0.clone(),
+        destPort: "transfer".to_string(),
+        timeoutTimestamp: timeout,
+        memo: String::new(),
+    };
+
+    let tx = ics20.sendTransfer(msg).send().await?;
+    let receipt = tx.watch().await?;
+
+    info!(
+        tx_hash = %receipt,
+        %amount,
+        %denom,
+        "IBC v2 transfer submitted from Ethereum to Cosmos"
+    );
+
+    Ok(())
+}
+
+#[allow(clippy::future_not_send)]
+pub async fn query_erc20_balance(
+    el_rpc_url: &str,
+    ics20_transfer: Address,
+    denom: &str,
+    holder: Address,
+) -> Result<U256> {
+    let provider = ProviderBuilder::new()
+        .connect_http(el_rpc_url.parse()?)
+        .erased();
+
+    let ics20 = ICS20Transfer::new(ics20_transfer, &provider);
+    let erc20_addr = Address::from(ics20.ibcERC20Contract(denom.to_string()).call().await?.0);
+
+    if erc20_addr == Address::ZERO {
+        return Ok(U256::ZERO);
+    }
+
+    let erc20 = IBCERC20::new(erc20_addr, &provider);
+    Ok(erc20.balanceOf(holder).call().await?)
+}
+
+#[allow(clippy::future_not_send)]
+pub async fn poll_eth_balance(
+    el_rpc_url: &str,
+    ics20_transfer: Address,
+    denom: &str,
+    holder: Address,
+    expected: u64,
+    timeout: Duration,
+) -> Result<()> {
+    let expected_u256 = U256::from(expected);
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > timeout {
+            bail!(
+                "timeout waiting for IBCERC20 balance: denom={denom}, \
+                 holder={holder:#x}, expected={expected}"
+            );
+        }
+
+        match query_erc20_balance(el_rpc_url, ics20_transfer, denom, holder).await {
+            Ok(actual) if actual >= expected_u256 => {
+                info!(
+                    %denom,
+                    holder = %format!("{holder:#x}"),
+                    actual = %actual,
+                    expected = %expected,
+                    "IBCERC20 balance assertion passed"
+                );
+                return Ok(());
+            }
+            Ok(actual) => {
+                tracing::debug!(
+                    actual = %actual,
+                    expected = %expected,
+                    %denom,
+                    "IBCERC20 balance not yet sufficient, polling..."
                 );
             }
-
-            match self.query_cosmos_balance(address, denom).await {
-                Ok(actual) if actual >= expected => {
-                    info!(
-                        %address,
-                        %denom,
-                        actual = actual,
-                        expected = expected,
-                        "Cosmos balance assertion passed"
-                    );
-                    return Ok(());
-                }
-                Ok(actual) => {
-                    tracing::debug!(
-                        actual = actual,
-                        expected = expected,
-                        %denom,
-                        "Cosmos balance not yet sufficient, polling..."
-                    );
-                }
-                Err(e) => {
-                    tracing::debug!(error = %e, "Cosmos balance query failed, retrying...");
-                }
+            Err(e) => {
+                tracing::debug!(error = %e, "IBCERC20 balance query failed, retrying...");
             }
-
-            tokio::time::sleep(Duration::from_secs(2)).await;
         }
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
+#[allow(clippy::future_not_send)]
+pub async fn query_cosmos_bank_balance(
+    cosmos_handle: &CosmosDockerHandle,
+    address: &str,
+    denom: &str,
+) -> Result<u64> {
+    let cmd = format!(
+        "simd query bank balances {address} \
+         --home /root/.simapp --output json 2>/dev/null"
+    );
+    let output = cosmos_handle.exec_cmd(&cmd).await?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(output.trim()).wrap_err("parsing cosmos bank balances output")?;
+    let balances = parsed
+        .get("balances")
+        .and_then(|v| v.as_array())
+        .map_or(&[] as &[_], Vec::as_slice);
+    for bal in balances {
+        let d = bal.get("denom").and_then(|v| v.as_str()).unwrap_or("");
+        if d == denom {
+            let amount_str = bal.get("amount").and_then(|v| v.as_str()).unwrap_or("0");
+            return amount_str
+                .parse::<u64>()
+                .map_err(|e| eyre::eyre!("parse balance amount: {e}"));
+        }
+    }
+    Ok(0)
+}
+
+#[allow(clippy::future_not_send)]
+pub async fn poll_cosmos_balance(
+    cosmos_handle: &CosmosDockerHandle,
+    address: &str,
+    denom: &str,
+    expected: u64,
+    timeout: Duration,
+) -> Result<()> {
+    let start = std::time::Instant::now();
+    loop {
+        if start.elapsed() > timeout {
+            bail!(
+                "timeout waiting for Cosmos balance: address={address}, \
+                 denom={denom}, expected={expected}"
+            );
+        }
+
+        match query_cosmos_bank_balance(cosmos_handle, address, denom).await {
+            Ok(actual) if actual >= expected => {
+                info!(
+                    %address,
+                    %denom,
+                    actual = actual,
+                    expected = expected,
+                    "Cosmos balance assertion passed"
+                );
+                return Ok(());
+            }
+            Ok(actual) => {
+                tracing::debug!(
+                    actual = actual,
+                    expected = expected,
+                    %denom,
+                    "Cosmos balance not yet sufficient, polling..."
+                );
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "Cosmos balance query failed, retrying...");
+            }
+        }
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
 
@@ -441,9 +530,7 @@ pub async fn build_sp1_client_state(
     let height = header.height.value();
     let revision_number = chain_id.revision_number();
 
-    // Match eureka defaults: trust_threshold = 1/3, trusting_period = 2/3 * unbonding
-    // For e2e with short unbonding, use reasonable defaults.
-    let unbonding_period: u32 = 1_209_600; // 14 days in seconds
+    let unbonding_period: u32 = 1_209_600;
     let trusting_period: u32 = 2 * (unbonding_period / 3);
 
     let client_state = SolClientState {
@@ -537,7 +624,7 @@ async fn build_cosmos_chain(
     build_cosmos_chain_with_user(handle, handle.relayer_wallet(), wasm_checksum, mock_proofs).await
 }
 
-async fn build_cosmos_chain_with_user(
+pub async fn build_cosmos_chain_with_user(
     handle: &CosmosDockerHandle,
     wallet: &crate::bootstrap::traits::Wallet,
     wasm_checksum: Option<&str>,

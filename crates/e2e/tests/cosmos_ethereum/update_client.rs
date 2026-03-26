@@ -98,7 +98,6 @@ async fn eth_client_on_cosmos_advances_height_beacon() -> Result<()> {
         );
     tracing::info!("Initial beacon ETH client height on Cosmos: {initial_height:?}");
 
-    // Wait for new finalized block beyond initial height
     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
 
     let target_height = EvmHeight(initial_height.0 + 32);

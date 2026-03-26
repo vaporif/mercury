@@ -1,5 +1,8 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
+use alloy::primitives::{Address, U256};
+use alloy::providers::{Provider as _, ProviderBuilder};
 use eyre::Result;
 use ibc::core::host::types::identifiers::ClientId;
 use mercury_cosmos_counterparties::CosmosAdapter;
@@ -10,8 +13,15 @@ use mercury_ethereum_counterparties::EthereumAdapter;
 use tokio::sync::OnceCell;
 use tracing::info;
 
-use crate::bootstrap::anvil::DeployedContracts;
+use crate::bootstrap::anvil::{AnvilWallet, DeployedContracts};
 use crate::bootstrap::cosmos_docker::CosmosDockerHandle;
+use crate::bootstrap::kurtosis::KurtosisHandle;
+use crate::bootstrap::traits::ChainHandle;
+use crate::cosmos_eth_context::{
+    poll_cosmos_balance, poll_eth_balance, query_cosmos_bank_balance, query_erc20_balance,
+    start_cross_chain_relay, submit_cosmos_to_eth_transfer, submit_eth_to_cosmos_transfer,
+};
+use crate::relayer::RelayHandle;
 
 pub struct BeaconLcTestContext {
     pub cosmos_handle: CosmosDockerHandle,
@@ -19,6 +29,9 @@ pub struct BeaconLcTestContext {
     pub eth_chain: EthereumAdapter,
     pub client_id_on_cosmos: ClientId,
     pub client_id_on_eth: EvmClientId,
+    pub el_rpc_url: String,
+    pub ics20_transfer: Address,
+    pub eth_user_wallet: AnvilWallet,
 }
 
 static SHARED_CONTRACTS: OnceCell<DeployedContracts> = OnceCell::const_new();
@@ -100,6 +113,8 @@ impl BeaconLcTestContext {
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
 
+        let eth_user_wallet = fund_eth_user_wallet(kurtosis).await?;
+
         let (client_id_on_cosmos, client_id_on_eth) =
             crate::cosmos_eth_context::create_ibc_clients(&cosmos_chain, &eth_chain).await?;
 
@@ -111,6 +126,118 @@ impl BeaconLcTestContext {
             eth_chain,
             client_id_on_cosmos,
             client_id_on_eth,
+            el_rpc_url: kurtosis.el_rpc_url.clone(),
+            ics20_transfer: contracts.ics20_transfer,
+            eth_user_wallet,
         })
     }
+
+    pub fn start_relay_library(&self) -> Result<RelayHandle> {
+        start_cross_chain_relay(
+            &self.cosmos_chain,
+            &self.eth_chain,
+            &self.client_id_on_cosmos,
+            &self.client_id_on_eth,
+        )
+    }
+
+    #[allow(clippy::future_not_send)]
+    pub async fn send_cosmos_to_eth_transfer(&self, amount: u64, denom: &str) -> Result<()> {
+        submit_cosmos_to_eth_transfer(
+            &self.cosmos_handle,
+            &self.client_id_on_cosmos,
+            self.eth_user_wallet.address,
+            amount,
+            denom,
+            false,
+        )
+        .await
+    }
+
+    #[allow(clippy::future_not_send)]
+    pub async fn send_eth_to_cosmos_transfer(&self, amount: u64, denom: &str) -> Result<()> {
+        submit_eth_to_cosmos_transfer(
+            &self.el_rpc_url,
+            self.ics20_transfer,
+            &self.eth_user_wallet.private_key,
+            &self.client_id_on_eth,
+            &self.cosmos_handle.user_wallets()[0].address,
+            amount,
+            denom,
+        )
+        .await
+    }
+
+    #[allow(clippy::future_not_send)]
+    pub async fn query_ibcerc20_balance(&self, denom: &str, holder: Address) -> Result<U256> {
+        query_erc20_balance(&self.el_rpc_url, self.ics20_transfer, denom, holder).await
+    }
+
+    #[allow(clippy::future_not_send)]
+    pub async fn assert_eventual_eth_balance(
+        &self,
+        denom: &str,
+        holder: Address,
+        expected: u64,
+        timeout: Duration,
+    ) -> Result<()> {
+        poll_eth_balance(&self.el_rpc_url, self.ics20_transfer, denom, holder, expected, timeout)
+            .await
+    }
+
+    #[allow(clippy::future_not_send)]
+    pub async fn query_cosmos_balance(&self, address: &str, denom: &str) -> Result<u64> {
+        query_cosmos_bank_balance(&self.cosmos_handle, address, denom).await
+    }
+
+    #[allow(clippy::future_not_send)]
+    pub async fn assert_eventual_cosmos_balance(
+        &self,
+        address: &str,
+        denom: &str,
+        expected: u64,
+        timeout: Duration,
+    ) -> Result<()> {
+        poll_cosmos_balance(&self.cosmos_handle, address, denom, expected, timeout).await
+    }
+}
+
+#[allow(clippy::future_not_send)]
+async fn fund_eth_user_wallet(kurtosis: &KurtosisHandle) -> Result<AnvilWallet> {
+    use alloy::network::TransactionBuilder;
+    use alloy::primitives::U256;
+    use alloy::rpc::types::TransactionRequest;
+
+    let user_signer = alloy::signers::local::PrivateKeySigner::random();
+    let user_address = user_signer.address();
+    let user_private_key = hex::encode(user_signer.credential().to_bytes());
+
+    let faucet_signer: alloy::signers::local::PrivateKeySigner = kurtosis
+        .pre_funded_key
+        .private_key
+        .parse()
+        .map_err(|e| eyre::eyre!("parsing faucet key: {e}"))?;
+
+    let provider = ProviderBuilder::new()
+        .wallet(alloy::network::EthereumWallet::from(faucet_signer))
+        .connect_http(kurtosis.el_rpc_url.parse()?)
+        .erased();
+
+    let fund_amount = U256::from(10_000_000_000_000_000_000u128); // 10 ETH
+    let tx = TransactionRequest::default()
+        .with_to(user_address)
+        .with_value(fund_amount);
+
+    let pending = provider.send_transaction(tx).await?;
+    pending.watch().await?;
+
+    info!(
+        address = %format!("{user_address:#x}"),
+        "funded Kurtosis ETH user wallet with 10 ETH"
+    );
+
+    Ok(AnvilWallet {
+        private_key: user_private_key,
+        address: user_address,
+    })
 }
