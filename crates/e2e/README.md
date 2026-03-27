@@ -1,4 +1,4 @@
-# Mercury E2E Tests
+# Mercury E2E tests
 
 End-to-end tests that spin up real chain infrastructure (Docker containers, Anvil) and run the full relay pipeline.
 
@@ -44,7 +44,7 @@ All tests are `#[ignore]` by default since they need external infrastructure.
 | Packet filter | Config supports `packet_filter` allow/deny by port, but no test validates it. | Low |
 | Multiple denominations | All tests use `"stake"` only. Should test a second denom for trace handling. | Low |
 | Height-based timeout | Only timestamp timeout tested. | Low |
-| Near-expiry timeout | Packet arriving just before timeout — verify delivery, not timeout. | Low |
+| Near-expiry timeout | Packet arriving just before timeout - verify delivery, not timeout. | Low |
 | Chain downtime | Destination unreachable during relay, then recovers. | Low |
 
 ## Cosmos <-> Ethereum
@@ -55,20 +55,20 @@ All tests are `#[ignore]` by default since they need external infrastructure.
 |------|-------------------|
 | `bootstrap_smoke` | Anvil bootstrap: contracts deployed, IBC handler ready |
 | `cosmos_to_eth_transfer` | Cosmos->Ethereum unidirectional with ABI-encoded ICS20 packet |
-| `cosmos_eth_roundtrip_transfer` | Cosmos->Eth->Cosmos roundtrip (exists but return leg blocked — see gaps) |
+| `cosmos_eth_roundtrip_transfer` | Cosmos->Eth->Cosmos roundtrip (exists but return leg blocked - see gaps) |
 
 ### Gaps
 
 | Gap | Description | Priority |
 |-----|-------------|----------|
-| Eth->Cosmos direction blocked | `build_update_client_payload_mock()` returns empty headers; wasm client never advances past height {0,0}. Blocks all Eth->Cosmos tests. | **Critical** |
-| Protobuf wrapping | `MsgUpdateClient.client_message` puts raw bytes in `Any.value` instead of `ClientMessage { data }` wrapper. ibc-go can't unmarshal. | **Critical** |
-| Eth->Cosmos unidirectional | No standalone test — only attempted inside blocked roundtrip. | High |
+| Eth->Cosmos direction blocked | `build_update_client_payload_mock()` returns empty headers; wasm client never advances past height {0,0}. Blocks all Eth->Cosmos tests. | Critical |
+| Protobuf wrapping | `MsgUpdateClient.client_message` puts raw bytes in `Any.value` instead of `ClientMessage { data }` wrapper. ibc-go can't unmarshal. | Critical |
+| Eth->Cosmos unidirectional | No standalone test - only attempted inside blocked roundtrip. | High |
 | Bidirectional transfer | B->A un-escrowing not tested (blocked by above). | High |
 | Packet timeout (Cosmos side) | No test for packets timing out when Cosmos is destination. | High |
 | Packet timeout (Eth side) | No test for packets timing out on Ethereum. | Medium |
 | Client refresh | No equivalent of `client_refresh_keeps_relay_alive` for Eth<->Cosmos. | Medium |
-| Clearing worker recovery | Same gap as Cosmos<->Cosmos — never exercised. | Medium |
+| Clearing worker recovery | Same gap as Cosmos<->Cosmos - never exercised. | Medium |
 | Concurrent transfers | No parallel traffic test for Cosmos<->Eth. | Medium |
 | Binary relay mode | No subprocess/CLI test for Eth relay (only library mode tested). | Low |
 | Multiple denominations | Only `"stake"` tested. | Low |

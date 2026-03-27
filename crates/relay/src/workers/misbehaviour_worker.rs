@@ -82,7 +82,6 @@ where
             MisbehaviourEvidence = <R::SrcChain as MisbehaviourDetector<DstCore<R>>>::MisbehaviourEvidence,
         >,
 {
-    /// Scan for misbehaviour. Returns `true` if misbehaviour was found and submitted.
     async fn scan(
         &self,
         last_scanned_height: &mut Option<<R::SrcChain as ChainTypes>::Height>,

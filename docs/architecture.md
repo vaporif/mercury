@@ -13,16 +13,16 @@ Mercury is an IBC relayer built with plain Rust traits and generics. No macro fr
 
 ### Type traits
 
-`ChainTypes` — height, timestamp, chain ID, client ID, events, messages, chain status. All `ThreadSafe` (`Send + Sync + 'static`).
+`ChainTypes` - height, timestamp, chain ID, client ID, events, messages, chain status. All `ThreadSafe` (`Send + Sync + 'static`).
 
-`IbcTypes: ChainTypes` — client state, consensus state, proofs, packets, acknowledgements. Non-generic (no counterparty parameter). Each chain declares its IBC types once regardless of counterparty, which eliminates circular dependencies.
+`IbcTypes: ChainTypes` - client state, consensus state, proofs, packets, acknowledgements. Non-generic (no counterparty parameter). Each chain declares its IBC types once regardless of counterparty, which eliminates circular dependencies.
 
 ### Adapter pattern
 
 Cross-chain relaying (Cosmos↔EVM) hits Rust's orphan rule. Mercury solves this with:
 
-- Core type (e.g., `CosmosChain<S>`) — lives in the chain's core crate, implements all traits
-- Adapter type (e.g., `CosmosAdapter<S>`) — lives in the counterparty crate, wraps core via `HasCore`, adds cross-chain impls
+- Core type (e.g., `CosmosChain<S>`) - lives in the chain's core crate, implements all traits
+- Adapter type (e.g., `CosmosAdapter<S>`) - lives in the counterparty crate, wraps core via `HasCore`, adds cross-chain impls
 
 The `delegate_chain!` macro generates all delegation boilerplate. Use `skip_cpb` when the adapter needs a custom `ClientPayloadBuilder`.
 
@@ -38,7 +38,7 @@ The `delegate_chain!` macro generates all delegation boilerplate. Use `skip_cpb`
 | Relay | 5 | `Relay`, `BiRelay`, `RelayChain`, `ClientUpdater`, `RelayPacketBuilder` |
 | Infra | 2 | `Worker`, `ThreadSafe` |
 
-`RelayChain` bundles universal capabilities: `HasCore + ChainStatusQuery + MessageSender + PacketStateQuery + PacketEvents`. Builder/query traits are bound individually on `Relay` with asymmetric source/destination requirements.
+`RelayChain` is the baseline: `HasCore + ChainStatusQuery + MessageSender + PacketStateQuery + PacketEvents`. Builder and query traits get bound individually on `Relay` with different requirements for source vs destination.
 
 ## Cross-chain architecture
 
@@ -48,27 +48,27 @@ Cosmos→EVM relay: the EVM crate needs Cosmos types. If `IbcTypes` were generic
 
 ### Solution
 
-1. Non-generic `IbcTypes` — each chain declares IBC types once, no counterparty awareness needed
-2. Adapter pattern — counterparty crates define local wrapper types that satisfy the orphan rule
-3. Weakened bounds — `ClientPayloadBuilder` and `ClientMessageBuilder` require only `Counterparty: ChainTypes`, not `IbcTypes`
-4. Type matching at relay site — `Relay` trait enforces payload type compatibility between producer (src) and consumer (dst)
-5. Feature gates — cross-chain impls behind `cosmos-sp1` / `ethereum-beacon` features
+1. Non-generic `IbcTypes` - each chain declares IBC types once, no counterparty awareness needed
+2. Adapter pattern - counterparty crates define local wrapper types that satisfy the orphan rule
+3. Weakened bounds - `ClientPayloadBuilder` and `ClientMessageBuilder` require only `Counterparty: ChainTypes`, not `IbcTypes`
+4. Type matching at relay site - `Relay` trait enforces payload type compatibility between producer (src) and consumer (dst)
+5. Feature gates - cross-chain impls behind `cosmos-sp1` / `ethereum-beacon` features
 
 ### Builder extensibility
 
 `ClientMessageBuilder` has two defaulted hooks for chain-specific customization:
-- `enrich_update_payload` — attach proof data before building update messages
-- `finalize_batch` — post-process the batch (e.g., combine into a single ZK proof)
+- `enrich_update_payload` - attach proof data before building update messages
+- `finalize_batch` - post-process the batch (e.g., combine into a single ZK proof)
 
 Both are no-ops for Cosmos↔Cosmos. The Ethereum bridge uses them for batched ZK proving.
 
 ## Plugin architecture
 
-Chains register into a `ChainRegistry` via plugin traits instead of enum-based dispatch. Adding a new chain doesn't require CLI modifications.
+Chains register into a `ChainRegistry` via plugin traits rather than enum-based dispatch. No CLI modifications needed to add a chain.
 
-- `ChainPlugin` — per-chain operations (config, connection, queries). Keyed by type string.
-- `RelayPairPlugin` — relay construction for a `(src_type, dst_type)` pair.
-- `DynRelay` — type-erased relay runner.
+- `ChainPlugin` - per-chain operations (config, connection, queries). Keyed by type string.
+- `RelayPairPlugin` - relay construction for a `(src_type, dst_type)` pair.
+- `DynRelay` - type-erased relay runner.
 
 Chains are type-erased via `Arc<dyn Any + Send + Sync>`. Relay plugins downcast to concrete types when building relays.
 
@@ -102,7 +102,7 @@ Core chain crates are independent. Counterparty crates add cross-chain impls beh
 
 ## Data flow
 
-Seven workers per relay direction, connected by `tokio::mpsc` channels. Shutdown via `CancellationToken`.
+Each relay direction runs seven workers connected by `tokio::mpsc` channels. Everything shuts down through a `CancellationToken`.
 
 ```mermaid
 graph LR
@@ -114,12 +114,12 @@ graph LR
     MW[MisbehaviourWorker]
 ```
 
-1. EventWatcher — polls source chain block by block for `SendPacket`/`WriteAck`, stays 1 block behind tip
-2. PacketSweeper (optional) — periodic full scan recovering missed packets. Enabled via `sweep_interval`
-3. PacketWorker — classifies live vs timed-out packets, queries proofs (8 concurrent, 3 retries), builds messages, calls `finalize_batch()`
-4. ClientRefreshWorker — refreshes destination client at 1/3 trusting period
-5. MisbehaviourWorker (optional) — detects conflicting headers, submits misbehaviour evidence, terminates relay
-6. TxWorker / SrcTxWorker — batched tx submission with semaphore-bounded concurrency (max 3 in-flight)
+1. EventWatcher - polls source chain block by block for `SendPacket`/`WriteAck`, stays 1 block behind tip
+2. PacketSweeper (optional) - periodic full scan recovering missed packets. Enabled via `sweep_interval`
+3. PacketWorker - classifies live vs timed-out packets, queries proofs (8 concurrent, 3 retries), builds messages, calls `finalize_batch()`
+4. ClientRefreshWorker - refreshes destination client at 1/3 trusting period
+5. MisbehaviourWorker (optional) - detects conflicting headers, submits misbehaviour evidence, terminates relay
+6. TxWorker / SrcTxWorker - batched tx submission with semaphore-bounded concurrency (max 3 in-flight)
 
 ## Error handling
 
@@ -130,10 +130,10 @@ Four typed error enums, each implementing `HasRetryability` (classifies variants
 | `TxError` | SequenceMismatch, SimulationFailed, BroadcastFailed, NotConfirmed, OutOfGas | Reverted, InsufficientFunds |
 | `QueryError` | Timeout, StaleState | NotFound, Deserialization, UnsupportedType |
 | `ProofError` | FetchFailed, ZkProvingFailed, Missing | VerificationFailed |
-| `ClientError` | — | Expired, Frozen, NotFound |
+| `ClientError` | (none) | Expired, Frozen, NotFound |
 
 Untyped errors (`eyre!`/`bail!`) default to retryable. `RetryableExt` checks retryability through the error chain via `downcast_ref()`.
 
 ## What's not abstracted
 
-Logging (`tracing`), configuration (struct fields), test infrastructure, and transaction internals (fee estimation, nonce management, batch splitting, tx signing) are concrete implementations, not trait abstractions.
+Logging (`tracing`), configuration (struct fields), test infrastructure, and transaction internals (fee estimation, nonce management, batch splitting, tx signing). All concrete, none behind traits.
