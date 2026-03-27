@@ -83,7 +83,7 @@ fn save_consensus_state(
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(dead_code)]
-enum SudoMsg {
+pub enum SudoMsg {
     UpdateState(UpdateStateMsg),
     UpdateStateOnMisbehaviour(serde_json::Value),
     VerifyMembership(serde_json::Value),
@@ -92,7 +92,7 @@ enum SudoMsg {
 }
 
 #[derive(Deserialize)]
-struct UpdateStateMsg {
+pub struct UpdateStateMsg {
     client_message: Binary,
 }
 
@@ -110,7 +110,7 @@ struct HeightJson {
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(dead_code)]
-enum QueryMsg {
+pub enum QueryMsg {
     VerifyClientMessage(serde_json::Value),
     CheckForMisbehaviour(serde_json::Value),
     TimestampAtHeight(serde_json::Value),
@@ -120,6 +120,16 @@ enum QueryMsg {
 #[derive(Serialize)]
 struct StatusResult {
     status: String,
+}
+
+#[derive(Serialize)]
+struct CheckForMisbehaviourResult {
+    found_misbehaviour: bool,
+}
+
+#[derive(Serialize)]
+struct TimestampAtHeightResult {
+    timestamp: u64,
 }
 
 #[derive(Deserialize)]
@@ -162,11 +172,8 @@ pub fn instantiate(
 }
 
 #[entry_point]
-pub fn sudo(deps: DepsMut, _env: Env, msg: Binary) -> StdResult<Response> {
-    let sudo_msg: SudoMsg =
-        serde_json::from_slice(&msg).map_err(|e| StdError::generic_err(e.to_string()))?;
-
-    match sudo_msg {
+pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> StdResult<Response> {
+    match msg {
         SudoMsg::UpdateState(update_msg) => handle_update_state(deps, update_msg),
         SudoMsg::VerifyMembership(_) | SudoMsg::VerifyNonMembership(_) => {
             Ok(Response::new().set_data(Binary::default()))
@@ -228,16 +235,15 @@ fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response
 }
 
 #[entry_point]
-pub fn query(_deps: Deps, _env: Env, msg: Binary) -> StdResult<Binary> {
-    let query_msg: QueryMsg =
-        serde_json::from_slice(&msg).map_err(|e| StdError::generic_err(e.to_string()))?;
-
-    match query_msg {
+pub fn query(_deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    match msg {
         QueryMsg::VerifyClientMessage(_) => Ok(Binary::default()),
-        QueryMsg::CheckForMisbehaviour(_) => to_json_binary(&false),
+        QueryMsg::CheckForMisbehaviour(_) => to_json_binary(&CheckForMisbehaviourResult {
+            found_misbehaviour: false,
+        }),
         QueryMsg::Status(_) => to_json_binary(&StatusResult {
             status: "Active".to_string(),
         }),
-        QueryMsg::TimestampAtHeight(_) => to_json_binary(&0u64),
+        QueryMsg::TimestampAtHeight(_) => to_json_binary(&TimestampAtHeightResult { timestamp: 0 }),
     }
 }
