@@ -410,10 +410,6 @@ pub fn deploy_sp1_light_client(
     Ok(address)
 }
 
-/// Parse the deployed contract address from `forge create` output.
-///
-/// Forge may output the deployment JSON to stdout or stderr depending on version.
-/// The JSON object contains a `deployedTo` field with the contract address.
 fn parse_forge_create_address(stdout: &str, stderr: &str) -> Result<Address> {
     // Try parsing each line as JSON, looking for the deployedTo field
     for source in [stdout, stderr] {

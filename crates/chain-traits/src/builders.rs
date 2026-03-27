@@ -63,8 +63,7 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
         counterparty_merkle_prefix: MerklePrefix,
     ) -> Result<Self::Message>;
 
-    /// Enriches the update client payload with membership proof entries for batched proving.
-    /// Called before `build_update_client_message`. Default is a no-op.
+    /// Called before `build_update_client_message`. No-op by default.
     fn enrich_update_payload(
         &self,
         _payload: &mut Self::UpdateClientPayload,
@@ -72,8 +71,7 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     ) {
     }
 
-    /// Post-process a batch of update and packet messages before sending.
-    /// Called after both update and packet messages are built. Default is a no-op.
+    /// Called after update and packet messages are built. No-op by default.
     fn finalize_batch(
         &self,
         _update_output: &mut UpdateClientOutput<Self::Message>,
@@ -88,9 +86,6 @@ pub trait MisbehaviourDetector<Counterparty: ChainTypes>: IbcTypes {
     type MisbehaviourEvidence: ThreadSafe;
     type CounterpartyClientState: Clone + Debug + ThreadSafe;
 
-    /// Check a decoded update header against the source chain for divergence.
-    /// `client_id` is the counterparty's client ID tracking this chain.
-    /// Returns evidence if divergence detected, None if valid.
     async fn check_for_misbehaviour(
         &self,
         client_id: &Counterparty::ClientId,
@@ -103,7 +98,6 @@ pub trait MisbehaviourDetector<Counterparty: ChainTypes>: IbcTypes {
 pub trait MisbehaviourMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     type MisbehaviourEvidence: ThreadSafe;
 
-    /// Build a `MsgUpdateClient` containing the misbehaviour evidence.
     async fn build_misbehaviour_message(
         &self,
         client_id: &Self::ClientId,

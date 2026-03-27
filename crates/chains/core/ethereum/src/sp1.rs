@@ -312,8 +312,6 @@ pub async fn generate_misbehaviour_proof_with_timeout<C: SP1ProverComponents + '
     })
 }
 
-/// Convert membership proof entries into typed `(KVPair, MerkleProof)` pairs
-/// for the SP1 prover.
 fn convert_membership_proofs(
     proofs: &MembershipProofs,
 ) -> eyre::Result<Vec<(KVPair, MerkleProof)>> {
