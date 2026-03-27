@@ -10,6 +10,8 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 const CLIENT_STATE_KEY: &[u8] = b"clientState";
+const WASM_CLIENT_STATE_TYPE_URL: &str = "/ibc.lightclients.wasm.v1.ClientState";
+const WASM_CONSENSUS_STATE_TYPE_URL: &str = "/ibc.lightclients.wasm.v1.ConsensusState";
 
 #[derive(Deserialize)]
 struct Header {
@@ -44,7 +46,16 @@ struct ExecutionPayloadHeader {
     block_number: u64,
 }
 
-#[derive(Message)]
+/// google.protobuf.Any
+#[derive(Message, Clone)]
+struct Any {
+    #[prost(string, tag = "1")]
+    type_url: String,
+    #[prost(bytes = "vec", tag = "2")]
+    value: Vec<u8>,
+}
+
+#[derive(Message, Clone)]
 struct WasmClientState {
     #[prost(bytes = "vec", tag = "1")]
     data: Vec<u8>,
@@ -62,10 +73,41 @@ struct Height {
     revision_height: u64,
 }
 
-#[derive(Message)]
+#[derive(Message, Clone)]
 struct WasmConsensusState {
     #[prost(bytes = "vec", tag = "1")]
     data: Vec<u8>,
+}
+
+fn encode_any(type_url: &str, msg: &impl Message) -> Vec<u8> {
+    let any = Any {
+        type_url: type_url.to_string(),
+        value: msg.encode_to_vec(),
+    };
+    any.encode_to_vec()
+}
+
+fn save_client_state(storage: &mut dyn cosmwasm_std::Storage, wasm_cs: &WasmClientState) {
+    storage.set(CLIENT_STATE_KEY, &encode_any(WASM_CLIENT_STATE_TYPE_URL, wasm_cs));
+}
+
+fn load_client_state(storage: &dyn cosmwasm_std::Storage) -> StdResult<WasmClientState> {
+    let raw = storage
+        .get(CLIENT_STATE_KEY)
+        .ok_or_else(|| StdError::generic_err("client state not found"))?;
+    let any = Any::decode(raw.as_slice())
+        .map_err(|e| StdError::generic_err(e.to_string()))?;
+    WasmClientState::decode(any.value.as_slice())
+        .map_err(|e| StdError::generic_err(e.to_string()))
+}
+
+fn save_consensus_state(
+    storage: &mut dyn cosmwasm_std::Storage,
+    slot: u64,
+    wasm_cons: &WasmConsensusState,
+) {
+    let key = format!("consensusStates/0-{slot}");
+    storage.set(key.as_bytes(), &encode_any(WASM_CONSENSUS_STATE_TYPE_URL, wasm_cons));
 }
 
 #[derive(Deserialize)]
@@ -73,7 +115,6 @@ struct WasmConsensusState {
 #[allow(dead_code)]
 enum SudoMsg {
     UpdateState(UpdateStateMsg),
-    // Remaining variants are unused stubs; payload discarded.
     UpdateStateOnMisbehaviour(serde_json::Value),
     VerifyMembership(serde_json::Value),
     VerifyNonMembership(serde_json::Value),
@@ -100,7 +141,6 @@ struct HeightJson {
 #[serde(rename_all = "snake_case")]
 #[allow(dead_code)]
 enum QueryMsg {
-    // Unused stubs; payload discarded.
     VerifyClientMessage(serde_json::Value),
     CheckForMisbehaviour(serde_json::Value),
     TimestampAtHeight(serde_json::Value),
@@ -141,14 +181,12 @@ pub fn instantiate(
             revision_height: latest_slot,
         }),
     };
-    deps.storage.set(CLIENT_STATE_KEY, &wasm_cs.encode_to_vec());
+    save_client_state(deps.storage, &wasm_cs);
 
     let wasm_cons = WasmConsensusState {
         data: msg.consensus_state.to_vec(),
     };
-    let cons_key = format!("consensusStates/0-{latest_slot}");
-    deps.storage
-        .set(cons_key.as_bytes(), &wasm_cons.encode_to_vec());
+    save_consensus_state(deps.storage, latest_slot, &wasm_cons);
 
     Ok(Response::new())
 }
@@ -174,12 +212,7 @@ fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response
 
     let updated_slot = header.consensus_update.finalized_header.beacon.slot;
 
-    let cs_bytes = deps
-        .storage
-        .get(CLIENT_STATE_KEY)
-        .ok_or_else(|| StdError::generic_err("client state not found"))?;
-    let mut wasm_cs = WasmClientState::decode(cs_bytes.as_slice())
-        .map_err(|e| StdError::generic_err(e.to_string()))?;
+    let mut wasm_cs = load_client_state(deps.storage)?;
 
     let mut inner: serde_json::Value =
         serde_json::from_slice(&wasm_cs.data).map_err(|e| StdError::generic_err(e.to_string()))?;
@@ -197,7 +230,7 @@ fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response
         revision_number: 0,
         revision_height: updated_slot,
     });
-    deps.storage.set(CLIENT_STATE_KEY, &wasm_cs.encode_to_vec());
+    save_client_state(deps.storage, &wasm_cs);
 
     let mock_consensus = serde_json::json!({
         "slot": updated_slot,
@@ -212,9 +245,7 @@ fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response
     let cons_bz =
         serde_json::to_vec(&mock_consensus).map_err(|e| StdError::generic_err(e.to_string()))?;
     let wasm_cons = WasmConsensusState { data: cons_bz };
-    let cons_key = format!("consensusStates/0-{updated_slot}");
-    deps.storage
-        .set(cons_key.as_bytes(), &wasm_cons.encode_to_vec());
+    save_consensus_state(deps.storage, updated_slot, &wasm_cons);
 
     let result = UpdateStateResult {
         heights: vec![HeightJson {
