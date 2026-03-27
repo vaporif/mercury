@@ -24,6 +24,7 @@ impl EthereumChain {
             chain_id: self.chain_id.0,
             ibc_contract_address: self.router_address,
             latest_slot: initial_slot,
+            min_sync_committee_participants: 1,
             sync_committee_size: 512,
             slots_per_epoch: 32,
             epochs_per_sync_committee_period: 256,
