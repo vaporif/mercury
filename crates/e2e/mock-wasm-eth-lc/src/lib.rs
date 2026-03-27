@@ -6,12 +6,19 @@ use cosmwasm_std::{
     entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdError,
     StdResult,
 };
+use ibc_proto::google::protobuf::Any;
+use ibc_proto::ibc::lightclients::wasm::v1::{
+    ClientState as WasmClientState, ConsensusState as WasmConsensusState,
+};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
-const CLIENT_STATE_KEY: &[u8] = b"clientState";
-const WASM_CLIENT_STATE_TYPE_URL: &str = "/ibc.lightclients.wasm.v1.ClientState";
-const WASM_CONSENSUS_STATE_TYPE_URL: &str = "/ibc.lightclients.wasm.v1.ConsensusState";
+const CLIENT_STATE_KEY: &str = "clientState";
+const CONSENSUS_STATES_KEY: &str = "consensusStates";
+
+fn consensus_key(slot: u64) -> String {
+    format!("{CONSENSUS_STATES_KEY}/0-{slot}")
+}
 
 #[derive(Deserialize)]
 struct Header {
@@ -46,68 +53,31 @@ struct ExecutionPayloadHeader {
     block_number: u64,
 }
 
-/// google.protobuf.Any
-#[derive(Message, Clone)]
-struct Any {
-    #[prost(string, tag = "1")]
-    type_url: String,
-    #[prost(bytes = "vec", tag = "2")]
-    value: Vec<u8>,
-}
-
-#[derive(Message, Clone)]
-struct WasmClientState {
-    #[prost(bytes = "vec", tag = "1")]
-    data: Vec<u8>,
-    #[prost(bytes = "vec", tag = "2")]
-    checksum: Vec<u8>,
-    #[prost(message, optional, tag = "3")]
-    latest_height: Option<Height>,
-}
-
-#[derive(Message, Clone)]
-struct Height {
-    #[prost(uint64, tag = "1")]
-    revision_number: u64,
-    #[prost(uint64, tag = "2")]
-    revision_height: u64,
-}
-
-#[derive(Message, Clone)]
-struct WasmConsensusState {
-    #[prost(bytes = "vec", tag = "1")]
-    data: Vec<u8>,
-}
-
-fn encode_any(type_url: &str, msg: &impl Message) -> Vec<u8> {
-    let any = Any {
-        type_url: type_url.to_string(),
-        value: msg.encode_to_vec(),
-    };
-    any.encode_to_vec()
-}
-
-fn save_client_state(storage: &mut dyn cosmwasm_std::Storage, wasm_cs: &WasmClientState) {
-    storage.set(CLIENT_STATE_KEY, &encode_any(WASM_CLIENT_STATE_TYPE_URL, wasm_cs));
+fn save_client_state(
+    storage: &mut dyn cosmwasm_std::Storage,
+    wasm_cs: &WasmClientState,
+) -> StdResult<()> {
+    let any = Any::from_msg(wasm_cs).map_err(|e| StdError::generic_err(e.to_string()))?;
+    storage.set(CLIENT_STATE_KEY.as_bytes(), &any.encode_to_vec());
+    Ok(())
 }
 
 fn load_client_state(storage: &dyn cosmwasm_std::Storage) -> StdResult<WasmClientState> {
     let raw = storage
-        .get(CLIENT_STATE_KEY)
+        .get(CLIENT_STATE_KEY.as_bytes())
         .ok_or_else(|| StdError::generic_err("client state not found"))?;
-    let any = Any::decode(raw.as_slice())
-        .map_err(|e| StdError::generic_err(e.to_string()))?;
-    WasmClientState::decode(any.value.as_slice())
-        .map_err(|e| StdError::generic_err(e.to_string()))
+    let any = Any::decode(raw.as_slice()).map_err(|e| StdError::generic_err(e.to_string()))?;
+    WasmClientState::decode(any.value.as_slice()).map_err(|e| StdError::generic_err(e.to_string()))
 }
 
 fn save_consensus_state(
     storage: &mut dyn cosmwasm_std::Storage,
     slot: u64,
     wasm_cons: &WasmConsensusState,
-) {
-    let key = format!("consensusStates/0-{slot}");
-    storage.set(key.as_bytes(), &encode_any(WASM_CONSENSUS_STATE_TYPE_URL, wasm_cons));
+) -> StdResult<()> {
+    let any = Any::from_msg(wasm_cons).map_err(|e| StdError::generic_err(e.to_string()))?;
+    storage.set(consensus_key(slot).as_bytes(), &any.encode_to_vec());
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -176,17 +146,17 @@ pub fn instantiate(
     let wasm_cs = WasmClientState {
         data: msg.client_state.to_vec(),
         checksum: msg.checksum.to_vec(),
-        latest_height: Some(Height {
+        latest_height: Some(ibc_proto::ibc::core::client::v1::Height {
             revision_number: 0,
             revision_height: latest_slot,
         }),
     };
-    save_client_state(deps.storage, &wasm_cs);
+    save_client_state(deps.storage, &wasm_cs)?;
 
     let wasm_cons = WasmConsensusState {
         data: msg.consensus_state.to_vec(),
     };
-    save_consensus_state(deps.storage, latest_slot, &wasm_cons);
+    save_consensus_state(deps.storage, latest_slot, &wasm_cons)?;
 
     Ok(Response::new())
 }
@@ -226,11 +196,11 @@ fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response
     );
     wasm_cs.data = serde_json::to_vec(&inner).map_err(|e| StdError::generic_err(e.to_string()))?;
 
-    wasm_cs.latest_height = Some(Height {
+    wasm_cs.latest_height = Some(ibc_proto::ibc::core::client::v1::Height {
         revision_number: 0,
         revision_height: updated_slot,
     });
-    save_client_state(deps.storage, &wasm_cs);
+    save_client_state(deps.storage, &wasm_cs)?;
 
     let mock_consensus = serde_json::json!({
         "slot": updated_slot,
@@ -245,7 +215,7 @@ fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response
     let cons_bz =
         serde_json::to_vec(&mock_consensus).map_err(|e| StdError::generic_err(e.to_string()))?;
     let wasm_cons = WasmConsensusState { data: cons_bz };
-    save_consensus_state(deps.storage, updated_slot, &wasm_cons);
+    save_consensus_state(deps.storage, updated_slot, &wasm_cons)?;
 
     let result = UpdateStateResult {
         heights: vec![HeightJson {
