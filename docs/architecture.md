@@ -38,7 +38,7 @@ The `delegate_chain!` macro generates all delegation boilerplate. Use `skip_cpb`
 | Relay | 5 | `Relay`, `BiRelay`, `RelayChain`, `ClientUpdater`, `RelayPacketBuilder` |
 | Infra | 2 | `Worker`, `ThreadSafe` |
 
-`RelayChain` bundles universal capabilities: `HasCore + ChainStatusQuery + MessageSender + PacketStateQuery + PacketEvents`. Builder/query traits are bound individually on `Relay` with asymmetric source/destination requirements.
+`RelayChain` is the baseline: `HasCore + ChainStatusQuery + MessageSender + PacketStateQuery + PacketEvents`. Builder and query traits get bound individually on `Relay` with different requirements for source vs destination.
 
 ## Cross-chain architecture
 
@@ -64,7 +64,7 @@ Both are no-ops for Cosmos↔Cosmos. The Ethereum bridge uses them for batched Z
 
 ## Plugin architecture
 
-Chains register into a `ChainRegistry` via plugin traits instead of enum-based dispatch. Adding a new chain doesn't require CLI modifications.
+Chains register into a `ChainRegistry` via plugin traits rather than enum-based dispatch. No CLI modifications needed to add a chain.
 
 - `ChainPlugin` - per-chain operations (config, connection, queries). Keyed by type string.
 - `RelayPairPlugin` - relay construction for a `(src_type, dst_type)` pair.
@@ -102,7 +102,7 @@ Core chain crates are independent. Counterparty crates add cross-chain impls beh
 
 ## Data flow
 
-Seven workers per relay direction, connected by `tokio::mpsc` channels. Shutdown via `CancellationToken`.
+Each relay direction runs seven workers connected by `tokio::mpsc` channels. Everything shuts down through a `CancellationToken`.
 
 ```mermaid
 graph LR
@@ -136,4 +136,4 @@ Untyped errors (`eyre!`/`bail!`) default to retryable. `RetryableExt` checks ret
 
 ## What's not abstracted
 
-Logging (`tracing`), configuration (struct fields), test infrastructure, and transaction internals (fee estimation, nonce management, batch splitting, tx signing) are concrete implementations, not trait abstractions.
+Logging (`tracing`), configuration (struct fields), test infrastructure, and transaction internals (fee estimation, nonce management, batch splitting, tx signing). All concrete, none behind traits.

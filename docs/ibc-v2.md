@@ -10,9 +10,9 @@ IBC v2 has clients, counterparty registration (1 message, no handshake), and pac
 
 ## Impact on the relayer
 
-The connection and channel handshake logic accounted for ~16 traits in hermes-sdk. Four-step handshakes require tracking intermediate states, retrying on timeouts, and coordinating messages across both chains in a specific order. All of that is eliminated.
+The connection and channel handshake logic alone was ~16 traits in hermes-sdk. Tracking intermediate states, retrying on timeouts, coordinating messages across both chains in a specific order. Gone.
 
-What remains:
+What's left:
 
 - Client lifecycle - create and update light clients on both chains
 - Counterparty registration - one message per chain, no handshake coordination
@@ -40,6 +40,6 @@ If the destination doesn't receive the packet before the timeout, the source cha
 
 ## Why v2 now
 
-IBC v2 is actively being deployed. The [solidity-ibc-eureka](https://github.com/cosmos/solidity-ibc-eureka) contracts implement it for EVM chains, and Cosmos SDK chains are adding support. Building a new relayer on v1 would mean targeting a protocol version that's being superseded.
+IBC v2 is actively being deployed. The [solidity-ibc-eureka](https://github.com/cosmos/solidity-ibc-eureka) contracts implement it for EVM chains, and Cosmos SDK chains are adding support. Writing a new relayer against v1 at this point would be targeting a protocol that's being replaced.
 
-Starting fresh on v2 means Mercury doesn't carry any v1 legacy - no connection or channel types, no handshake state machines, no compatibility shims.
+Mercury doesn't carry any v1 baggage. No connection types, no channel types, no handshake state machines.

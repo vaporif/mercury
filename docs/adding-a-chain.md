@@ -130,4 +130,4 @@ Non-native light clients on Cosmos are deployed as CosmWasm contracts, so their 
 
 ### CLI wiring
 
-Add your counterparty crate's `register()` call and your relay crate's `register()` call to `crates/cli/src/registry.rs`. The plugin system handles chain connection, relay construction, and status queries automatically - no enum variants or match arms needed in the CLI.
+Add your counterparty and relay crate `register()` calls to `crates/cli/src/registry.rs`. The plugin system takes it from there - no enum variants or match arms to touch.

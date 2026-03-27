@@ -80,11 +80,11 @@ just check-toml   # TOML lint
 
 ### AI-assisted contributions
 
-AI assistants are welcome as tools. The human contributor bears full responsibility for every line submitted - correctness, licensing, and review. If you used AI to generate code, you must have read and verified it yourself before opening a PR. **Unreviewed AI output will be declined.**
+AI assistants are fine to use. You're responsible for every line you submit - correctness, licensing, review. If you used AI to generate code, read and verify it yourself before opening a PR. Unreviewed AI output will be declined.
 
 ## Understanding the codebase
 
-Read the [Architecture](./docs/architecture.md) doc before diving into the code. It covers the trait hierarchy, worker pipeline, crate boundaries, and design decisions.
+Start with the [Architecture](./docs/architecture.md) doc. It covers the trait hierarchy, worker pipeline, crate boundaries, and why things are the way they are.
 
 ### Crate map
 

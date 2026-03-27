@@ -1,6 +1,6 @@
 # Why rewrite
 
-There are two existing IBC relayers in Rust: the [original Hermes](https://github.com/informalsystems/hermes) and its intended successor [Hermes SDK](https://github.com/informalsystems/hermes-sdk). Hermes has been reliable production software for years, but its architecture makes certain improvements difficult. Hermes SDK tried to fix this through CGP, which introduced its own problems. Mercury takes a different path.
+Two IBC relayers exist in Rust already: [Hermes](https://github.com/informalsystems/hermes) and [Hermes SDK](https://github.com/informalsystems/hermes-sdk). Hermes has been solid production software for years, but its architecture makes certain things hard to change. Hermes SDK tried to fix this with CGP, which brought its own problems. Mercury goes a different direction.
 
 ## Hermes: architectural constraints
 
@@ -10,7 +10,7 @@ In practice, the `ChainHandle` trait defines ~65 synchronous methods, each dispa
 
 The chain abstractions are also tightly coupled to Cosmos SDK semantics, making non-Cosmos chain support harder than it needs to be.
 
-By the time async Rust matured, the sync model was load-bearing and too costly to retrofit. The existence of hermes-sdk as a separate ground-up effort suggests the team reached the same conclusion. Mercury benefits from starting in 2026, where stable async traits, a mature tokio, and battle-tested async patterns are just the default.
+By the time async Rust matured, the sync model was load-bearing and too costly to retrofit. That hermes-sdk exists as a separate ground-up effort says it all. Mercury gets to start in 2026 where stable async traits and a mature tokio are just the default.
 
 ### The fork problem
 
@@ -30,7 +30,7 @@ CGP solves this through Inversion of Control - decoupling producer types from co
 
 CGP is essentially an Inversion of Control container (like Java's Spring) implemented through Rust proc macros. For every operation it introduces three layers: a component trait, a provider type, and a macro-generated delegation table. The result is 367 component traits, 666 provider impls, and 25 context types - all wired through macro-generated code.
 
-The practical costs:
+In practice:
 
 - Compile times dominated by macro expansion across hundreds of components
 - Error messages report through layers of generated types (`DelegateComponent`, `UseDelegate`, `WithProvider`) instead of pointing to your code
@@ -40,7 +40,7 @@ The practical costs:
 
 ## Mercury's approach
 
-CGP's core insight - Inversion of Control to decouple cross-chain trait bounds - is correct. Mercury applies the same principle directly in Rust's trait system, without a macro framework: non-generic `IbcTypes`, adapter types for orphan rule avoidance (generated via the `delegate_chain!` macro), and weakened builder bounds. Direct trait impls mean rust-analyzer works, error messages point to your code, and any Rust developer can read it.
+The core insight behind CGP - Inversion of Control to decouple cross-chain trait bounds - is right. Mercury applies it directly in Rust's trait system without the macro framework: non-generic `IbcTypes`, adapter types for orphan rule avoidance (generated via `delegate_chain!`), and weakened builder bounds. rust-analyzer works. Error messages point to your code. Any Rust developer can read it.
 
 See [architecture](./architecture.md) for the full trait hierarchy, cross-chain design, and code examples.
 
@@ -50,7 +50,7 @@ The [Eureka relayer](https://github.com/cosmos/solidity-ibc-eureka/tree/main/pro
 
 Each chain direction is a separate crate (`eth-to-cosmos`, `cosmos-to-eth`, `solana-to-cosmos`, etc. - 7 modules today). Bidirectional relay requires two independent module instances sharing no state. Module config is `serde_json::Value` parsed at runtime.
 
-Mercury differs in three ways:
+Where Mercury differs:
 
 - Shared relay logic. All workers (`EventWatcher`, `PacketWorker`, `TxWorker`, `PacketSweeper`) are generic over the `Relay` trait - the same code handles every chain pair. Eureka duplicates relay logic per direction. Mercury still has per-pair counterparty wrappers (~600 lines each for orphan rule compliance), but the relay pipeline itself is written once.
 - Autonomous operation. Mercury polls blocks, recovers missed packets, manages client refresh, and submits transactions. Eureka requires an external orchestrator for all of this.

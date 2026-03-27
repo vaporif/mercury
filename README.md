@@ -12,9 +12,9 @@ An IBC v2 relayer in Rust. Plain traits, no frameworks.
 
 Mercury moves packets between IBC-connected blockchains, even when the chains are completely different types. Cosmos↔Cosmos works today. Cosmos→EVM is in progress.
 
-[Hermes](https://github.com/informalsystems/hermes) handles Cosmos/Tendermint chains with a sync architecture. [hermes-sdk](https://github.com/informalsystems/hermes-sdk) gets the cross-chain abstraction right but buries it under 250+ component traits. Mercury takes the same insight and keeps it simple: ~21 plain Rust traits, an adapter pattern for orphan rules, and all relay logic shared across chain pairs.
+[Hermes](https://github.com/informalsystems/hermes) handles Cosmos/Tendermint chains with a sync architecture. [hermes-sdk](https://github.com/informalsystems/hermes-sdk) gets the cross-chain abstraction right but buries it under 250+ component traits. Mercury keeps the same insight with less machinery: ~21 plain Rust traits, an adapter pattern for orphan rules, and all relay logic shared across chain pairs.
 
-Adding a new chain doesn't touch Mercury's core. Chain support lives in independent crates with plugin traits. No forks, no rebasing, no enum variants to extend. See [why rewrite](./docs/why-rewrite.md#the-fork-problem) and [adding a chain](./docs/adding-a-chain.md).
+Adding a new chain doesn't touch Mercury's core. Chain support goes in independent crates with plugin traits. No forks, no rebasing, no enum variants to extend. See [why rewrite](./docs/why-rewrite.md#the-fork-problem) and [adding a chain](./docs/adding-a-chain.md).
 
 ## Status
 
