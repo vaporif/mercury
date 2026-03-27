@@ -6,7 +6,6 @@ use cosmwasm_std::{
     entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdError,
     StdResult,
 };
-use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::lightclients::wasm::v1::{
     ClientState as WasmClientState, ConsensusState as WasmConsensusState,
 };
@@ -57,8 +56,7 @@ fn save_client_state(
     storage: &mut dyn cosmwasm_std::Storage,
     wasm_cs: &WasmClientState,
 ) -> StdResult<()> {
-    let any = Any::from_msg(wasm_cs).map_err(|e| StdError::generic_err(e.to_string()))?;
-    storage.set(CLIENT_STATE_KEY.as_bytes(), &any.encode_to_vec());
+    storage.set(CLIENT_STATE_KEY.as_bytes(), &wasm_cs.encode_to_vec());
     Ok(())
 }
 
@@ -66,8 +64,7 @@ fn load_client_state(storage: &dyn cosmwasm_std::Storage) -> StdResult<WasmClien
     let raw = storage
         .get(CLIENT_STATE_KEY.as_bytes())
         .ok_or_else(|| StdError::generic_err("client state not found"))?;
-    let any = Any::decode(raw.as_slice()).map_err(|e| StdError::generic_err(e.to_string()))?;
-    WasmClientState::decode(any.value.as_slice()).map_err(|e| StdError::generic_err(e.to_string()))
+    WasmClientState::decode(raw.as_slice()).map_err(|e| StdError::generic_err(e.to_string()))
 }
 
 fn save_consensus_state(
@@ -75,19 +72,18 @@ fn save_consensus_state(
     slot: u64,
     wasm_cons: &WasmConsensusState,
 ) -> StdResult<()> {
-    let any = Any::from_msg(wasm_cons).map_err(|e| StdError::generic_err(e.to_string()))?;
-    storage.set(consensus_key(slot).as_bytes(), &any.encode_to_vec());
+    storage.set(consensus_key(slot).as_bytes(), &wasm_cons.encode_to_vec());
     Ok(())
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
 pub enum SudoMsg {
     UpdateState(UpdateStateMsg),
     UpdateStateOnMisbehaviour(serde_json::Value),
     VerifyMembership(serde_json::Value),
     VerifyNonMembership(serde_json::Value),
+    VerifyUpgradeAndUpdateState(serde_json::Value),
     MigrateClientStore(serde_json::Value),
 }
 
@@ -98,18 +94,17 @@ pub struct UpdateStateMsg {
 
 #[derive(Serialize)]
 struct UpdateStateResult {
-    heights: Vec<HeightJson>,
+    heights: Vec<Height>,
 }
 
 #[derive(Serialize)]
-struct HeightJson {
+struct Height {
     revision_number: u64,
     revision_height: u64,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[allow(dead_code)]
 pub enum QueryMsg {
     VerifyClientMessage(serde_json::Value),
     CheckForMisbehaviour(serde_json::Value),
@@ -225,7 +220,7 @@ fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response
     save_consensus_state(deps.storage, updated_slot, &wasm_cons)?;
 
     let result = UpdateStateResult {
-        heights: vec![HeightJson {
+        heights: vec![Height {
             revision_number: 0,
             revision_height: updated_slot,
         }],
