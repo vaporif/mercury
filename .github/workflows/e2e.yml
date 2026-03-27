@@ -85,7 +85,9 @@ jobs:
           CARGO_PROFILE_RELEASE_TRIM_PATHS: "false"
 
       - name: Install binaryen (wasm-opt)
-        run: sudo apt-get install -y binaryen
+        run: |
+          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_126/binaryen-version_126-x86_64-linux.tar.gz \
+            | sudo tar -xz -C /usr/local --strip-components=1
 
       - name: Build mock WASM light client
         run: |
