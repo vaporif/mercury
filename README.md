@@ -49,10 +49,10 @@ Each relay direction (A→B, B→A) runs its own workers connected by `tokio::mp
 
 ## Docs
 
-- [Why rewrite?](./docs/why-rewrite.md) — Hermes limitations, what CGP gets right, Mercury's approach
-- [Architecture](./docs/architecture.md) — trait hierarchy, crate layout, worker pipeline
-- [IBC v2](./docs/ibc-v2.md) — Eureka protocol changes vs v1
-- [Adding a new chain](./docs/adding-a-chain.md) — step by step
+- [Why rewrite?](./docs/why-rewrite.md) - Hermes limitations, what CGP gets right, Mercury's approach
+- [Architecture](./docs/architecture.md) - trait hierarchy, crate layout, worker pipeline
+- [IBC v2](./docs/ibc-v2.md) - Eureka protocol changes vs v1
+- [Adding a new chain](./docs/adding-a-chain.md) - step by step
 
 ## Usage
 
