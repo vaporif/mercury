@@ -84,12 +84,19 @@ jobs:
         env:
           CARGO_PROFILE_RELEASE_TRIM_PATHS: "false"
 
+      - name: Install binaryen (wasm-opt)
+        run: sudo apt-get install -y binaryen
+
       - name: Build mock WASM light client
         run: |
           rustup target add wasm32-unknown-unknown
           cargo build --target wasm32-unknown-unknown --release -p mock-wasm-eth-lc
-          gzip -kf target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.wasm
-          cp target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.wasm.gz crates/e2e/mock-wasm-eth-lc/
+          wasm-opt --llvm-memory-copy-fill-lowering -Os \
+            target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.wasm \
+            -o target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm
+          gzip -kf target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm
+          cp target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm.gz \
+            crates/e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
 
       - name: Build relayer binary
         run: cargo build -p mercury-cli --release

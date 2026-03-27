@@ -298,11 +298,22 @@ async fn poll_proposal_status(
         "simd query gov proposal {proposal_id} --home /root/.simapp --output text 2>&1 \
          | {{ grep '{expected_status}' || true; }}"
     );
+    let failed_cmd = format!(
+        "simd query gov proposal {proposal_id} --home /root/.simapp --output text 2>&1 \
+         | {{ grep 'failed_reason' || true; }}"
+    );
     tokio::time::timeout(timeout, async {
         loop {
             let output = handle.exec_cmd(&cmd).await?;
             if !output.trim().is_empty() {
                 return Ok::<(), eyre::Report>(());
+            }
+            let failed = handle.exec_cmd(&failed_cmd).await.unwrap_or_default();
+            if !failed.trim().is_empty() {
+                return Err(eyre::eyre!(
+                    "proposal {proposal_id} failed: {}",
+                    failed.trim()
+                ));
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
@@ -335,18 +346,27 @@ pub async fn store_wasm_light_client(
     let checksum = hex::encode(Sha256::digest(&wasm_bytes));
     info!(checksum = %checksum, "computed Wasm light client checksum");
 
-    // Copy gzipped Wasm into the container via base64 chunks to avoid shell arg limits
     let wasm_b64 = base64::engine::general_purpose::STANDARD.encode(&gz_bytes);
     handle.exec_cmd("rm -f /tmp/wasm_lc.b64").await?;
-    for chunk in wasm_b64.as_bytes().chunks(65536) {
+    for (i, chunk) in wasm_b64.as_bytes().chunks(50_000).enumerate() {
         let chunk_str = std::str::from_utf8(chunk).expect("base64 is ascii");
+        let op = if i == 0 { ">" } else { ">>" };
         handle
-            .exec_cmd(&format!("printf '%s' '{chunk_str}' >> /tmp/wasm_lc.b64"))
+            .exec_cmd(&format!("printf '%s' '{chunk_str}' {op} /tmp/wasm_lc.b64"))
             .await?;
     }
     handle
         .exec_cmd("base64 -d /tmp/wasm_lc.b64 > /tmp/wasm_lc.wasm.gz")
         .await?;
+    // Verify the transfer
+    let expected_size = gz_bytes.len();
+    let actual_size = handle
+        .exec_cmd("wc -c < /tmp/wasm_lc.wasm.gz")
+        .await?;
+    let actual_size: usize = actual_size.trim().parse().unwrap_or(0);
+    if actual_size != expected_size {
+        bail!("wasm transfer failed: expected {expected_size} bytes, got {actual_size}");
+    }
 
     let chain_id = handle.chain_id();
 
@@ -396,7 +416,7 @@ pub async fn store_wasm_light_client(
 
 #[allow(clippy::future_not_send)]
 pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Result<String> {
-    let mock_path =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz");
+    let mock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../external/solidity-ibc-eureka/e2e/interchaintestv8/wasm/cw_dummy_light_client.wasm.gz");
     store_wasm_light_client(handle, &mock_path).await
 }

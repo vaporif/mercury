@@ -178,13 +178,16 @@
         mainProgram = "mercury-relayer";
       };
 
-      toolchain = fenixPkgs.stable.withComponents [
-        "cargo"
-        "clippy"
-        "rustc"
-        "rustfmt"
-        "rust-src"
-        "rust-analyzer"
+      toolchain = fenixPkgs.combine [
+        (fenixPkgs.stable.withComponents [
+          "cargo"
+          "clippy"
+          "rustc"
+          "rustfmt"
+          "rust-src"
+          "rust-analyzer"
+        ])
+        fenixPkgs.targets.wasm32-unknown-unknown.stable.rust-std
       ];
     in {
       packages.default = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts meta;});
@@ -217,6 +220,7 @@
             pkgs.cargo-deny
             pkgs.foundry
             pkgs.bun
+            pkgs.binaryen
             ethereum-nix.packages.${pkgs.stdenv.hostPlatform.system}.kurtosis
           ]
           ++ (with pkgs.sp1."v5.2.4"; [
