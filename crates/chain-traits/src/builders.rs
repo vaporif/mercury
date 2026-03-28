@@ -40,7 +40,7 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
         Counterparty: IbcTypes;
 
     /// The height that proofs should be built against after this update is applied.
-    /// Returns `None` when src_height from `query_chain_status` is fine (the default).
+    /// Returns `None` when `src_height` from `query_chain_status` is fine (the default).
     fn update_payload_proof_height(
         &self,
         _payload: &Self::UpdateClientPayload,
