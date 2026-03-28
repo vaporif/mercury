@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, B256, U256};
 use alloy::providers::Provider;
 use alloy::rpc::types::Filter;
@@ -12,7 +13,7 @@ use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQu
 use mercury_chain_traits::types::{ChainTypes, PacketSequence};
 use mercury_core::error::{ProofError, QueryError, Result};
 
-use crate::chain::EthereumChain;
+use crate::chain::{EthereumChain, PayloadClient};
 use crate::contracts::sp1_ics07;
 use crate::contracts::{ICS26Router, SP1ICS07Tendermint};
 use crate::ics24;
@@ -24,31 +25,30 @@ use crate::types::{
 #[async_trait]
 impl ChainStatusQuery for EthereumChain {
     async fn query_chain_status(&self) -> Result<EvmChainStatus> {
-        let block_number = self
-            .rpc_guard
-            .guarded(|| async {
-                self.provider
-                    .get_block_number()
-                    .await
-                    .wrap_err("querying latest block number")
-            })
-            .await?;
+        // When using a beacon light client, proofs must be at a finalized height
+        // because the LC on the counterparty can only verify up to the latest
+        // finalized execution block.
+        let block_tag = if matches!(self.payload_client, PayloadClient::Beacon(_)) {
+            BlockNumberOrTag::Finalized
+        } else {
+            BlockNumberOrTag::Latest
+        };
 
         let block_info = self
             .rpc_guard
             .guarded(|| async {
                 self.provider
-                    .get_block_by_number(block_number.into())
+                    .get_block_by_number(block_tag)
                     .await
-                    .wrap_err("querying block by number")
+                    .wrap_err("querying block")
             })
             .await?
             .ok_or_else(|| QueryError::StaleState {
-                what: format!("block {block_number}"),
+                what: format!("{block_tag:?} block"),
             })?;
 
         Ok(EvmChainStatus {
-            height: EvmHeight(block_number),
+            height: EvmHeight(block_info.header.number),
             timestamp: EvmTimestamp(block_info.header.timestamp),
         })
     }
