@@ -45,10 +45,9 @@ pub struct CosmosEthTestContext {
 impl CosmosEthTestContext {
     #[allow(clippy::future_not_send, clippy::too_many_lines)]
     pub async fn setup() -> Result<Self> {
-        let mock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz");
+        let mock_path = crate::bootstrap::wasm_lc::build_mock_wasm_lc();
         let (cosmos_handle, _wasm_checksum, cosmos_chain) =
-            bootstrap_cosmos(&mock_path, true).await?;
+            bootstrap_cosmos(mock_path, true).await?;
 
         let anvil_handle = start_anvil().await?;
 

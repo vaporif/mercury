@@ -6,11 +6,19 @@ use eyre::{Result, ensure};
 use tracing::info;
 
 static WASM_PATH: OnceLock<PathBuf> = OnceLock::new();
+static MOCK_WASM_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 #[allow(clippy::missing_panics_doc)]
 pub fn build_real_wasm_lc() -> &'static Path {
     WASM_PATH
         .get_or_init(|| do_build().expect("failed to build real wasm light client"))
+        .as_path()
+}
+
+#[allow(clippy::missing_panics_doc)]
+pub fn build_mock_wasm_lc() -> &'static Path {
+    MOCK_WASM_PATH
+        .get_or_init(|| do_build_mock().expect("failed to build mock wasm light client"))
         .as_path()
 }
 
@@ -40,5 +48,79 @@ fn do_build() -> Result<PathBuf> {
     );
 
     info!(path = %artifact.display(), "built wasm light client");
+    Ok(artifact)
+}
+
+fn do_build_mock() -> Result<PathBuf> {
+    if let Ok(path) = std::env::var("MOCK_WASM_LC_PATH") {
+        let p = PathBuf::from(path);
+        ensure!(
+            p.exists(),
+            "MOCK_WASM_LC_PATH does not exist: {}",
+            p.display()
+        );
+        info!(path = %p.display(), "using prebuilt mock wasm light client from env");
+        return Ok(p);
+    }
+
+    let mock_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mock-wasm-eth-lc");
+    let artifact = mock_dir.join("mock_wasm_eth_lc.wasm.gz");
+
+    if artifact.exists() {
+        info!(path = %artifact.display(), "using prebuilt mock wasm light client");
+        return Ok(artifact);
+    }
+
+    info!("building mock-wasm-eth-lc from source");
+
+    let status = Command::new("cargo")
+        .args([
+            "build",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--package",
+            "mock-wasm-eth-lc",
+        ])
+        .env(
+            "RUSTFLAGS",
+            "-C link-arg=-s -C opt-level=z -C strip=symbols -C target-feature=-bulk-memory,-sign-ext",
+        )
+        .status()?;
+    ensure!(status.success(), "cargo build mock-wasm-eth-lc failed");
+
+    let wasm_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.wasm");
+    ensure!(
+        wasm_path.exists(),
+        "wasm artifact not found: {}",
+        wasm_path.display()
+    );
+
+    // Optimize with wasm-opt if available
+    // Lower bulk memory ops (memory.copy/fill) to MVP wasm — the chain's
+    // wasmvm does not support the bulk-memory proposal.
+    if Command::new("wasm-opt")
+        .args([
+            "--enable-bulk-memory",
+            "--llvm-memory-copy-fill-lowering",
+            "-Os",
+            wasm_path.to_str().unwrap(),
+            "-o",
+            wasm_path.to_str().unwrap(),
+        ])
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        info!("optimized wasm with wasm-opt");
+    }
+
+    let wasm_bytes = std::fs::read(&wasm_path)?;
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    std::io::Write::write_all(&mut gz, &wasm_bytes)?;
+    let gz_bytes = gz.finish()?;
+    std::fs::write(&artifact, &gz_bytes)?;
+
+    info!(path = %artifact.display(), "built mock wasm light client");
     Ok(artifact)
 }

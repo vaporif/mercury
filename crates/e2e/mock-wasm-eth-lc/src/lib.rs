@@ -6,10 +6,11 @@ use cosmwasm_std::{
     entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdError,
     StdResult,
 };
+use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::lightclients::wasm::v1::{
     ClientState as WasmClientState, ConsensusState as WasmConsensusState,
 };
-use prost::Message;
+use prost::{Message, Name};
 use serde::{Deserialize, Serialize};
 
 const CLIENT_STATE_KEY: &str = "clientState";
@@ -56,7 +57,11 @@ fn save_client_state(
     storage: &mut dyn cosmwasm_std::Storage,
     wasm_cs: &WasmClientState,
 ) -> StdResult<()> {
-    storage.set(CLIENT_STATE_KEY.as_bytes(), &wasm_cs.encode_to_vec());
+    let any = Any {
+        type_url: WasmClientState::type_url(),
+        value: wasm_cs.encode_to_vec(),
+    };
+    storage.set(CLIENT_STATE_KEY.as_bytes(), &any.encode_to_vec());
     Ok(())
 }
 
@@ -64,7 +69,8 @@ fn load_client_state(storage: &dyn cosmwasm_std::Storage) -> StdResult<WasmClien
     let raw = storage
         .get(CLIENT_STATE_KEY.as_bytes())
         .ok_or_else(|| StdError::generic_err("client state not found"))?;
-    WasmClientState::decode(raw.as_slice()).map_err(|e| StdError::generic_err(e.to_string()))
+    let any = Any::decode(raw.as_slice()).map_err(|e| StdError::generic_err(e.to_string()))?;
+    WasmClientState::decode(any.value.as_slice()).map_err(|e| StdError::generic_err(e.to_string()))
 }
 
 fn save_consensus_state(
@@ -72,7 +78,11 @@ fn save_consensus_state(
     slot: u64,
     wasm_cons: &WasmConsensusState,
 ) -> StdResult<()> {
-    storage.set(consensus_key(slot).as_bytes(), &wasm_cons.encode_to_vec());
+    let any = Any {
+        type_url: WasmConsensusState::type_url(),
+        value: wasm_cons.encode_to_vec(),
+    };
+    storage.set(consensus_key(slot).as_bytes(), &any.encode_to_vec());
     Ok(())
 }
 
@@ -227,6 +237,21 @@ fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response
     };
     let result_bz = to_json_binary(&result)?;
     Ok(Response::new().set_data(result_bz))
+}
+
+#[entry_point]
+pub fn execute(
+    _deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    _msg: serde_json::Value,
+) -> StdResult<Response> {
+    Ok(Response::new())
+}
+
+#[entry_point]
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: serde_json::Value) -> StdResult<Response> {
+    Ok(Response::new())
 }
 
 #[entry_point]
