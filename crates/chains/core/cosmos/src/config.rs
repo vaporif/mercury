@@ -57,8 +57,7 @@ pub struct CosmosChainConfig {
     pub dynamic_gas_price: Option<DynamicGasPrice>,
     #[serde(default)]
     pub max_tx_size: Option<usize>,
-    /// Gas charged per byte of serialized tx (Cosmos SDK `TxSizeCostPerByte`).
-    /// Defaults to 10 which is the standard across all Cosmos SDK chains.
+    /// Override for the chain's `TxSizeCostPerByte` param (defaults to 10).
     #[serde(default)]
     pub tx_size_gas_per_byte: Option<u64>,
     /// SHA-256 checksum of the WASM light client module (hex-encoded, 32 bytes).

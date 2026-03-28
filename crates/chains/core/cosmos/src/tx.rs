@@ -133,9 +133,7 @@ const DEFAULT_GAS_MULTIPLIER: f64 = 1.3;
 const DEFAULT_GAS: u64 = 300_000;
 const TX_ENVELOPE_OVERHEAD: usize = 350;
 const PROTOBUF_ANY_OVERHEAD: usize = 10;
-// Cosmos SDK charges gas proportional to serialized tx size before execution.
-// The standard rate is 10 gas per byte (sdk `TxSizeCostPerByte`).
-// Configurable per-chain via `tx_size_gas_per_byte`.
+// sdk `TxSizeCostPerByte` -- gas charged per byte of the serialized tx, checked before execution
 const DEFAULT_TX_SIZE_GAS_PER_BYTE: u64 = 10;
 const MAX_PARALLEL_BATCHES: usize = 3;
 const MAX_TX_POLL_RETRIES: u32 = 10;
@@ -395,9 +393,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
         )
         .await?;
 
-        // Cosmos SDK charges gas proportional to tx byte size (txSize location)
-        // before execution. The gas_limit must cover this or the tx is rejected
-        // with "out of gas in location: txSize".
+        // the chain rejects txs where gas_limit < tx_bytes * TxSizeCostPerByte
         let gas_per_byte = self
             .config
             .tx_size_gas_per_byte
@@ -442,7 +438,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
             })
             .await?;
 
-        // Ensure gas_limit always covers tx byte size overhead
+        // floor at tx_size_gas so we never hit "out of gas in location: txSize"
         let gas_limit = adjust_gas(gas_used, gas_multiplier, self.config.max_gas).max(tx_size_gas);
 
         let gas_price_amount = if let Some(ref dgp) = self.config.dynamic_gas_price {
