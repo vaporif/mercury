@@ -10,6 +10,15 @@ use crate::builders::{CreateClientPayload, UpdateClientPayload};
 use crate::chain::EthereumChain;
 use crate::types::EvmClientState;
 
+struct PeriodCrossingParams<'a> {
+    eth_client_state: &'a EthClientState,
+    trusted_period: u64,
+    target_period: u64,
+    headers: &'a mut Vec<Vec<u8>>,
+    current_trusted_slot: &'a mut u64,
+    latest_period: &'a mut u64,
+}
+
 impl EthereumChain {
     pub(crate) async fn build_create_client_payload_beacon(
         &self,
@@ -120,19 +129,26 @@ impl EthereumChain {
         if target_period > trusted_period {
             self.build_period_crossing_headers(
                 beacon_api,
-                &eth_client_state,
-                trusted_period,
-                target_period,
-                &mut headers,
-                &mut current_trusted_slot,
-                &mut latest_period,
+                PeriodCrossingParams {
+                    eth_client_state: &eth_client_state,
+                    trusted_period,
+                    target_period,
+                    headers: &mut headers,
+                    current_trusted_slot: &mut current_trusted_slot,
+                    latest_period: &mut latest_period,
+                },
             )
             .await?;
         }
 
         if finality.data.finalized_header.beacon.slot > current_trusted_slot {
-            self.build_finality_header(beacon_api, finality.data, current_trusted_slot, &mut headers)
-                .await?;
+            self.build_finality_header(
+                beacon_api,
+                finality.data,
+                current_trusted_slot,
+                &mut headers,
+            )
+            .await?;
         }
 
         Ok(UpdateClientPayload { headers })
@@ -141,13 +157,16 @@ impl EthereumChain {
     async fn build_period_crossing_headers(
         &self,
         beacon_api: &BeaconApiClient,
-        eth_client_state: &EthClientState,
-        trusted_period: u64,
-        target_period: u64,
-        headers: &mut Vec<Vec<u8>>,
-        current_trusted_slot: &mut u64,
-        latest_period: &mut u64,
+        params: PeriodCrossingParams<'_>,
     ) -> mercury_core::error::Result<()> {
+        let PeriodCrossingParams {
+            eth_client_state,
+            trusted_period,
+            target_period,
+            headers,
+            current_trusted_slot,
+            latest_period,
+        } = params;
         let count = target_period - trusted_period + 1;
         let updates = beacon_api
             .light_client_updates(trusted_period, count)
@@ -193,8 +212,7 @@ impl EthereumChain {
                 "adding period crossing header"
             );
 
-            let header_bytes =
-                serde_json::to_vec(&header).wrap_err("serializing beacon header")?;
+            let header_bytes = serde_json::to_vec(&header).wrap_err("serializing beacon header")?;
             headers.push(header_bytes);
 
             *current_trusted_slot = update_finalized_slot;

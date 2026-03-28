@@ -267,7 +267,6 @@ impl ClientPayloadBuilder<Self> for EthereumChain {
     }
 }
 
-
 #[must_use]
 pub fn to_sol_merkle_prefix(prefix: &mercury_core::MerklePrefix) -> Vec<alloy::primitives::Bytes> {
     prefix
