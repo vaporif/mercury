@@ -8,7 +8,7 @@ use ethereum_light_client::header::{ActiveSyncCommittee, Header as EthHeader};
 
 use crate::builders::{CreateClientPayload, UpdateClientPayload};
 use crate::chain::EthereumChain;
-use crate::types::EvmClientState;
+use crate::types::{EvmClientState, EvmHeight};
 
 struct PeriodCrossingResult {
     headers: Vec<Vec<u8>>,
@@ -111,8 +111,13 @@ impl EthereumChain {
             .wrap_err("beacon API finality_update")?;
         let target_slot = finality.data.finalized_header.beacon.slot;
 
+        let target_execution_height = finality.data.finalized_header.execution.block_number;
+
         if target_slot <= trusted_slot {
-            return Ok(UpdateClientPayload { headers: vec![] });
+            return Ok(UpdateClientPayload {
+                headers: vec![],
+                target_execution_height: Some(EvmHeight(target_execution_height)),
+            });
         }
 
         let trusted_period = eth_client_state.compute_sync_committee_period_at_slot(trusted_slot);
@@ -145,7 +150,10 @@ impl EthereumChain {
             .await?;
         }
 
-        Ok(UpdateClientPayload { headers })
+        Ok(UpdateClientPayload {
+            headers,
+            target_execution_height: Some(EvmHeight(target_execution_height)),
+        })
     }
 
     async fn build_period_crossing_headers(

@@ -113,7 +113,16 @@ where
             .build_update_client_payload(&trusted_height, &src_height, &client_state)
             .await?;
 
-        Ok((src_height, Some(update_payload)))
+        // Use the target proof height from the update payload if available.
+        // For beacon chains, the LC can only verify proofs up to the finalized
+        // execution block, which may be behind the chain tip.
+        let proof_height = self
+            .relay
+            .src_chain()
+            .update_payload_proof_height(&update_payload)
+            .unwrap_or(src_height);
+
+        Ok((proof_height, Some(update_payload)))
     }
 
     async fn build_dst_update_client_message(

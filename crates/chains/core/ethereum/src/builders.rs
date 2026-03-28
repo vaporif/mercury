@@ -19,6 +19,9 @@ pub struct CreateClientPayload {
 #[derive(Clone, Debug)]
 pub struct UpdateClientPayload {
     pub headers: Vec<Vec<u8>>,
+    /// The execution block number the LC will reach after applying these headers.
+    /// Used by the packet worker to build proofs at the right height.
+    pub target_execution_height: Option<EvmHeight>,
 }
 
 fn evm_packet_to_sol(packet: &EvmPacket) -> IICS26RouterMsgs::Packet {

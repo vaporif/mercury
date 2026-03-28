@@ -100,6 +100,7 @@ impl EthereumChain {
 
         UpdateClientPayload {
             headers: vec![header_bytes],
+            target_execution_height: None,
         }
     }
 }

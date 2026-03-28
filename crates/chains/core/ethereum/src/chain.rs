@@ -265,6 +265,10 @@ impl ClientPayloadBuilder<Self> for EthereumChain {
             PayloadClient::Mock => Ok(Self::build_update_client_payload_mock(trusted_height.0)),
         }
     }
+
+    fn update_payload_proof_height(&self, payload: &UpdateClientPayload) -> Option<EvmHeight> {
+        payload.target_execution_height.clone()
+    }
 }
 
 #[must_use]
