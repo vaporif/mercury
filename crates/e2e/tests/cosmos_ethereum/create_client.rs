@@ -30,6 +30,8 @@ async fn setup_infra() -> Result<CrossChainInfra> {
     let cosmos_handle = cosmos_bootstrap.start().await?;
     let anvil_handle = start_anvil().await?;
 
+    // Uses the eureka dummy LC (not the mock WASM LC) because these tests exercise
+    // the CLI relayer which expects the eureka-compatible contract.
     let wasm_checksum = store_dummy_wasm_light_client(&cosmos_handle).await?;
 
     let elf_dir = anvil::build_sp1_programs()?;

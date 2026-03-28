@@ -66,7 +66,14 @@ fn do_build_mock() -> Result<PathBuf> {
     let mock_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mock-wasm-eth-lc");
     let artifact = mock_dir.join("mock_wasm_eth_lc.wasm.gz");
 
-    if artifact.exists() {
+    let source_file = mock_dir.join("src/lib.rs");
+    let source_is_newer = source_file
+        .metadata()
+        .and_then(|sm| artifact.metadata().map(|am| (sm, am)))
+        .and_then(|(sm, am)| Ok(sm.modified()? > am.modified()?))
+        .unwrap_or(false);
+
+    if artifact.exists() && !source_is_newer {
         info!(path = %artifact.display(), "using prebuilt mock wasm light client");
         return Ok(artifact);
     }
@@ -100,14 +107,15 @@ fn do_build_mock() -> Result<PathBuf> {
     // Optimize with wasm-opt if available
     // Lower bulk memory ops (memory.copy/fill) to MVP wasm — the chain's
     // wasmvm does not support the bulk-memory proposal.
+    let wasm_path_str = wasm_path.to_string_lossy();
     if Command::new("wasm-opt")
         .args([
             "--enable-bulk-memory",
             "--llvm-memory-copy-fill-lowering",
             "-Os",
-            wasm_path.to_str().unwrap(),
+            wasm_path_str.as_ref(),
             "-o",
-            wasm_path.to_str().unwrap(),
+            wasm_path_str.as_ref(),
         ])
         .status()
         .is_ok_and(|s| s.success())

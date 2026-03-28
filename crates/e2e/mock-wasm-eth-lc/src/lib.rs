@@ -21,10 +21,10 @@ fn consensus_key(slot: u64) -> String {
 }
 
 /// Extract a u64 from a JSON value that may be a number or string (ethereum convention).
-fn val_u64(v: &serde_json::Value) -> u64 {
+fn val_u64(v: &serde_json::Value, field: &str) -> StdResult<u64> {
     v.as_u64()
         .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        .unwrap_or(0)
+        .ok_or_else(|| StdError::generic_err(format!("missing or invalid u64 field: {field}")))
 }
 
 fn save_client_state(
@@ -167,12 +167,15 @@ fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response
         serde_json::from_slice(&header_bz).map_err(|e| StdError::generic_err(e.to_string()))?;
 
     let finalized = &header["consensus_update"]["finalized_header"];
-    let updated_slot = val_u64(&finalized["beacon"]["slot"]);
-    let block_number = val_u64(&finalized["execution"]["block_number"]);
+    let updated_slot = val_u64(&finalized["beacon"]["slot"], "beacon.slot")?;
+    let block_number = val_u64(
+        &finalized["execution"]["block_number"],
+        "execution.block_number",
+    )?;
     let state_root = finalized["execution"]["state_root"]
         .as_str()
         .unwrap_or_default();
-    let timestamp = val_u64(&finalized["execution"]["timestamp"]);
+    let timestamp = val_u64(&finalized["execution"]["timestamp"], "execution.timestamp")?;
 
     let mut wasm_cs = load_client_state(deps.storage)?;
 
