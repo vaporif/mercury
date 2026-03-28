@@ -16,6 +16,28 @@ use serde::{Deserialize, Serialize};
 const CLIENT_STATE_KEY: &str = "clientState";
 const CONSENSUS_STATES_KEY: &str = "consensusStates";
 
+/// Deserialize a u64 from either a number or a string (ethereum types use string-encoded u64s).
+fn deser_u64<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    struct U64Visitor;
+    impl<'de> serde::de::Visitor<'de> for U64Visitor {
+        type Value = u64;
+        fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            f.write_str("a u64 as number or string")
+        }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<u64, E> {
+            Ok(v)
+        }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<u64, E> {
+            v.parse().map_err(serde::de::Error::custom)
+        }
+    }
+    deserializer.deserialize_any(U64Visitor)
+}
+
+fn deser_u64_default<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    deser_u64(deserializer).or(Ok(0))
+}
+
 fn consensus_key(slot: u64) -> String {
     format!("{CONSENSUS_STATES_KEY}/0-{slot}")
 }
@@ -24,6 +46,7 @@ fn consensus_key(slot: u64) -> String {
 struct Header {
     consensus_update: ConsensusUpdate,
     #[allow(dead_code)]
+    #[serde(deserialize_with = "deser_u64")]
     trusted_slot: u64,
 }
 
@@ -40,6 +63,7 @@ struct FinalizedHeader {
 
 #[derive(Deserialize)]
 struct BeaconBlockHeader {
+    #[serde(deserialize_with = "deser_u64")]
     slot: u64,
 }
 
@@ -47,9 +71,9 @@ struct BeaconBlockHeader {
 struct ExecutionPayloadHeader {
     #[serde(default)]
     state_root: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deser_u64_default")]
     timestamp: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deser_u64_default")]
     block_number: u64,
 }
 
