@@ -16,65 +16,15 @@ use serde::{Deserialize, Serialize};
 const CLIENT_STATE_KEY: &str = "clientState";
 const CONSENSUS_STATES_KEY: &str = "consensusStates";
 
-/// Deserialize a u64 from either a number or a string (ethereum types use string-encoded u64s).
-fn deser_u64<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
-    struct U64Visitor;
-    impl<'de> serde::de::Visitor<'de> for U64Visitor {
-        type Value = u64;
-        fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-            f.write_str("a u64 as number or string")
-        }
-        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<u64, E> {
-            Ok(v)
-        }
-        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<u64, E> {
-            v.parse().map_err(serde::de::Error::custom)
-        }
-    }
-    deserializer.deserialize_any(U64Visitor)
-}
-
-fn deser_u64_default<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
-    deser_u64(deserializer).or(Ok(0))
-}
-
 fn consensus_key(slot: u64) -> String {
     format!("{CONSENSUS_STATES_KEY}/0-{slot}")
 }
 
-#[derive(Deserialize)]
-struct Header {
-    consensus_update: ConsensusUpdate,
-    #[allow(dead_code)]
-    #[serde(deserialize_with = "deser_u64")]
-    trusted_slot: u64,
-}
-
-#[derive(Deserialize)]
-struct ConsensusUpdate {
-    finalized_header: FinalizedHeader,
-}
-
-#[derive(Deserialize)]
-struct FinalizedHeader {
-    beacon: BeaconBlockHeader,
-    execution: ExecutionPayloadHeader,
-}
-
-#[derive(Deserialize)]
-struct BeaconBlockHeader {
-    #[serde(deserialize_with = "deser_u64")]
-    slot: u64,
-}
-
-#[derive(Deserialize)]
-struct ExecutionPayloadHeader {
-    #[serde(default)]
-    state_root: String,
-    #[serde(default, deserialize_with = "deser_u64_default")]
-    timestamp: u64,
-    #[serde(default, deserialize_with = "deser_u64_default")]
-    block_number: u64,
+/// Extract a u64 from a JSON value that may be a number or string (ethereum convention).
+fn val_u64(v: &serde_json::Value) -> u64 {
+    v.as_u64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        .unwrap_or(0)
 }
 
 fn save_client_state(
@@ -213,23 +163,23 @@ pub fn sudo(deps: DepsMut, _env: Env, msg: SudoMsg) -> StdResult<Response> {
 
 fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response> {
     let header_bz: Vec<u8> = msg.client_message.into();
-    let header: Header =
+    let header: serde_json::Value =
         serde_json::from_slice(&header_bz).map_err(|e| StdError::generic_err(e.to_string()))?;
 
-    let updated_slot = header.consensus_update.finalized_header.beacon.slot;
+    let finalized = &header["consensus_update"]["finalized_header"];
+    let updated_slot = val_u64(&finalized["beacon"]["slot"]);
+    let block_number = val_u64(&finalized["execution"]["block_number"]);
+    let state_root = finalized["execution"]["state_root"]
+        .as_str()
+        .unwrap_or_default();
+    let timestamp = val_u64(&finalized["execution"]["timestamp"]);
 
     let mut wasm_cs = load_client_state(deps.storage)?;
 
     let mut inner: serde_json::Value =
         serde_json::from_slice(&wasm_cs.data).map_err(|e| StdError::generic_err(e.to_string()))?;
     inner["latest_slot"] = serde_json::json!(updated_slot);
-    inner["latest_execution_block_number"] = serde_json::json!(
-        header
-            .consensus_update
-            .finalized_header
-            .execution
-            .block_number
-    );
+    inner["latest_execution_block_number"] = serde_json::json!(block_number);
     wasm_cs.data = serde_json::to_vec(&inner).map_err(|e| StdError::generic_err(e.to_string()))?;
 
     wasm_cs.latest_height = Some(ibc_proto::ibc::core::client::v1::Height {
@@ -240,8 +190,8 @@ fn handle_update_state(deps: DepsMut, msg: UpdateStateMsg) -> StdResult<Response
 
     let mock_consensus = serde_json::json!({
         "slot": updated_slot,
-        "state_root": header.consensus_update.finalized_header.execution.state_root,
-        "timestamp": header.consensus_update.finalized_header.execution.timestamp,
+        "state_root": state_root,
+        "timestamp": timestamp,
         "current_sync_committee": {
             "pubkeys_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "aggregate_pubkey": "0x000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
