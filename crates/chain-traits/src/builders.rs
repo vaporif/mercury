@@ -8,8 +8,8 @@ use crate::types::{ChainTypes, IbcTypes};
 
 pub struct UpdateClientOutput<M> {
     pub messages: Vec<M>,
-    /// ABI-encoded combined membership proof. Includes implicit client
-    /// update, so `messages` may be empty for that header.
+    /// ABI-encoded combined membership proof. May include the client update
+    /// implicitly, in which case `messages` can be empty.
     pub membership_proof: Option<Vec<u8>>,
 }
 
@@ -39,8 +39,8 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
     where
         Counterparty: IbcTypes;
 
-    /// Height to fetch proofs at on the source chain.
-    /// Defaults to `None` (use `src_height` from `query_chain_status`).
+    /// Source chain height to fetch proofs at.
+    /// `None` falls back to `src_height` from `query_chain_status`.
     fn update_payload_proof_height(
         &self,
         _payload: &Self::UpdateClientPayload,
@@ -48,15 +48,23 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
         None
     }
 
-    /// Height to put in IBC messages for the destination chain.
-    /// Beacon chains return the slot here (consensus states are keyed by slot)
-    /// while `update_payload_proof_height` returns the execution block number
-    /// for `eth_getProof`.
-    /// Defaults to `None` (reuse the proof height).
+    /// Height for IBC messages on the dst chain. Beacon chains return the
+    /// slot (consensus states are keyed by slot), while
+    /// `update_payload_proof_height` returns the execution block number
+    /// (for `eth_getProof`). `None` reuses the proof height.
     fn update_payload_message_height(
         &self,
         _payload: &Self::UpdateClientPayload,
     ) -> Option<Self::Height> {
+        None
+    }
+
+    /// Earliest dst-chain timestamp (secs) when this payload can land.
+    /// `None` means submit immediately.
+    fn required_dst_timestamp_secs(
+        &self,
+        _payload: &Self::UpdateClientPayload,
+    ) -> Option<u64> {
         None
     }
 }
@@ -84,7 +92,7 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
         counterparty_merkle_prefix: MerklePrefix,
     ) -> Result<Self::Message>;
 
-    /// Called before `build_update_client_message`. No-op by default.
+    /// Hook: runs before `build_update_client_message`. No-op by default.
     fn enrich_update_payload(
         &self,
         _payload: &mut Self::UpdateClientPayload,
@@ -92,7 +100,7 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
     ) {
     }
 
-    /// Called after update and packet messages are built. No-op by default.
+    /// Hook: runs after update + packet messages are built. No-op by default.
     fn finalize_batch(
         &self,
         _update_output: &mut UpdateClientOutput<Self::Message>,

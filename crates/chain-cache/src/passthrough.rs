@@ -15,8 +15,6 @@ use mercury_core::error::Result;
 
 use crate::CachedChain;
 
-// No macros for easier debugging/stacktraces
-
 impl<C: IbcTypes> ChainTypes for CachedChain<C> {
     type Height = C::Height;
     type Timestamp = C::Timestamp;
@@ -240,6 +238,13 @@ impl<X: ChainTypes, C: ClientPayloadBuilder<X> + IbcTypes> ClientPayloadBuilder<
         payload: &Self::UpdateClientPayload,
     ) -> Option<Self::Height> {
         self.inner.update_payload_message_height(payload)
+    }
+
+    fn required_dst_timestamp_secs(
+        &self,
+        payload: &Self::UpdateClientPayload,
+    ) -> Option<u64> {
+        self.inner.required_dst_timestamp_secs(payload)
     }
 }
 

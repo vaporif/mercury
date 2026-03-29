@@ -1,26 +1,21 @@
-/// Generates delegating trait implementations for a newtype wrapper around a chain inner type.
-///
-/// # Usage
+/// Delegates all chain trait impls from a newtype to its inner type.
 ///
 /// ```ignore
-/// // With generics:
+/// // with generics:
 /// mercury_chain_traits::delegate_chain! {
 ///     impl[S: CosmosSigner] CosmosAdapter<S> => CosmosChain<S>
 /// }
 ///
-/// // Without generics:
+/// // without generics:
 /// mercury_chain_traits::delegate_chain! {
 ///     impl[] EthereumAdapter => EthereumChain
 /// }
 ///
-/// // Skip blanket ClientPayloadBuilder delegation (for wrappers with custom cross-chain impls):
+/// // skip blanket ClientPayloadBuilder (for custom cross-chain impls):
 /// mercury_chain_traits::delegate_chain! {
 ///     impl[] EthereumAdapter => EthereumChain; skip_cpb
 /// }
 /// ```
-///
-/// Generates `Deref`, `HasCore`, and all chain trait implementations that
-/// delegate to the inner type via `self.0`.
 #[macro_export]
 macro_rules! delegate_chain {
     (impl[$($gen:tt)*] $Wrapper:ty => $Inner:ty; skip_cpb) => {
@@ -502,6 +497,13 @@ macro_rules! delegate_chain {
             ) -> Option<Self::Height> {
                 self.0.update_payload_message_height(payload)
             }
+
+            fn required_dst_timestamp_secs(
+                &self,
+                payload: &Self::UpdateClientPayload,
+            ) -> Option<u64> {
+                self.0.required_dst_timestamp_secs(payload)
+            }
         }
     };
     (@cpb [] $Wrapper:ty, $Inner:ty) => {
@@ -552,6 +554,13 @@ macro_rules! delegate_chain {
                 payload: &Self::UpdateClientPayload,
             ) -> Option<Self::Height> {
                 self.0.update_payload_message_height(payload)
+            }
+
+            fn required_dst_timestamp_secs(
+                &self,
+                payload: &Self::UpdateClientPayload,
+            ) -> Option<u64> {
+                self.0.required_dst_timestamp_secs(payload)
             }
         }
     };
