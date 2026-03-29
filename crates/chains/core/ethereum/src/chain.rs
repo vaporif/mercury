@@ -269,6 +269,10 @@ impl ClientPayloadBuilder<Self> for EthereumChain {
     fn update_payload_proof_height(&self, payload: &UpdateClientPayload) -> Option<EvmHeight> {
         payload.target_execution_height.clone()
     }
+
+    fn update_payload_message_height(&self, payload: &UpdateClientPayload) -> Option<EvmHeight> {
+        payload.target_slot.map(EvmHeight)
+    }
 }
 
 #[must_use]
@@ -317,7 +321,6 @@ impl ClientMessageBuilder<Self> for EthereumChain {
     ) -> mercury_core::error::Result<UpdateClientOutput<EvmMessage>> {
         #[cfg(feature = "sp1")]
         if let Some(ref sp1) = self.sp1 {
-            // Self-relay path — trusted_consensus_state comes from the bridge crate in cross-chain relay.
             return self
                 .build_update_client_message_sp1(
                     client_id,

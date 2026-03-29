@@ -67,6 +67,7 @@ impl EthereumChain {
         Ok(UpdateClientPayload {
             headers: vec![proof_bytes],
             target_execution_height: None,
+            target_slot: None,
         })
     }
 }

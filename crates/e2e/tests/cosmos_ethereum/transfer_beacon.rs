@@ -47,11 +47,14 @@ async fn cosmos_eth_roundtrip_transfer_beacon() -> Result<()> {
 
     ctx.send_eth_to_cosmos_transfer(1000, &eth_denom).await?;
 
+    // Beacon LC relay requires waiting for the beacon finality_update endpoint
+    // to advance past sync committee period boundaries, which can be slow in
+    // Kurtosis minimal preset (~5 min after each period crossing).
     ctx.assert_eventual_cosmos_balance(
         cosmos_user_addr,
         "stake",
         balance_before + 1000,
-        Duration::from_secs(300),
+        Duration::from_secs(600),
     )
     .await?;
 

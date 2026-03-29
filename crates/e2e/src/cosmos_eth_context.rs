@@ -706,12 +706,14 @@ pub async fn create_ibc_clients(
     info!(client_id = %client_id_on_eth, "created client on Ethereum");
 
     info!("registering counterparties");
+    // Ethereum uses a flat storage trie, so the prefix is `[""]` (single
+    // empty element), not the Cosmos-style `["ibc", ""]`.
     let msg_register_cosmos =
         ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_register_counterparty_message(
             cosmos_chain,
             &client_id_on_cosmos,
             &client_id_on_eth,
-            mercury_core::MerklePrefix::ibc_default(),
+            mercury_core::MerklePrefix(vec![Vec::new()]),
         )
         .await
         .map_err(|e| eyre::eyre!("{e}"))?;

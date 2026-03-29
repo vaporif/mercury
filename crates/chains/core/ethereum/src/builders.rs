@@ -19,9 +19,11 @@ pub struct CreateClientPayload {
 #[derive(Clone, Debug)]
 pub struct UpdateClientPayload {
     pub headers: Vec<Vec<u8>>,
-    /// The execution block number the LC will reach after applying these headers.
-    /// Used by the packet worker to build proofs at the right height.
+    /// Execution block number after applying these headers (for `eth_getProof`).
     pub target_execution_height: Option<EvmHeight>,
+    /// Beacon slot after applying these headers. Goes into IBC message
+    /// `proof_height` because the WASM contract keys consensus states by slot.
+    pub target_slot: Option<u64>,
 }
 
 fn evm_packet_to_sol(packet: &EvmPacket) -> IICS26RouterMsgs::Packet {

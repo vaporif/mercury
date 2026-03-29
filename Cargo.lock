@@ -5331,6 +5331,7 @@ dependencies = [
  "alloy",
  "async-trait",
  "ethereum-light-client",
+ "ethereum-types",
  "eyre",
  "hex",
  "ibc",

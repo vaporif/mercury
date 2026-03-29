@@ -1,5 +1,7 @@
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use eyre::Context;
-use tracing::info;
+use tracing::{debug, info};
 
 use ethereum_apis::beacon_api::client::BeaconApiClient;
 use ethereum_light_client::client_state::ClientState as EthClientState;
@@ -114,10 +116,10 @@ impl EthereumChain {
         let target_execution_height = finality.data.finalized_header.execution.block_number;
 
         if target_slot <= trusted_slot {
-            return Ok(UpdateClientPayload {
-                headers: vec![],
-                target_execution_height: Some(EvmHeight(target_execution_height)),
-            });
+            eyre::bail!(
+                "beacon finality has not advanced past trusted slot {trusted_slot} \
+                 (current finalized slot: {target_slot}), deferring"
+            );
         }
 
         let trusted_period = eth_client_state.compute_sync_committee_period_at_slot(trusted_slot);
@@ -140,6 +142,8 @@ impl EthereumChain {
             current_trusted_slot = result.trusted_slot;
         }
 
+        let finality_signature_slot = finality.data.signature_slot;
+
         if finality.data.finalized_header.beacon.slot > current_trusted_slot {
             self.build_finality_header(
                 beacon_api,
@@ -150,9 +154,12 @@ impl EthereumChain {
             .await?;
         }
 
+        wait_for_signature_slot(&eth_client_state, finality_signature_slot).await;
+
         Ok(UpdateClientPayload {
             headers,
             target_execution_height: Some(EvmHeight(target_execution_height)),
+            target_slot: Some(target_slot),
         })
     }
 
@@ -255,5 +262,31 @@ impl EthereumChain {
         headers.push(header_bytes);
 
         Ok(())
+    }
+}
+
+/// Sleep until the wall clock passes `signature_slot`'s timestamp.
+/// The WASM ethereum LC computes `current_slot` from `block_timestamp` and
+/// rejects headers from the future. Devnet beacon chains can be a slot ahead.
+async fn wait_for_signature_slot(client_state: &EthClientState, signature_slot: u64) {
+    let slot_timestamp = client_state.genesis_time
+        + (signature_slot.saturating_sub(client_state.genesis_slot))
+            * client_state.seconds_per_slot;
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    if slot_timestamp > now {
+        let wait = Duration::from_secs(slot_timestamp - now + 1);
+        debug!(
+            signature_slot,
+            slot_timestamp,
+            now,
+            wait_secs = wait.as_secs(),
+            "signature slot is ahead of current time, waiting"
+        );
+        tokio::time::sleep(wait).await;
     }
 }

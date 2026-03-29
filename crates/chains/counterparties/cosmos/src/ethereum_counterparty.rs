@@ -12,12 +12,14 @@ use mercury_cosmos::client_types::CosmosClientState;
 use mercury_cosmos::keys::CosmosSigner;
 use mercury_cosmos::types::{CosmosMessage, CosmosPacket, to_any};
 
-use mercury_ethereum::builders::encode_evm_proof;
 use mercury_ethereum::builders::{CreateClientPayload, UpdateClientPayload};
 use mercury_ethereum::chain::EthereumChain;
 use mercury_ethereum::types::{
     EvmAcknowledgement, EvmClientState, EvmCommitmentProof, EvmHeight, EvmPacket,
 };
+
+use ethereum_light_client::membership::MembershipProof;
+use ethereum_types::execution::{account_proof::AccountProof, storage_proof::StorageProof};
 
 use ethereum_light_client::client_state::ClientState as EthClientState;
 use ibc_proto::ibc::core::channel::v2::{
@@ -41,6 +43,32 @@ impl<S: CosmosSigner> CosmosAdapter<S> {
             proof_height.0
         }
     }
+}
+
+/// JSON-serialize an EVM proof into the `MembershipProof` format that the
+/// WASM ethereum LC expects (`serde_json::from_slice`, not ABI).
+fn encode_evm_proof_json(proof: &EvmCommitmentProof) -> Vec<u8> {
+    let membership_proof = MembershipProof {
+        account_proof: AccountProof {
+            storage_root: proof.storage_root,
+            proof: proof
+                .account_proof
+                .iter()
+                .map(|b| alloy::primitives::Bytes::copy_from_slice(b))
+                .collect(),
+        },
+        storage_proof: StorageProof {
+            key: proof.storage_key,
+            value: proof.storage_value,
+            proof: proof
+                .storage_proof
+                .iter()
+                .map(|b| alloy::primitives::Bytes::copy_from_slice(b))
+                .collect(),
+        },
+    };
+    serde_json::to_vec(&membership_proof)
+        .expect("MembershipProof JSON serialization should not fail")
 }
 
 #[async_trait]
@@ -224,7 +252,7 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChain> for CosmosAdapter<S> {
         let height = self.effective_proof_height(&proof_height);
         let msg = MsgRecvPacket {
             packet: Some(evm_packet_to_v2(packet)),
-            proof_commitment: encode_evm_proof(&proof),
+            proof_commitment: encode_evm_proof_json(&proof),
             proof_height: Some(ProtoHeight {
                 revision_number: revision,
                 revision_height: height,
@@ -253,7 +281,7 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChain> for CosmosAdapter<S> {
         let msg = MsgAcknowledgement {
             packet: Some(evm_packet_to_v2(packet)),
             acknowledgement: Some(acknowledgement),
-            proof_acked: encode_evm_proof(&proof),
+            proof_acked: encode_evm_proof_json(&proof),
             proof_height: Some(ProtoHeight {
                 revision_number: revision,
                 revision_height: height,
@@ -274,7 +302,7 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChain> for CosmosAdapter<S> {
         let height = self.effective_proof_height(&proof_height);
         let msg = MsgTimeout {
             packet: Some(cosmos_packet_to_v2(packet)),
-            proof_unreceived: encode_evm_proof(&proof),
+            proof_unreceived: encode_evm_proof_json(&proof),
             proof_height: Some(ProtoHeight {
                 revision_number: revision,
                 revision_height: height,
