@@ -1,6 +1,6 @@
 # Mercury E2E tests
 
-End-to-end tests that spin up real chain infrastructure (Docker containers, Anvil) and run the full relay pipeline.
+End-to-end tests that spin up real chain infrastructure (Docker containers, Anvil, Kurtosis) and run the full relay pipeline.
 
 ## Running
 
@@ -25,6 +25,8 @@ All tests are `#[ignore]` by default since they need external infrastructure.
 |------|-------------------|
 | `bootstrap_smoke` | Chain bootstrap: chain ID, RPC/gRPC endpoints, wallet setup |
 | `binary_smoke` | CLI binary relay via subprocess with health check |
+| `create_client_b_tracks_a` | CLI `create client` command: host=B, reference=A |
+| `create_client_a_tracks_b` | CLI `create client` command: host=A, reference=B |
 | `ibc_transfer` | Unidirectional A->B transfer with balance assertion |
 | `bidirectional_transfer` | A->B then B->A roundtrip with native token un-escrowing |
 | `packet_timeout` | 1s timeout -> relay detects timeout -> refund on source |
@@ -47,29 +49,51 @@ All tests are `#[ignore]` by default since they need external infrastructure.
 | Near-expiry timeout | Packet arriving just before timeout - verify delivery, not timeout. | Low |
 | Chain downtime | Destination unreachable during relay, then recovers. | Low |
 
-## Cosmos <-> Ethereum
+## Cosmos <-> Ethereum (Mock light client)
+
+Tests using Anvil + Docker with mock/dummy light clients (no real beacon chain).
 
 ### Covered
 
 | Test | What it validates |
 |------|-------------------|
-| `bootstrap_smoke` | Anvil bootstrap: contracts deployed, IBC handler ready |
-| `cosmos_to_eth_transfer` | Cosmos->Ethereum unidirectional with ABI-encoded ICS20 packet |
-| `cosmos_eth_roundtrip_transfer` | Cosmos->Eth->Cosmos roundtrip (exists but return leg blocked - see gaps) |
+| `anvil_bootstrap_smoke` | Anvil bootstrap: contracts deployed (ICS26, ICS20, ERC20, mock verifier), chain ID valid |
+| `context_setup_smoke` | Full cross-chain context setup: Cosmos + Anvil + client creation |
+| `create_client_cosmos_host_eth_reference` | CLI `create client`: Ethereum client on Cosmos (wasm LC) |
+| `create_client_eth_host_cosmos_reference` | CLI `create client`: Cosmos client on Ethereum (SP1 LC) |
+| `eth_client_on_cosmos_advances_height` | Build mock update payload, submit to Cosmos, verify client height advances |
+| `cosmos_to_eth_transfer` | Cosmos->Ethereum unidirectional transfer with balance assertion |
+| `cosmos_eth_roundtrip_transfer` | Cosmos->Eth->Cosmos full roundtrip with balance verification on both sides |
 
 ### Gaps
 
 | Gap | Description | Priority |
 |-----|-------------|----------|
-| Eth->Cosmos direction blocked | `build_update_client_payload_mock()` returns empty headers; wasm client never advances past height {0,0}. Blocks all Eth->Cosmos tests. | Critical |
-| Protobuf wrapping | `MsgUpdateClient.client_message` puts raw bytes in `Any.value` instead of `ClientMessage { data }` wrapper. ibc-go can't unmarshal. | Critical |
-| Eth->Cosmos unidirectional | No standalone test - only attempted inside blocked roundtrip. | High |
-| Bidirectional transfer | B->A un-escrowing not tested (blocked by above). | High |
 | Packet timeout (Cosmos side) | No test for packets timing out when Cosmos is destination. | High |
 | Packet timeout (Eth side) | No test for packets timing out on Ethereum. | Medium |
 | Client refresh | No equivalent of `client_refresh_keeps_relay_alive` for Eth<->Cosmos. | Medium |
 | Clearing worker recovery | Same gap as Cosmos<->Cosmos - never exercised. | Medium |
 | Concurrent transfers | No parallel traffic test for Cosmos<->Eth. | Medium |
-| Binary relay mode | No subprocess/CLI test for Eth relay (only library mode tested). | Low |
 | Multiple denominations | Only `"stake"` tested. | Low |
-| Real beacon client | All Eth tests use mock/dummy light clients. No E2E with actual beacon chain. | Low (infra-heavy) |
+
+## Cosmos <-> Ethereum (Beacon light client)
+
+Tests using Kurtosis with a real beacon chain and beacon-based light client.
+
+### Covered
+
+| Test | What it validates |
+|------|-------------------|
+| `create_eth_client_on_cosmos_beacon` | Create real beacon-backed Ethereum client on Cosmos, verify non-zero initial height |
+| `eth_client_on_cosmos_advances_height_beacon` | Build beacon update payload (waits for finality), submit to Cosmos, verify height advances |
+| `cosmos_to_eth_transfer_beacon` | Cosmos->Ethereum unidirectional transfer via real beacon LC |
+| `cosmos_eth_roundtrip_transfer_beacon` | Full roundtrip Cosmos->Eth->Cosmos via beacon LC (handles sync committee period crossings) |
+
+### Gaps
+
+| Gap | Description | Priority |
+|-----|-------------|----------|
+| Eth->Cosmos standalone | No standalone Eth->Cosmos unidirectional test (only tested as part of roundtrip). | Medium |
+| Client refresh | No long-idle-then-transfer test for beacon LC. | Medium |
+| Concurrent transfers | No parallel traffic test with beacon LC. | Low |
+| Sync committee period crossing | Roundtrip test may cross periods but no dedicated test for multi-period relay. | Low |
