@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/vaporif/mercury/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/vaporif/mercury/actions/workflows/ci.yml?query=branch%3Amain)
 [![E2E](https://github.com/vaporif/mercury/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/vaporif/mercury/actions/workflows/e2e.yml?query=branch%3Amain)
+[![Audit](https://github.com/vaporif/mercury/actions/workflows/audit.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/audit.yml)
 
 <!-- [![Nix](https://github.com/vaporif/mercury/actions/workflows/nix.yml/badge.svg)](https://github.com/vaporif/mercury/actions/workflows/nix.yml) -->
 
