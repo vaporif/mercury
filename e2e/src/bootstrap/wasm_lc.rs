@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use eyre::{Result, ensure};
+use eyre::{ensure, Result};
 use tracing::info;
 
 static WASM_PATH: OnceLock<PathBuf> = OnceLock::new();
@@ -24,7 +24,7 @@ pub fn build_mock_wasm_lc() -> &'static Path {
 
 fn do_build() -> Result<PathBuf> {
     let eureka_dir =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../external/solidity-ibc-eureka");
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../external/solidity-ibc-eureka");
 
     let artifact = eureka_dir.join("e2e/interchaintestv8/wasm/cw_ics08_wasm_eth.wasm.gz");
 
@@ -97,7 +97,7 @@ fn do_build_mock() -> Result<PathBuf> {
     ensure!(status.success(), "cargo build mock-wasm-eth-lc failed");
 
     let wasm_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.wasm");
+        .join("../target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.wasm");
     ensure!(
         wasm_path.exists(),
         "wasm artifact not found: {}",

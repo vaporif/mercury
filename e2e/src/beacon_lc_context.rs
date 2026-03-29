@@ -42,7 +42,7 @@ impl BeaconLcTestContext {
         let kurtosis = crate::bootstrap::kurtosis::get_or_init_kurtosis().await?;
 
         let eureka_dir =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../external/solidity-ibc-eureka");
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../external/solidity-ibc-eureka");
         let contracts = SHARED_CONTRACTS
             .get_or_try_init(|| async {
                 crate::bootstrap::anvil::deploy_ibc_contracts(
