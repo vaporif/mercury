@@ -77,7 +77,7 @@ where
     ///
     /// Returns `(proof_height, message_proof_height, payload)`:
     /// - `proof_height` -- src height for proof queries (execution block for beacon)
-    /// - `message_proof_height` -- dst IBC message height (slot for beacon), `None` reuses proof_height
+    /// - `message_proof_height` -- dst IBC message height (slot for beacon), `None` reuses `proof_height`
     /// - `payload` -- headers, `None` if already up to date
     #[instrument(skip_all, name = "build_dst_update_client", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     #[allow(clippy::type_complexity)]
