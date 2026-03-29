@@ -104,8 +104,7 @@ fn do_build_mock() -> Result<PathBuf> {
         wasm_path.display()
     );
 
-    // Optimize with wasm-opt if available.
-    // Lower bulk memory ops (memory.copy/fill) to MVP wasm - wasmvm
+    // Lower bulk memory ops (memory.copy/fill) to MVP wasm — wasmvm
     // doesn't support the bulk-memory proposal.
     let wasm_path_str = wasm_path.to_string_lossy();
     if Command::new("wasm-opt")

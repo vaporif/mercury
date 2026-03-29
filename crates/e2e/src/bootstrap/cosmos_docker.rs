@@ -358,7 +358,6 @@ pub async fn store_wasm_light_client(
     handle
         .exec_cmd("base64 -d /tmp/wasm_lc.b64 > /tmp/wasm_lc.wasm.gz")
         .await?;
-    // Verify the transfer
     let expected_size = gz_bytes.len();
     let actual_size = handle.exec_cmd("wc -c < /tmp/wasm_lc.wasm.gz").await?;
     let actual_size: usize = actual_size.trim().parse().unwrap_or(0);
