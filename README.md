@@ -33,19 +33,6 @@ MisbehaviourWorker (independent, cancels relay on detection)
 
 Each relay direction (A→B, B→A) runs its own workers connected by `tokio::mpsc` channels. See [architecture](./docs/architecture.md) for the full pipeline and trait hierarchy.
 
-## Crates
-
-| Crate | What it does |
-|-------|-------------|
-| `mercury-cli` | CLI binary: `mercury-relayer start`, `mercury-relayer status` |
-| `mercury-cosmos` | Cosmos chain: RPC, protobuf, tx signing |
-| `mercury-ethereum` | EVM chain: alloy, ICS07 contract interaction |
-| `mercury-cosmos-counterparties` | Cosmos counterparties (currently Ethereum) |
-| `mercury-ethereum-counterparties` | Ethereum counterparties (currently Cosmos) |
-| `mercury-relay` | Worker pipeline, generic over chain traits |
-| `mercury-chain-traits` | Chain types, messaging, queries, relay traits |
-| `mercury-core` | Plugin traits, chain registry, typed errors, encoding, membership proofs |
-
 ## Docs
 
 - [Why rewrite?](./docs/why-rewrite.md) - Hermes limitations, what CGP gets right, Mercury's approach
