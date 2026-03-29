@@ -17,7 +17,7 @@ Adding a new chain doesn't touch Mercury's core. Chain support goes in independe
 
 ## Status
 
-Early development. Cosmos↔Cosmos packet relay works in E2E tests. Cosmos→EVM is in progress. Not tested against live chains yet, so use at your own risk.
+Early development. Cosmos↔Cosmos/EVM packet relay works in E2E tests. Solana in progress. Not tested against live chains yet, so use at your own risk.
 
 ## How it works
 
