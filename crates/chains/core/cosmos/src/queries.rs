@@ -240,7 +240,7 @@ fn ibc_v2_key(client: &str, discriminator: u8, sequence: u64) -> Vec<u8> {
     key
 }
 
-fn extract_proof(
+pub(crate) fn extract_proof(
     response: &tendermint_rpc::endpoint::abci_query::AbciQuery,
 ) -> Result<MerkleProof> {
     let proof_ops = response.proof.as_ref().ok_or(ProofError::Missing)?;
