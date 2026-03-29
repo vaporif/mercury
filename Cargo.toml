@@ -15,9 +15,9 @@ members = [
   "crates/chains/counterparties/solana",
   "crates/chains/relay-pairs/cosmos-solana",
   "crates/relay",
-  "crates/cli",
-  "crates/e2e",
-  "crates/e2e/mock-wasm-eth-lc",
+  "bin",
+  "e2e",
+  "e2e/mock-wasm-eth-lc",
   "crates/telemetry",
 ]
 
@@ -70,7 +70,7 @@ mercury-solana = { path = "crates/chains/core/solana" }
 mercury-solana-counterparties = { path = "crates/chains/counterparties/solana" }
 mercury-cosmos-solana-relay = { path = "crates/chains/relay-pairs/cosmos-solana" }
 mercury-relay = { path = "crates/relay" }
-mercury-cli = { path = "crates/cli" }
+mercury-cli = { path = "bin" }
 
 tendermint = { version = "0.40", features = ["secp256k1"] }
 tendermint-rpc = { version = "0.40", features = ["http-client", "websocket-client"] }

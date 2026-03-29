@@ -154,7 +154,7 @@ async fn poll_anvil_ready(rpc_endpoint: &str) -> Result<()> {
 
 fn deploy_contracts(handle: &mut AnvilHandle) -> Result<()> {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let eureka_dir = manifest_dir.join("../../external/solidity-ibc-eureka");
+    let eureka_dir = manifest_dir.join("../external/solidity-ibc-eureka");
 
     let contracts = deploy_ibc_contracts(
         &handle.rpc_endpoint,
@@ -288,7 +288,7 @@ pub fn build_sp1_programs() -> Result<PathBuf> {
 
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let sp1_programs_dir =
-        manifest_dir.join("../../external/solidity-ibc-eureka/programs/sp1-programs");
+        manifest_dir.join("../external/solidity-ibc-eureka/programs/sp1-programs");
     let elf_dir =
         sp1_programs_dir.join("target/elf-compilation/riscv32im-succinct-zkvm-elf/release");
 
@@ -366,7 +366,7 @@ pub fn deploy_sp1_light_client(
     consensus_state_hash: B256,
 ) -> Result<Address> {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let eureka_dir = manifest_dir.join("../../external/solidity-ibc-eureka");
+    let eureka_dir = manifest_dir.join("../external/solidity-ibc-eureka");
 
     let client_state_hex = format!("0x{}", hex::encode(client_state_abi));
     let consensus_hash_hex = format!("{consensus_state_hash:#x}");

@@ -413,7 +413,8 @@ pub async fn store_wasm_light_client(
 
 #[allow(clippy::future_not_send)]
 pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Result<String> {
-    let mock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../external/solidity-ibc-eureka/e2e/interchaintestv8/wasm/cw_dummy_light_client.wasm.gz");
+    let mock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../external/solidity-ibc-eureka/e2e/interchaintestv8/wasm/cw_dummy_light_client.wasm.gz",
+    );
     store_wasm_light_client(handle, &mock_path).await
 }
