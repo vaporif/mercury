@@ -63,6 +63,7 @@ Tests using Anvil + Docker with mock/dummy light clients (no real beacon chain).
 | `create_client_eth_host_cosmos_reference` | CLI `create client`: Cosmos client on Ethereum (SP1 LC) |
 | `eth_client_on_cosmos_advances_height` | Build mock update payload, submit to Cosmos, verify client height advances |
 | `cosmos_to_eth_transfer` | Cosmos->Ethereum unidirectional transfer with balance assertion |
+| `eth_to_cosmos_transfer` | Eth->Cosmos unidirectional transfer (seeds via Cosmos->Eth, then asserts return leg) |
 | `cosmos_eth_roundtrip_transfer` | Cosmos->Eth->Cosmos full roundtrip with balance verification on both sides |
 
 ### Gaps
@@ -87,13 +88,13 @@ Tests using Kurtosis with a real beacon chain and beacon-based light client.
 | `create_eth_client_on_cosmos_beacon` | Create real beacon-backed Ethereum client on Cosmos, verify non-zero initial height |
 | `eth_client_on_cosmos_advances_height_beacon` | Build beacon update payload (waits for finality), submit to Cosmos, verify height advances |
 | `cosmos_to_eth_transfer_beacon` | Cosmos->Ethereum unidirectional transfer via real beacon LC |
+| `eth_to_cosmos_transfer_beacon` | Eth->Cosmos unidirectional transfer via beacon LC (seeds via Cosmos->Eth, then asserts return leg) |
 | `cosmos_eth_roundtrip_transfer_beacon` | Full roundtrip Cosmos->Eth->Cosmos via beacon LC (handles sync committee period crossings) |
 
 ### Gaps
 
 | Gap | Description | Priority |
 |-----|-------------|----------|
-| Eth->Cosmos standalone | No standalone Eth->Cosmos unidirectional test (only tested as part of roundtrip). | Medium |
 | Client refresh | No long-idle-then-transfer test for beacon LC. | Medium |
 | Concurrent transfers | No parallel traffic test with beacon LC. | Low |
 | Sync committee period crossing | Roundtrip test may cross periods but no dedicated test for multi-period relay. | Low |
