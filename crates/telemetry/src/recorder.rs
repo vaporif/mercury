@@ -17,7 +17,7 @@ fn saturating_gauge(v: impl TryInto<u32>) -> f64 {
 }
 
 #[allow(clippy::cast_possible_truncation)]
-fn count_as_u64(v: usize) -> u64 {
+const fn count_as_u64(v: usize) -> u64 {
     v as u64
 }
 
