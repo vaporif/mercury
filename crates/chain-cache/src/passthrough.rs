@@ -240,10 +240,7 @@ impl<X: ChainTypes, C: ClientPayloadBuilder<X> + IbcTypes> ClientPayloadBuilder<
         self.inner.update_payload_message_height(payload)
     }
 
-    fn required_dst_timestamp_secs(
-        &self,
-        payload: &Self::UpdateClientPayload,
-    ) -> Option<u64> {
+    fn required_dst_timestamp_secs(&self, payload: &Self::UpdateClientPayload) -> Option<u64> {
         self.inner.required_dst_timestamp_secs(payload)
     }
 }

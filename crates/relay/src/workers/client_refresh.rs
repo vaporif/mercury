@@ -45,7 +45,6 @@ impl<R: Relay> ClientRefreshWorker<R> {
             .await?;
         Ok((dst_height, cs))
     }
-
 }
 
 #[async_trait]
@@ -108,7 +107,9 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
                     .build_update_client_payload(&current_trusted, &target_height, &client_state)
                     .await?;
 
-                if let Some(required_ts) = self.relay.src_chain().required_dst_timestamp_secs(&payload) {
+                if let Some(required_ts) =
+                    self.relay.src_chain().required_dst_timestamp_secs(&payload)
+                {
                     super::wait_for_dst_timestamp::<R>(self.relay.dst_chain(), required_ts).await?;
                 }
 

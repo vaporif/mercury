@@ -265,4 +265,3 @@ impl EthereumChain {
         Ok(())
     }
 }
-

@@ -61,10 +61,7 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
 
     /// Earliest dst-chain timestamp (secs) when this payload can land.
     /// `None` means submit immediately.
-    fn required_dst_timestamp_secs(
-        &self,
-        _payload: &Self::UpdateClientPayload,
-    ) -> Option<u64> {
+    fn required_dst_timestamp_secs(&self, _payload: &Self::UpdateClientPayload) -> Option<u64> {
         None
     }
 }

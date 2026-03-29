@@ -39,8 +39,7 @@ pub(crate) async fn wait_for_dst_timestamp<R: Relay>(
 
         debug!(
             dst_ts,
-            required_ts,
-            "waiting for destination chain to catch up"
+            required_ts, "waiting for destination chain to catch up"
         );
         tokio::time::sleep(DST_CATCHUP_POLL_INTERVAL).await;
     }
