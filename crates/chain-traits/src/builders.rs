@@ -13,6 +13,15 @@ pub struct UpdateClientOutput<M> {
     pub membership_proof: Option<Vec<u8>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct UpgradeClientPayload {
+    pub plan_height: i64,
+    pub upgraded_client_state: Vec<u8>,
+    pub upgraded_consensus_state: Vec<u8>,
+    pub proof_upgrade_client: Vec<u8>,
+    pub proof_upgrade_consensus_state: Vec<u8>,
+}
+
 impl<M> UpdateClientOutput<M> {
     #[must_use]
     pub const fn messages_only(messages: Vec<M>) -> Self {
@@ -64,6 +73,10 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
     fn required_dst_timestamp_secs(&self, _payload: &Self::UpdateClientPayload) -> Option<u64> {
         None
     }
+
+    async fn build_upgrade_client_payload(&self) -> Result<Option<UpgradeClientPayload>> {
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -103,6 +116,14 @@ pub trait ClientMessageBuilder<Counterparty: ChainTypes>: IbcTypes {
         _update_output: &mut UpdateClientOutput<Self::Message>,
         _packet_messages: &mut [Self::Message],
     ) {
+    }
+
+    async fn build_upgrade_client_message(
+        &self,
+        _client_id: &Self::ClientId,
+        _payload: UpgradeClientPayload,
+    ) -> Result<Vec<Self::Message>> {
+        Ok(vec![])
     }
 }
 

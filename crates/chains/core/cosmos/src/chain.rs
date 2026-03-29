@@ -142,6 +142,12 @@ impl<S: CosmosSigner> ChainTypes for CosmosChain<S> {
         self.block_time
     }
 
+    fn max_clock_drift(&self) -> Duration {
+        self.config
+            .max_clock_drift
+            .unwrap_or(super::builders::DEFAULT_MAX_CLOCK_DRIFT)
+    }
+
     fn chain_id(&self) -> &Self::ChainId {
         &self.chain_id
     }

@@ -25,6 +25,7 @@ pub struct ClientRefreshWorker<R: Relay> {
     pub sender: mpsc::Sender<DstTxRequest<R>>,
     pub token: CancellationToken,
     pub metrics: ClientMetrics,
+    pub last_upgrade_plan_height: Option<i64>,
 }
 
 impl<R: Relay> ClientRefreshWorker<R> {
@@ -45,6 +46,41 @@ impl<R: Relay> ClientRefreshWorker<R> {
             .await?;
         Ok((dst_height, cs))
     }
+
+    async fn try_submit_upgrade(&mut self) -> Result<()> {
+        let payload = match self.relay.src_chain().build_upgrade_client_payload().await? {
+            Some(p) => p,
+            None => return Ok(()),
+        };
+
+        if self.last_upgrade_plan_height == Some(payload.plan_height) {
+            return Ok(());
+        }
+
+        info!("source chain upgrade detected, submitting client upgrade");
+        let plan_height = payload.plan_height;
+        let messages = self
+            .relay
+            .dst_chain()
+            .build_upgrade_client_message(self.relay.dst_client_id(), payload)
+            .await?;
+
+        if messages.is_empty() {
+            return Ok(());
+        }
+
+        self.sender
+            .send(DstTxRequest {
+                messages,
+                created_at: std::time::Instant::now(),
+            })
+            .await
+            .map_err(|_| eyre::eyre!("tx_worker channel closed during upgrade"))?;
+
+        self.last_upgrade_plan_height = Some(plan_height);
+        info!("client upgrade message submitted");
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -54,7 +90,7 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
     }
 
     #[instrument(skip_all, name = "client_refresh", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
-    async fn run(self) -> Result<()> {
+    async fn run(mut self) -> Result<()> {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
 
@@ -135,6 +171,10 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
                     {
                         warn!("tx_worker channel closed");
                         break;
+                    }
+
+                    if let Err(e) = self.try_submit_upgrade().await {
+                        debug!(error = %e, "upgrade check skipped");
                     }
                 }
                 Err(e) => {

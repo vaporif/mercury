@@ -157,8 +157,6 @@ impl ChainBootstrap for CosmosDockerBootstrap {
         let init_script = generate_init_script(&chain_id);
 
         info!(chain_id = %chain_id, "starting Cosmos chain container");
-
-        // Override ENTRYPOINT to run our init script via sh.
         let container = GenericImage::new(IMAGE, IMAGE_TAG)
             .with_exposed_port(RPC_PORT.tcp())
             .with_exposed_port(GRPC_PORT.tcp())

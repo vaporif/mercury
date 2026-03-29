@@ -125,6 +125,39 @@ async fn packet_timeout() {
     relay.stop();
 }
 
+/// A 15s timeout falls inside the default 40s clock-drift buffer, so the
+/// relayer treats the packet as already timed-out instead of trying to deliver.
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn near_expiry_packet_timeout() {
+    super::init_tracing();
+
+    let ctx = setup_context().await.expect("IBC setup");
+
+    let user_a_addr = &ctx.handle_a.user_wallets()[0].address;
+    let balance_before = TestContext::query_balance(&ctx.handle_a, user_a_addr, "stake")
+        .await
+        .expect("query balance on A before near-expiry transfer");
+
+    let relay = ctx.start_relay_library().expect("start relay");
+
+    ctx.send_transfer_a_to_b_with_timeout(1000, "stake", 15)
+        .await
+        .expect("transfer A→B with near-expiry timeout");
+
+    ctx.assert_eventual_balance(
+        &ctx.handle_a,
+        user_a_addr,
+        "stake",
+        balance_before,
+        Duration::from_secs(60),
+    )
+    .await
+    .expect("balance refunded on A after drift-aware timeout");
+
+    relay.stop();
+}
+
 #[tokio::test]
 #[ignore = "requires Docker"]
 async fn client_refresh_keeps_relay_alive() {
