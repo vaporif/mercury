@@ -90,7 +90,7 @@ Start with the [Architecture](./docs/architecture.md) doc. It covers the trait h
 
 | Crate | Description |
 |-------|-------------|
-| `mercury-cli` (`crates/cli`) | CLI binary - entry point, config parsing, worker orchestration |
+| `mercury-cli` (`bin`) | CLI binary - entry point, config parsing, worker orchestration |
 | `mercury-core` (`crates/core`) | Error types, encoding, plugin traits, worker trait, membership proofs |
 | `mercury-chain-traits` (`crates/chain-traits`) | Chain types, messaging, queries, relay traits (traits) |
 | `mercury-relay` (`crates/relay`) | Worker pipeline, generic over chain traits |

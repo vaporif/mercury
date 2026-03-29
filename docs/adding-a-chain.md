@@ -69,7 +69,7 @@ pub fn register(registry: &mut ChainRegistry) {
 
 ### Wire into the CLI
 
-Add your `register()` calls in `crates/cli/src/registry.rs`:
+Add your `register()` calls in `bin/src/registry.rs`:
 
 ```rust
 pub fn build_registry() -> ChainRegistry {
@@ -130,4 +130,4 @@ Non-native light clients on Cosmos are deployed as CosmWasm contracts, so their 
 
 ### CLI wiring
 
-Add your counterparty and relay crate `register()` calls to `crates/cli/src/registry.rs`. The plugin system takes it from there - no enum variants or match arms to touch.
+Add your counterparty and relay crate `register()` calls to `bin/src/registry.rs`. The plugin system takes it from there - no enum variants or match arms to touch.
