@@ -19,6 +19,7 @@ where
         &self,
         packet: &<Src as IbcTypes>::Packet,
         proof_height: &<Src as ChainTypes>::Height,
+        message_proof_height: Option<&<Src as ChainTypes>::Height>,
     ) -> PacketBuildResult<<Dst as ChainTypes>::Message> {
         let sequence = Src::packet_sequence(packet);
 
@@ -43,10 +44,11 @@ where
         }
 
         let revision = self.src_chain().revision_number();
+        let msg_height = message_proof_height.unwrap_or(proof_height).clone();
 
         let msg = self
             .dst_chain()
-            .build_receive_packet_message(packet, proof, proof_height.clone(), revision)
+            .build_receive_packet_message(packet, proof, msg_height, revision)
             .await?;
 
         Ok((vec![msg], membership_entries))
@@ -58,6 +60,7 @@ where
         packet: &<Src as IbcTypes>::Packet,
         ack: &<Src as IbcTypes>::Acknowledgement,
         proof_height: &<Src as ChainTypes>::Height,
+        message_proof_height: Option<&<Src as ChainTypes>::Height>,
     ) -> PacketBuildResult<<Dst as ChainTypes>::Message> {
         let sequence = Src::packet_sequence(packet);
 
@@ -82,10 +85,11 @@ where
         }
 
         let revision = self.src_chain().revision_number();
+        let msg_height = message_proof_height.unwrap_or(proof_height).clone();
 
         let msg = self
             .dst_chain()
-            .build_ack_packet_message(packet, ack, proof, proof_height.clone(), revision)
+            .build_ack_packet_message(packet, ack, proof, msg_height, revision)
             .await?;
 
         Ok((vec![msg], membership_entries))

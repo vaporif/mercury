@@ -25,7 +25,8 @@ use ibc_proto::ibc::core::channel::v2::{
 use ibc_proto::ibc::core::client::v1::{Height as ProtoHeight, MsgCreateClient, MsgUpdateClient};
 use ibc_proto::ibc::core::client::v2::MsgRegisterCounterparty;
 use ibc_proto::ibc::lightclients::wasm::v1::{
-    ClientState as WasmClientState, ConsensusState as WasmConsensusState,
+    ClientMessage as WasmClientMessage, ClientState as WasmClientState,
+    ConsensusState as WasmConsensusState,
 };
 use prost::Message as _;
 
@@ -141,11 +142,12 @@ impl<S: CosmosSigner> ClientMessageBuilder<SolanaChain> for CosmosAdapter<S> {
             .headers
             .into_iter()
             .map(|header_bytes| {
+                let wasm_client_message = WasmClientMessage { data: header_bytes };
                 let msg = MsgUpdateClient {
                     client_id: client_id.to_string(),
                     client_message: Some(ibc_proto::google::protobuf::Any {
                         type_url: "/ibc.lightclients.wasm.v1.ClientMessage".to_string(),
-                        value: header_bytes,
+                        value: wasm_client_message.encode_to_vec(),
                     }),
                     signer: signer.clone(),
                 };

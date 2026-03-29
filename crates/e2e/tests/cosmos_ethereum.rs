@@ -10,6 +10,10 @@ mod context_setup;
 mod create_client;
 #[path = "cosmos_ethereum/transfer.rs"]
 mod transfer;
+#[path = "cosmos_ethereum/transfer_beacon.rs"]
+mod transfer_beacon;
+#[path = "cosmos_ethereum/update_client.rs"]
+mod update_client;
 
 static INIT_TRACING: Once = Once::new();
 

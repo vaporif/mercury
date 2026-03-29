@@ -57,6 +57,9 @@ pub struct CosmosChainConfig {
     pub dynamic_gas_price: Option<DynamicGasPrice>,
     #[serde(default)]
     pub max_tx_size: Option<usize>,
+    /// Override for the chain's `TxSizeCostPerByte` param (defaults to 10).
+    #[serde(default)]
+    pub tx_size_gas_per_byte: Option<u64>,
     /// SHA-256 checksum of the WASM light client module (hex-encoded, 32 bytes).
     #[serde(default)]
     pub wasm_checksum: Option<String>,
@@ -182,6 +185,7 @@ mod tests {
             fee_granter: None,
             dynamic_gas_price: None,
             max_tx_size: None,
+            tx_size_gas_per_byte: None,
             wasm_checksum: None,
             mock_proofs: false,
             rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),

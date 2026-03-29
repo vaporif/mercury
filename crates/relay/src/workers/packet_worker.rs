@@ -74,12 +74,19 @@ where
         >,
 {
     /// Build the update client payload (headers) without generating proofs yet.
+    ///
+    /// Returns `(proof_height, message_proof_height, payload)`:
+    /// - `proof_height` - where to query proofs on src (execution block for beacon)
+    /// - `message_proof_height` - height for the IBC message on dst (slot for beacon),
+    ///   `None` = reuse `proof_height`
+    /// - `payload` - the headers, or `None` if already up to date
     #[instrument(skip_all, name = "build_dst_update_client", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     #[allow(clippy::type_complexity)]
     async fn build_dst_update_client_payload(
         &self,
     ) -> Result<(
         <R::SrcChain as ChainTypes>::Height,
+        Option<<R::SrcChain as ChainTypes>::Height>,
         Option<<R::DstChain as ClientMessageBuilder<SrcCore<R>>>::UpdateClientPayload>,
     )>{
         type SrcChain<R> = <R as Relay>::SrcChain;
@@ -99,7 +106,7 @@ where
         let trusted_height = DstChain::<R>::client_latest_height(&client_state);
 
         if src_height <= trusted_height {
-            return Ok((src_height, None));
+            return Ok((src_height, None, None));
         }
 
         debug!(
@@ -113,7 +120,18 @@ where
             .build_update_client_payload(&trusted_height, &src_height, &client_state)
             .await?;
 
-        Ok((src_height, Some(update_payload)))
+        let proof_height = self
+            .relay
+            .src_chain()
+            .update_payload_proof_height(&update_payload)
+            .unwrap_or(src_height);
+
+        let message_proof_height = self
+            .relay
+            .src_chain()
+            .update_payload_message_height(&update_payload);
+
+        Ok((proof_height, message_proof_height, Some(update_payload)))
     }
 
     async fn build_dst_update_client_message(
@@ -181,6 +199,7 @@ where
         &self,
         send_packets: Vec<PendingSend<SendEvent<R>>>,
         src_height: &<R::SrcChain as ChainTypes>::Height,
+        message_proof_height: Option<&<R::SrcChain as ChainTypes>::Height>,
     ) -> BuildMessagesResult<<R::DstChain as ChainTypes>::Message, R> {
         type SrcChain<R> = <R as Relay>::SrcChain;
 
@@ -190,10 +209,17 @@ where
             .map(|ps| {
                 let relay = relay.clone();
                 let src_height = src_height.clone();
+                let msg_height = message_proof_height.cloned();
                 async move {
                     let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
                     let result = retry_proof_fetch(|| async {
-                        relay.build_receive_packet_messages(pkt, &src_height).await
+                        relay
+                            .build_receive_packet_messages(
+                                pkt,
+                                &src_height,
+                                msg_height.as_ref(),
+                            )
+                            .await
                     })
                     .await;
                     (ps, result)
@@ -210,7 +236,9 @@ where
 
         for (mut ps, result) in results {
             match result {
-                Ok((msgs, _entries)) if msgs.is_empty() => {}
+                Ok((msgs, _entries)) if msgs.is_empty() => {
+                    still_pending.push(ps);
+                }
                 Ok((msgs, entries)) => {
                     messages.extend(msgs);
                     membership_entries.extend(entries);
@@ -284,6 +312,7 @@ where
         &self,
         write_acks: WriteAckEvents<R>,
         src_height: &<R::SrcChain as ChainTypes>::Height,
+        message_proof_height: Option<&<R::SrcChain as ChainTypes>::Height>,
     ) -> (
         Vec<<R::DstChain as ChainTypes>::Message>,
         WriteAckEvents<R>,
@@ -297,10 +326,18 @@ where
             .map(|e| {
                 let relay = relay.clone();
                 let src_height = src_height.clone();
+                let msg_height = message_proof_height.cloned();
                 async move {
                     let (pkt, ack) = <SrcChain<R> as PacketEvents>::packet_from_write_ack_event(&e);
                     let result = retry_proof_fetch(|| async {
-                        relay.build_ack_packet_messages(pkt, ack, &src_height).await
+                        relay
+                            .build_ack_packet_messages(
+                                pkt,
+                                ack,
+                                &src_height,
+                                msg_height.as_ref(),
+                            )
+                            .await
                     })
                     .await;
                     (e, result)
@@ -316,7 +353,9 @@ where
 
         for (event, result) in results {
             match result {
-                Ok((msgs, _entries)) if msgs.is_empty() => {}
+                Ok((msgs, _entries)) if msgs.is_empty() => {
+                    failed.push(event);
+                }
                 Ok((msgs, entries)) => {
                     messages.extend(msgs);
                     membership_entries.extend(entries);
@@ -532,14 +571,22 @@ where
 
             if !deliverable.is_empty() || !write_acks.is_empty() {
                 match self.build_dst_update_client_payload().await {
-                    Ok((src_height, maybe_payload)) => {
+                    Ok((src_height, message_proof_height, maybe_payload)) => {
                         let (recv_msgs, recv_pending, recv_entries) = self
-                            .build_recv_messages_tracked(deliverable, &src_height)
+                            .build_recv_messages_tracked(
+                                deliverable,
+                                &src_height,
+                                message_proof_height.as_ref(),
+                            )
                             .await;
                         pending.extend(recv_pending);
 
                         let (ack_msgs, ack_failed, ack_entries) = self
-                            .build_ack_messages_tracked(write_acks, &src_height)
+                            .build_ack_messages_tracked(
+                                write_acks,
+                                &src_height,
+                                message_proof_height.as_ref(),
+                            )
                             .await;
                         pending_acks.extend(ack_failed);
 
@@ -600,6 +647,13 @@ where
                                 has_membership_proof = update_output.membership_proof.is_some(),
                                 "pre-finalize message counts"
                             );
+
+                            if update_msg_count == 0
+                                && update_output.membership_proof.is_none()
+                            {
+                                warn!("client update produced no messages, deferring packet batch until finality advances");
+                                continue;
+                            }
 
                             self.relay
                                 .dst_chain()

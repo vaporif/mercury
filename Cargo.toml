@@ -17,6 +17,7 @@ members = [
   "crates/relay",
   "crates/cli",
   "crates/e2e",
+  "crates/e2e/mock-wasm-eth-lc",
   "crates/telemetry",
 ]
 

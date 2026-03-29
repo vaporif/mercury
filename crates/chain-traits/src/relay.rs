@@ -67,10 +67,14 @@ pub type PacketBuildResult<M> = Result<(Vec<M>, Vec<mercury_core::MembershipProo
 
 #[async_trait]
 pub trait RelayPacketBuilder: Relay {
+    /// Build receive packet messages. `proof_height` queries proofs on the
+    /// source chain; `message_proof_height` overrides the height in the IBC
+    /// message sent to the destination (e.g. beacon slot vs execution block).
     async fn build_receive_packet_messages(
         &self,
         packet: &<Self::SrcChain as IbcTypes>::Packet,
         proof_height: &<Self::SrcChain as ChainTypes>::Height,
+        message_proof_height: Option<&<Self::SrcChain as ChainTypes>::Height>,
     ) -> PacketBuildResult<<Self::DstChain as ChainTypes>::Message>;
 
     async fn build_ack_packet_messages(
@@ -78,6 +82,7 @@ pub trait RelayPacketBuilder: Relay {
         packet: &<Self::SrcChain as IbcTypes>::Packet,
         ack: &<Self::SrcChain as IbcTypes>::Acknowledgement,
         proof_height: &<Self::SrcChain as ChainTypes>::Height,
+        message_proof_height: Option<&<Self::SrcChain as ChainTypes>::Height>,
     ) -> PacketBuildResult<<Self::DstChain as ChainTypes>::Message>;
 
     async fn build_timeout_packet_messages(

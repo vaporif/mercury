@@ -133,6 +133,8 @@ const DEFAULT_GAS_MULTIPLIER: f64 = 1.3;
 const DEFAULT_GAS: u64 = 300_000;
 const TX_ENVELOPE_OVERHEAD: usize = 350;
 const PROTOBUF_ANY_OVERHEAD: usize = 10;
+// sdk `TxSizeCostPerByte` -- gas charged per byte of the serialized tx, checked before execution
+const DEFAULT_TX_SIZE_GAS_PER_BYTE: u64 = 10;
 const MAX_PARALLEL_BATCHES: usize = 3;
 const MAX_TX_POLL_RETRIES: u32 = 10;
 
@@ -391,11 +393,22 @@ impl<S: CosmosSigner> CosmosChain<S> {
         )
         .await?;
 
+        // the chain rejects txs where gas_limit < tx_bytes * TxSizeCostPerByte
+        let gas_per_byte = self
+            .config
+            .tx_size_gas_per_byte
+            .unwrap_or(DEFAULT_TX_SIZE_GAS_PER_BYTE);
+        #[allow(clippy::cast_possible_truncation)]
+        let tx_size_gas = (tx_bytes.len() as u64).saturating_mul(gas_per_byte);
+
         let gas_used = self
             .rpc_guard
             .guarded(|| async {
                 #[allow(deprecated)]
-                let request = tonic::Request::new(SimulateRequest { tx: None, tx_bytes });
+                let request = tonic::Request::new(SimulateRequest {
+                    tx: None,
+                    tx_bytes,
+                });
                 match TxServiceClient::new(self.grpc_channel.clone())
                     .simulate(request)
                     .await
@@ -409,8 +422,13 @@ impl<S: CosmosSigner> CosmosChain<S> {
                         Ok(gas)
                     }
                     Err(status) if is_simulation_recoverable(status.message()) => {
-                        warn!(error = %status, "simulation failed with recoverable error, using default_gas");
-                        Ok(default_gas)
+                        warn!(
+                            error = %status,
+                            tx_size_gas,
+                            default_gas,
+                            "simulation failed with recoverable error, using max(default_gas, tx_size_gas)"
+                        );
+                        Ok(default_gas.max(tx_size_gas))
                     }
                     Err(status) => Err(TxError::SimulationFailed {
                         reason: status.to_string(),
@@ -420,7 +438,8 @@ impl<S: CosmosSigner> CosmosChain<S> {
             })
             .await?;
 
-        let gas_limit = adjust_gas(gas_used, gas_multiplier, self.config.max_gas);
+        // floor at tx_size_gas so we never hit "out of gas in location: txSize"
+        let gas_limit = adjust_gas(gas_used, gas_multiplier, self.config.max_gas).max(tx_size_gas);
 
         let gas_price_amount = if let Some(ref dgp) = self.config.dynamic_gas_price {
             crate::gas::resolve_gas_price(

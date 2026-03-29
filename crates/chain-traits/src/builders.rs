@@ -38,6 +38,27 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
     ) -> Result<Self::UpdateClientPayload>
     where
         Counterparty: IbcTypes;
+
+    /// Height to fetch proofs at on the source chain.
+    /// Defaults to `None` (use `src_height` from `query_chain_status`).
+    fn update_payload_proof_height(
+        &self,
+        _payload: &Self::UpdateClientPayload,
+    ) -> Option<Self::Height> {
+        None
+    }
+
+    /// Height to put in IBC messages for the destination chain.
+    /// Beacon chains return the slot here (consensus states are keyed by slot)
+    /// while `update_payload_proof_height` returns the execution block number
+    /// for `eth_getProof`.
+    /// Defaults to `None` (reuse the proof height).
+    fn update_payload_message_height(
+        &self,
+        _payload: &Self::UpdateClientPayload,
+    ) -> Option<Self::Height> {
+        None
+    }
 }
 
 #[async_trait]

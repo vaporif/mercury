@@ -43,4 +43,18 @@ impl ClientPayloadBuilder<EthereumChain> for EthereumAdapter {
             .build_update_client_payload(trusted_height, target_height, counterparty_client_state)
             .await
     }
+
+    fn update_payload_proof_height(
+        &self,
+        payload: &Self::UpdateClientPayload,
+    ) -> Option<Self::Height> {
+        self.0.update_payload_proof_height(payload)
+    }
+
+    fn update_payload_message_height(
+        &self,
+        payload: &Self::UpdateClientPayload,
+    ) -> Option<Self::Height> {
+        self.0.update_payload_message_height(payload)
+    }
 }

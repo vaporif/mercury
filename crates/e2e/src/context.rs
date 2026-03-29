@@ -359,6 +359,7 @@ fn make_test_cosmos_config(handle: &CosmosDockerHandle, key_name: &str) -> Cosmo
         fee_granter: None,
         dynamic_gas_price: None,
         max_tx_size: None,
+        tx_size_gas_per_byte: None,
         wasm_checksum: None,
         mock_proofs: false,
         rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),

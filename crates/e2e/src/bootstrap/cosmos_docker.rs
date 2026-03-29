@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -82,10 +83,10 @@ $BINARY genesis add-genesis-account $USER2_ADDR 10000000000stake --home $HOME_DI
 $BINARY genesis gentx validator 1000000000stake --chain-id $CHAIN_ID --keyring-backend test --home $HOME_DIR 2>/dev/null
 $BINARY genesis collect-gentxs --home $HOME_DIR 2>/dev/null
 
-# Set 1-second governance voting period for fast Wasm light client deployment
 GENESIS_FILE="$HOME_DIR/config/genesis.json"
 sed -i 's/"voting_period": *"[^"]*"/"voting_period": "10s"/g' "$GENESIS_FILE"
 sed -i 's/"max_deposit_period": *"[^"]*"/"max_deposit_period": "1s"/g' "$GENESIS_FILE"
+sed -i 's/"expedited_voting_period": *"[^"]*"/"expedited_voting_period": "5s"/g' "$GENESIS_FILE"
 
 # Fast block config
 sed -i 's/timeout_commit = ".*"/timeout_commit = "1s"/' $HOME_DIR/config/config.toml
@@ -297,11 +298,22 @@ async fn poll_proposal_status(
         "simd query gov proposal {proposal_id} --home /root/.simapp --output text 2>&1 \
          | {{ grep '{expected_status}' || true; }}"
     );
+    let failed_cmd = format!(
+        "simd query gov proposal {proposal_id} --home /root/.simapp --output text 2>&1 \
+         | {{ grep 'failed_reason' || true; }}"
+    );
     tokio::time::timeout(timeout, async {
         loop {
             let output = handle.exec_cmd(&cmd).await?;
             if !output.trim().is_empty() {
                 return Ok::<(), eyre::Report>(());
+            }
+            let failed = handle.exec_cmd(&failed_cmd).await.unwrap_or_default();
+            if !failed.trim().is_empty() {
+                return Err(eyre::eyre!(
+                    "proposal {proposal_id} failed: {}",
+                    failed.trim()
+                ));
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
@@ -313,19 +325,16 @@ async fn poll_proposal_status(
     .and_then(|r| r)
 }
 
-/// Store the dummy Wasm light client on the Cosmos chain and return its SHA256 checksum.
-///
-/// Submits a governance proposal to store the Wasm binary, votes on it,
-/// and waits for it to pass (requires 1s voting period in genesis).
-#[allow(clippy::future_not_send)]
-pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Result<String> {
+/// Store a Wasm light client on the Cosmos chain via governance and return its checksum.
+#[allow(clippy::future_not_send, clippy::missing_panics_doc)]
+pub async fn store_wasm_light_client(
+    handle: &CosmosDockerHandle,
+    wasm_gz_path: &Path,
+) -> Result<String> {
     use sha2::{Digest, Sha256};
     use std::io::Read as _;
 
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let wasm_gz_path = manifest_dir
-        .join("../../external/solidity-ibc-eureka/e2e/interchaintestv8/wasm/cw_dummy_light_client.wasm.gz");
-    let gz_bytes = std::fs::read(&wasm_gz_path)
+    let gz_bytes = std::fs::read(wasm_gz_path)
         .wrap_err_with(|| format!("reading {}", wasm_gz_path.display()))?;
 
     let mut decoder = flate2::read::GzDecoder::new(&gz_bytes[..]);
@@ -337,19 +346,30 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
     let checksum = hex::encode(Sha256::digest(&wasm_bytes));
     info!(checksum = %checksum, "computed Wasm light client checksum");
 
-    // Copy gzipped Wasm into the container via base64
     let wasm_b64 = base64::engine::general_purpose::STANDARD.encode(&gz_bytes);
+    handle.exec_cmd("rm -f /tmp/wasm_lc.b64").await?;
+    for (i, chunk) in wasm_b64.as_bytes().chunks(50_000).enumerate() {
+        let chunk_str = std::str::from_utf8(chunk).expect("base64 is ascii");
+        let op = if i == 0 { ">" } else { ">>" };
+        handle
+            .exec_cmd(&format!("printf '%s' '{chunk_str}' {op} /tmp/wasm_lc.b64"))
+            .await?;
+    }
     handle
-        .exec_cmd(&format!(
-            "echo '{wasm_b64}' | base64 -d > /tmp/dummy_lc.wasm.gz"
-        ))
+        .exec_cmd("base64 -d /tmp/wasm_lc.b64 > /tmp/wasm_lc.wasm.gz")
         .await?;
+    let expected_size = gz_bytes.len();
+    let actual_size = handle.exec_cmd("wc -c < /tmp/wasm_lc.wasm.gz").await?;
+    let actual_size: usize = actual_size.trim().parse().unwrap_or(0);
+    if actual_size != expected_size {
+        bail!("wasm transfer failed: expected {expected_size} bytes, got {actual_size}");
+    }
 
     let chain_id = handle.chain_id();
 
     handle
         .exec_cmd(&format!(
-            "simd tx ibc-wasm store-code /tmp/dummy_lc.wasm.gz \
+            "simd tx ibc-wasm store-code /tmp/wasm_lc.wasm.gz \
          --title 'Store dummy LC' --summary 'E2E test' \
          --deposit 10000000stake \
          --from validator --keyring-backend test --home /root/.simapp \
@@ -362,7 +382,7 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
         handle,
         1,
         "PROPOSAL_STATUS_VOTING_PERIOD",
-        Duration::from_secs(10),
+        Duration::from_secs(30),
     )
     .await
     .wrap_err("waiting for proposal to enter voting period")?;
@@ -375,11 +395,10 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
         ))
         .await?;
 
-    poll_proposal_status(handle, 1, "PROPOSAL_STATUS_PASSED", Duration::from_secs(30))
+    poll_proposal_status(handle, 1, "PROPOSAL_STATUS_PASSED", Duration::from_secs(60))
         .await
         .wrap_err("waiting for proposal to pass")?;
 
-    // Verify the Wasm code was stored
     let result = handle
         .exec_cmd("simd query ibc-wasm checksums --home /root/.simapp --output json")
         .await?;
@@ -390,4 +409,11 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
     }
 
     Ok(checksum)
+}
+
+#[allow(clippy::future_not_send)]
+pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Result<String> {
+    let mock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../external/solidity-ibc-eureka/e2e/interchaintestv8/wasm/cw_dummy_light_client.wasm.gz");
+    store_wasm_light_client(handle, &mock_path).await
 }

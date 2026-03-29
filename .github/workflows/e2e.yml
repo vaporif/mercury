@@ -81,6 +81,24 @@ jobs:
       - name: Build SP1 programs
         run: cargo prove build
         working-directory: external/solidity-ibc-eureka/programs/sp1-programs
+        env:
+          CARGO_PROFILE_RELEASE_TRIM_PATHS: "false"
+
+      - name: Install binaryen (wasm-opt)
+        run: |
+          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_126/binaryen-version_126-x86_64-linux.tar.gz \
+            | sudo tar -xz -C /usr/local --strip-components=1
+
+      - name: Build mock WASM light client
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build --target wasm32-unknown-unknown --release -p mock-wasm-eth-lc
+          wasm-opt --llvm-memory-copy-fill-lowering -Os \
+            target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.wasm \
+            -o target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm
+          gzip -kf target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm
+          cp target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm.gz \
+            crates/e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
 
       - name: Build relayer binary
         run: cargo build -p mercury-cli --release
@@ -102,6 +120,11 @@ jobs:
         with:
           name: sp1-elfs
           path: external/solidity-ibc-eureka/programs/sp1-programs/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/sp1-ics07-tendermint-*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mock-wasm-eth-lc
+          path: crates/e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
 
       - name: Generate matrix
         id: matrix
@@ -138,12 +161,22 @@ jobs:
       - uses: ./.github/actions/ethereum-setup
         if: contains(toJSON(matrix.setup), '"ethereum"')
 
+      - uses: ./.github/actions/kurtosis-setup
+        if: contains(toJSON(matrix.setup), '"kurtosis"')
+
       - name: Download SP1 ELFs
         if: contains(toJSON(matrix.setup), '"ethereum"')
         uses: actions/download-artifact@v8
         with:
           name: sp1-elfs
           path: sp1-elfs
+
+      - name: Download mock WASM light client
+        if: contains(toJSON(matrix.setup), '"ethereum"')
+        uses: actions/download-artifact@v8
+        with:
+          name: mock-wasm-eth-lc
+          path: crates/e2e/mock-wasm-eth-lc
 
       - name: Download relayer binary
         uses: actions/download-artifact@v8
