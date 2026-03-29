@@ -32,15 +32,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixpkgs-unstable
-
-      - uses: cachix/cachix-action@v17
-        with:
-          name: mercury-relayer
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
+      - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Checks
@@ -55,15 +47,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixpkgs-unstable
-
-      - uses: cachix/cachix-action@v17
-        with:
-          name: mercury-relayer
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
+      - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - uses: Swatinem/rust-cache@v2
@@ -80,15 +64,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixpkgs-unstable
-
-      - uses: cachix/cachix-action@v17
-        with:
-          name: mercury-relayer
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
+      - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Deny
@@ -103,15 +79,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixpkgs-unstable
-
-      - uses: cachix/cachix-action@v17
-        with:
-          name: mercury-relayer
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
+      - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - uses: Swatinem/rust-cache@v2
@@ -137,19 +105,34 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixpkgs-unstable
-
-      - uses: cachix/cachix-action@v17
-        with:
-          name: mercury-relayer
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
+      - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Build
         run: nix build
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Generate coverage
+        run: nix develop --command cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
 
   gitleaks:
     name: Gitleaks
