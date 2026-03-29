@@ -59,6 +59,83 @@ impl EthereumChain {
         Ok(())
     }
 
+    /// Send a single EVM message: estimate gas, broadcast, wait for receipt,
+    /// and return the response. Shared by both `send_messages_with_responses`
+    /// and `MessageSender::send_messages`.
+    async fn send_single_message(
+        &self,
+        msg: &EvmMessage,
+        idx: usize,
+        total: usize,
+    ) -> Result<EvmTxResponse> {
+        let mut tx = TransactionRequest::default()
+            .to(msg.to)
+            .input(msg.calldata.clone().into())
+            .value(msg.value);
+
+        self.estimate_and_set_gas(&mut tx).await?;
+
+        info!(idx, to = %msg.to, "sending transaction {}/{}", idx + 1, total);
+
+        let pending = self
+            .rpc_guard
+            .guarded(|| async {
+                self.provider
+                    .send_transaction(tx.clone())
+                    .await
+                    .wrap_err("sending transaction")
+            })
+            .await?;
+
+        let tx_hash = *pending.tx_hash();
+        info!(%tx_hash, "transaction sent, waiting for receipt");
+
+        let receipt = pending
+            .get_receipt()
+            .await
+            .wrap_err("waiting for transaction receipt")?;
+
+        if !receipt.status() {
+            let block = receipt.block_number.unwrap_or(0);
+            let revert_reason = match self
+                .rpc_guard
+                .guarded(|| async {
+                    self.provider
+                        .call(tx)
+                        .block(block.into())
+                        .await
+                        .wrap_err("simulating reverted transaction")
+                })
+                .await
+            {
+                Err(e) => format!("{e}"),
+                Ok(output) => format!("call succeeded unexpectedly: {output}"),
+            };
+            warn!(%tx_hash, block, gas_used = receipt.gas_used, %revert_reason, "transaction reverted");
+            return Err(TxError::Reverted {
+                tx_hash: tx_hash.to_string(),
+                reason: format!("block {block}: {revert_reason}"),
+            }
+            .into());
+        }
+
+        info!(%tx_hash, gas_used = receipt.gas_used, "transaction confirmed");
+
+        let logs = receipt
+            .inner
+            .logs()
+            .iter()
+            .map(EvmEvent::from_alloy_log)
+            .collect();
+
+        Ok(EvmTxResponse {
+            tx_hash,
+            block_number: BlockNumber(receipt.block_number.unwrap_or(0)),
+            gas_used: GasUsed(receipt.gas_used),
+            logs,
+        })
+    }
+
     /// Send messages and return raw chain responses (for CLI commands and setup
     /// code that need to inspect events). Relay workers should use
     /// `MessageSender::send_messages` instead.
@@ -66,77 +143,11 @@ impl EthereumChain {
         &self,
         messages: Vec<EvmMessage>,
     ) -> Result<Vec<EvmTxResponse>> {
-        let mut responses = Vec::with_capacity(messages.len());
-
+        let total = messages.len();
+        let mut responses = Vec::with_capacity(total);
         for (idx, msg) in messages.iter().enumerate() {
-            let mut tx = TransactionRequest::default()
-                .to(msg.to)
-                .input(msg.calldata.clone().into())
-                .value(msg.value);
-
-            self.estimate_and_set_gas(&mut tx).await?;
-
-            info!(idx, to = %msg.to, "sending transaction {}/{}", idx + 1, messages.len());
-
-            let pending = self
-                .rpc_guard
-                .guarded(|| async {
-                    self.provider
-                        .send_transaction(tx.clone())
-                        .await
-                        .wrap_err("sending transaction")
-                })
-                .await?;
-
-            let tx_hash = *pending.tx_hash();
-            info!(%tx_hash, "transaction sent, waiting for receipt");
-
-            let receipt = pending
-                .get_receipt()
-                .await
-                .wrap_err("waiting for transaction receipt")?;
-
-            if !receipt.status() {
-                let block = receipt.block_number.unwrap_or(0);
-                let revert_reason = match self
-                    .rpc_guard
-                    .guarded(|| async {
-                        self.provider
-                            .call(tx)
-                            .block(block.into())
-                            .await
-                            .wrap_err("simulating reverted transaction")
-                    })
-                    .await
-                {
-                    Err(e) => format!("{e}"),
-                    Ok(output) => format!("call succeeded unexpectedly: {output}"),
-                };
-                warn!(%tx_hash, block, gas_used = receipt.gas_used, %revert_reason, "transaction reverted");
-                return Err(TxError::Reverted {
-                    tx_hash: tx_hash.to_string(),
-                    reason: format!("block {block}: {revert_reason}"),
-                }
-                .into());
-            }
-
-            info!(%tx_hash, gas_used = receipt.gas_used, "transaction confirmed");
-
-            let logs = receipt
-                .inner
-                .logs()
-                .iter()
-                .map(EvmEvent::from_alloy_log)
-                .collect();
-
-            responses.push(EvmTxResponse {
-                tx_hash,
-                block_number: BlockNumber(receipt.block_number.unwrap_or(0)),
-                gas_used: GasUsed(receipt.gas_used),
-                logs,
-            });
+            responses.push(self.send_single_message(msg, idx, total).await?);
         }
-
         Ok(responses)
     }
 }
@@ -145,62 +156,11 @@ impl EthereumChain {
 impl MessageSender for EthereumChain {
     // TODO: use ICS26Router::multicall to batch all messages into a single tx
     async fn send_messages(&self, messages: Vec<EvmMessage>) -> Result<TxReceipt> {
+        let total = messages.len();
         let mut total_gas: u64 = 0;
-
         for (idx, msg) in messages.iter().enumerate() {
-            let mut tx = TransactionRequest::default()
-                .to(msg.to)
-                .input(msg.calldata.clone().into())
-                .value(msg.value);
-
-            self.estimate_and_set_gas(&mut tx).await?;
-
-            info!(idx, to = %msg.to, "sending transaction {}/{}", idx + 1, messages.len());
-
-            let pending = self
-                .rpc_guard
-                .guarded(|| async {
-                    self.provider
-                        .send_transaction(tx.clone())
-                        .await
-                        .wrap_err("sending transaction")
-                })
-                .await?;
-
-            let tx_hash = *pending.tx_hash();
-            info!(%tx_hash, "transaction sent, waiting for receipt");
-
-            let receipt = pending
-                .get_receipt()
-                .await
-                .wrap_err("waiting for transaction receipt")?;
-
-            if !receipt.status() {
-                let block = receipt.block_number.unwrap_or(0);
-                let revert_reason = match self
-                    .rpc_guard
-                    .guarded(|| async {
-                        self.provider
-                            .call(tx)
-                            .block(block.into())
-                            .await
-                            .wrap_err("simulating reverted transaction")
-                    })
-                    .await
-                {
-                    Err(e) => format!("{e}"),
-                    Ok(output) => format!("call succeeded unexpectedly: {output}"),
-                };
-                warn!(%tx_hash, block, gas_used = receipt.gas_used, %revert_reason, "transaction reverted");
-                return Err(TxError::Reverted {
-                    tx_hash: tx_hash.to_string(),
-                    reason: format!("block {block}: {revert_reason}"),
-                }
-                .into());
-            }
-
-            info!(%tx_hash, gas_used = receipt.gas_used, "transaction confirmed");
-            total_gas += receipt.gas_used;
+            let response = self.send_single_message(msg, idx, total).await?;
+            total_gas += response.gas_used.0;
         }
 
         Ok(TxReceipt {

@@ -16,6 +16,11 @@ fn saturating_gauge(v: impl TryInto<u32>) -> f64 {
     f64::from(v.try_into().unwrap_or(u32::MAX))
 }
 
+#[allow(clippy::cast_possible_truncation)]
+const fn count_as_u64(v: usize) -> u64 {
+    v as u64
+}
+
 fn build_labels(
     label: &ChainLabel,
     counterparty: Option<&ChainLabel>,
@@ -81,7 +86,7 @@ impl TxMetrics {
     ) {
         let labels = self.labels();
         counter!(metric::tx::TX_SUBMITTED, &labels).increment(1);
-        counter!(metric::tx::TX_MESSAGES, &labels).increment(msg_count as u64);
+        counter!(metric::tx::TX_MESSAGES, &labels).increment(count_as_u64(msg_count));
 
         histogram!(metric::tx::TX_LATENCY_SUBMITTED_MS, &labels)
             .record(duration_millis(created_at.elapsed()));
@@ -138,21 +143,21 @@ impl PacketMetrics {
     pub fn record_recv(&self, count: usize) {
         if count > 0 {
             let labels = build_labels(&self.label, self.counterparty.as_ref());
-            counter!(metric::packet::RECEIVE_PACKETS, &labels).increment(count as u64);
+            counter!(metric::packet::RECEIVE_PACKETS, &labels).increment(count_as_u64(count));
         }
     }
 
     pub fn record_ack(&self, count: usize) {
         if count > 0 {
             let labels = build_labels(&self.label, self.counterparty.as_ref());
-            counter!(metric::packet::ACK_PACKETS, &labels).increment(count as u64);
+            counter!(metric::packet::ACK_PACKETS, &labels).increment(count_as_u64(count));
         }
     }
 
     pub fn record_timeout(&self, count: usize) {
         if count > 0 {
             let labels = build_labels(&self.label, self.counterparty.as_ref());
-            counter!(metric::packet::TIMEOUT_PACKETS, &labels).increment(count as u64);
+            counter!(metric::packet::TIMEOUT_PACKETS, &labels).increment(count_as_u64(count));
         }
     }
 
@@ -192,21 +197,21 @@ impl EventMetrics {
     pub fn record_send_events(&self, count: usize) {
         if count > 0 {
             let labels = build_labels(&self.label, self.counterparty.as_ref());
-            counter!(metric::event::SEND_PACKET_EVENTS, &labels).increment(count as u64);
+            counter!(metric::event::SEND_PACKET_EVENTS, &labels).increment(count_as_u64(count));
         }
     }
 
     pub fn record_ack_events(&self, count: usize) {
         if count > 0 {
             let labels = build_labels(&self.label, self.counterparty.as_ref());
-            counter!(metric::event::ACK_EVENTS, &labels).increment(count as u64);
+            counter!(metric::event::ACK_EVENTS, &labels).increment(count_as_u64(count));
         }
     }
 
     pub fn record_filtered(&self, count: usize) {
         if count > 0 {
             let labels = build_labels(&self.label, self.counterparty.as_ref());
-            counter!(metric::packet::FILTERED_PACKETS, &labels).increment(count as u64);
+            counter!(metric::packet::FILTERED_PACKETS, &labels).increment(count_as_u64(count));
         }
     }
 
@@ -228,7 +233,8 @@ impl EventMetrics {
     pub fn record_ws_events(&self, count: usize) {
         if count > 0 {
             let labels = build_labels(&self.label, self.counterparty.as_ref());
-            counter!(metric::event::WS_EVENTS_RECEIVED_TOTAL, &labels).increment(count as u64);
+            counter!(metric::event::WS_EVENTS_RECEIVED_TOTAL, &labels)
+                .increment(count_as_u64(count));
         }
     }
 
@@ -271,7 +277,7 @@ impl SweepMetrics {
     pub fn record_swept(&self, count: usize) {
         if count > 0 {
             let labels = build_labels(&self.label, self.counterparty.as_ref());
-            counter!(metric::event::SWEPT_EVENTS, &labels).increment(count as u64);
+            counter!(metric::event::SWEPT_EVENTS, &labels).increment(count_as_u64(count));
         }
     }
 }

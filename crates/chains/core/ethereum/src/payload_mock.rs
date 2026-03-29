@@ -102,6 +102,7 @@ impl EthereumChain {
             headers: vec![header_bytes],
             target_execution_height: None,
             target_slot: None,
+            required_dst_timestamp_secs: None,
         }
     }
 }

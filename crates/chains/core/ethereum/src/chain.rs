@@ -273,6 +273,10 @@ impl ClientPayloadBuilder<Self> for EthereumChain {
     fn update_payload_message_height(&self, payload: &UpdateClientPayload) -> Option<EvmHeight> {
         payload.target_slot.map(EvmHeight)
     }
+
+    fn required_dst_timestamp_secs(&self, payload: &UpdateClientPayload) -> Option<u64> {
+        payload.required_dst_timestamp_secs
+    }
 }
 
 #[must_use]
@@ -351,8 +355,8 @@ impl ClientMessageBuilder<Self> for EthereumChain {
         Ok(UpdateClientOutput::messages_only(messages))
     }
 
-    // Uses `migrateClient` (requires admin role) since EVM has no dedicated
-    // `registerCounterparty`. Prefer setting counterparty during `addClient` instead.
+    // EVM has no `registerCounterparty`, so we abuse `migrateClient` (admin-only).
+    // Better to set counterparty during `addClient` when possible.
     async fn build_register_counterparty_message(
         &self,
         client_id: &EvmClientId,

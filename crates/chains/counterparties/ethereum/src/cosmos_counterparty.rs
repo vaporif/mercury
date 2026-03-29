@@ -140,11 +140,11 @@ impl<S: CosmosSigner> ClientQuery<CosmosChain<S>> for EthereumAdapter {
         decode_client_state(&client_state.0).map_or_else(
             || {
                 tracing::warn!("failed to decode client state, defaulting to height 1");
-                TmHeight::try_from(1u64).expect("height 1 is valid")
+                TmHeight::from(1_u32)
             },
             |cs| {
                 TmHeight::try_from(cs.latestHeight.revisionHeight)
-                    .unwrap_or_else(|_| TmHeight::try_from(1u64).expect("height 1 is valid"))
+                    .unwrap_or_else(|_| TmHeight::from(1_u32))
             },
         )
     }

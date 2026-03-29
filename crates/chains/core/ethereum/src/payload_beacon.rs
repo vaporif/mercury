@@ -1,7 +1,5 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 use eyre::Context;
-use tracing::{debug, info};
+use tracing::info;
 
 use ethereum_apis::beacon_api::client::BeaconApiClient;
 use ethereum_light_client::client_state::ClientState as EthClientState;
@@ -154,12 +152,15 @@ impl EthereumChain {
             .await?;
         }
 
-        wait_for_signature_slot(&eth_client_state, finality_signature_slot).await;
+        let signature_slot_timestamp = eth_client_state.genesis_time
+            + finality_signature_slot.saturating_sub(eth_client_state.genesis_slot)
+                * eth_client_state.seconds_per_slot;
 
         Ok(UpdateClientPayload {
             headers,
             target_execution_height: Some(EvmHeight(target_execution_height)),
             target_slot: Some(target_slot),
+            required_dst_timestamp_secs: Some(signature_slot_timestamp),
         })
     }
 
@@ -262,31 +263,5 @@ impl EthereumChain {
         headers.push(header_bytes);
 
         Ok(())
-    }
-}
-
-/// Sleep until the wall clock passes `signature_slot`'s timestamp.
-/// The WASM ethereum LC computes `current_slot` from `block_timestamp` and
-/// rejects headers from the future. Devnet beacon chains can be a slot ahead.
-async fn wait_for_signature_slot(client_state: &EthClientState, signature_slot: u64) {
-    let slot_timestamp = client_state.genesis_time
-        + (signature_slot.saturating_sub(client_state.genesis_slot))
-            * client_state.seconds_per_slot;
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    if slot_timestamp > now {
-        let wait = Duration::from_secs(slot_timestamp - now + 1);
-        debug!(
-            signature_slot,
-            slot_timestamp,
-            now,
-            wait_secs = wait.as_secs(),
-            "signature slot is ahead of current time, waiting"
-        );
-        tokio::time::sleep(wait).await;
     }
 }

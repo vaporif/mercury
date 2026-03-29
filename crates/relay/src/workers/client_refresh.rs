@@ -19,7 +19,7 @@ use crate::workers::DstTxRequest;
 
 const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_secs(300);
 
-/// Periodically refreshes the destination client to prevent expiry.
+/// Keeps the dst client alive by refreshing it before it expires.
 pub struct ClientRefreshWorker<R: Relay> {
     pub relay: Arc<R>,
     pub sender: mpsc::Sender<DstTxRequest<R>>,
@@ -61,7 +61,6 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
         let mut check_interval = DEFAULT_REFRESH_INTERVAL;
 
         loop {
-            // Sleep (cancellation-aware)
             tokio::select! {
                 () = self.token.cancelled() => break,
                 () = tokio::time::sleep(check_interval) => {}
@@ -107,6 +106,13 @@ impl<R: Relay> Worker for ClientRefreshWorker<R> {
                     .src_chain()
                     .build_update_client_payload(&current_trusted, &target_height, &client_state)
                     .await?;
+
+                if let Some(required_ts) =
+                    self.relay.src_chain().required_dst_timestamp_secs(&payload)
+                {
+                    super::wait_for_dst_timestamp::<R>(self.relay.dst_chain(), required_ts).await?;
+                }
+
                 self.relay
                     .dst_chain()
                     .build_update_client_message(self.relay.dst_client_id(), payload)

@@ -182,6 +182,7 @@
         (fenixPkgs.stable.withComponents [
           "cargo"
           "clippy"
+          "llvm-tools-preview"
           "rustc"
           "rustfmt"
           "rust-src"

@@ -48,7 +48,7 @@ async fn send_or_cancel<T>(
     false
 }
 
-/// Receives IBC events and builds relay messages (recv, ack, timeout).
+/// Turns IBC events into relay messages (recv, ack, timeout).
 pub struct PacketWorker<R: Relay> {
     pub relay: Arc<R>,
     pub receiver: mpsc::Receiver<Vec<IbcEvent<R>>>,
@@ -73,13 +73,12 @@ where
             UpdateClientPayload = <R::DstChain as ClientPayloadBuilder<SrcCore<R>>>::UpdateClientPayload,
         >,
 {
-    /// Build the update client payload (headers) without generating proofs yet.
+    /// Builds update-client headers (no proofs yet).
     ///
     /// Returns `(proof_height, message_proof_height, payload)`:
-    /// - `proof_height` - where to query proofs on src (execution block for beacon)
-    /// - `message_proof_height` - height for the IBC message on dst (slot for beacon),
-    ///   `None` = reuse `proof_height`
-    /// - `payload` - the headers, or `None` if already up to date
+    /// - `proof_height` -- src height for proof queries (execution block for beacon)
+    /// - `message_proof_height` -- dst IBC message height (slot for beacon), `None` reuses `proof_height`
+    /// - `payload` -- headers, `None` if already up to date
     #[instrument(skip_all, name = "build_dst_update_client", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     #[allow(clippy::type_complexity)]
     async fn build_dst_update_client_payload(
@@ -119,6 +118,10 @@ where
             .src_chain()
             .build_update_client_payload(&trusted_height, &src_height, &client_state)
             .await?;
+
+        if let Some(required_ts) = self.relay.src_chain().required_dst_timestamp_secs(&update_payload) {
+            super::wait_for_dst_timestamp::<R>(self.relay.dst_chain(), required_ts).await?;
+        }
 
         let proof_height = self
             .relay
@@ -255,8 +258,8 @@ where
         (messages, still_pending, membership_entries)
     }
 
-    /// Queries receipt on dst chain for in-flight packets past grace period.
-    /// Receipt exists → drop. No receipt → reset for re-classification.
+    /// Checks dst receipts for in-flight packets past the grace period.
+    /// Got a receipt? Drop it. No receipt? Reset and retry.
     #[instrument(skip_all, name = "confirm_in_flight", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     async fn confirm_in_flight(
         &self,
@@ -598,8 +601,6 @@ where
 
                         if packet_msgs.is_empty() {
                             if let Some(payload) = maybe_payload {
-                                // Intentionally log-and-continue rather than propagate:
-                                // transient build failures shouldn't kill the worker.
                                 let Ok(update_output) = self
                                     .build_dst_update_client_message(payload, &[])
                                     .await

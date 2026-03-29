@@ -535,15 +535,14 @@ impl<S: CosmosSigner> CosmosChain<S> {
 
         let hash = Hash::from_bytes(tendermint::hash::Algorithm::Sha256, &hex::decode(tx_hash)?)?;
 
-        let max_retries = MAX_TX_POLL_RETRIES;
         let poll_interval = self.block_time / 2;
         let mut last_err = eyre::eyre!("no attempts made");
 
-        for attempt in 1..=max_retries {
+        for attempt in 1..=MAX_TX_POLL_RETRIES {
             debug!(
                 tx_hash = %tx_hash,
-                attempt = attempt,
-                max_retries = max_retries,
+                attempt,
+                MAX_TX_POLL_RETRIES,
                 "polling for transaction"
             );
 
@@ -608,12 +607,12 @@ impl<S: CosmosSigner> CosmosChain<S> {
             }
         }
 
-        return Err(TxError::NotConfirmed {
+        Err(TxError::NotConfirmed {
             tx_hash: tx_hash.to_string(),
-            attempts: max_retries,
+            attempts: MAX_TX_POLL_RETRIES,
             reason: last_err.to_string(),
         }
-        .into());
+        .into())
     }
 }
 
