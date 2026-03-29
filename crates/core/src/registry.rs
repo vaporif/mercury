@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::plugin::{ChainPlugin, RelayPairPlugin};
 
+#[derive(Default)]
 pub struct ChainRegistry {
     chains: HashMap<&'static str, Box<dyn ChainPlugin>>,
     pairs: HashMap<(&'static str, &'static str), Box<dyn RelayPairPlugin>>,
@@ -10,10 +11,7 @@ pub struct ChainRegistry {
 impl ChainRegistry {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            chains: HashMap::new(),
-            pairs: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn register_chain(&mut self, plugin: impl ChainPlugin + 'static) {
@@ -38,11 +36,5 @@ impl ChainRegistry {
             .find(|((s, d), _)| *s == src_type && *d == dst_type)
             .map(|(_, v)| v.as_ref())
             .ok_or_else(|| eyre::eyre!("unsupported relay pair: {src_type} -> {dst_type}"))
-    }
-}
-
-impl Default for ChainRegistry {
-    fn default() -> Self {
-        Self::new()
     }
 }

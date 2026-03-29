@@ -38,17 +38,17 @@ impl<R: Relay> EventWatcher<R> {
         &self,
         block_events: &[<R::SrcChain as ChainTypes>::Event],
     ) -> Vec<IbcEvent<R>> {
-        let mut ibc_events = Vec::new();
-        for event in block_events {
-            if let Some(send) = <R::SrcChain as PacketEvents>::try_extract_send_packet_event(event)
-            {
-                ibc_events.push(IbcEvent::SendPacket(send));
-            } else if let Some(write_ack) =
-                <R::SrcChain as PacketEvents>::try_extract_write_ack_event(event)
-            {
-                ibc_events.push(IbcEvent::WriteAck(write_ack));
-            }
-        }
+        let mut ibc_events: Vec<IbcEvent<R>> = block_events
+            .iter()
+            .filter_map(|event| {
+                <R::SrcChain as PacketEvents>::try_extract_send_packet_event(event)
+                    .map(IbcEvent::SendPacket)
+                    .or_else(|| {
+                        <R::SrcChain as PacketEvents>::try_extract_write_ack_event(event)
+                            .map(IbcEvent::WriteAck)
+                    })
+            })
+            .collect();
 
         let pre_filter_count = ibc_events.len();
         let send_count = ibc_events

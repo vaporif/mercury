@@ -200,9 +200,8 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
             mercury_chain_traits::events::BlockEventStream<tendermint::block::Height, CosmosEvent>,
         >,
     > {
-        let ws_addr = match &self.config.ws_addr {
-            Some(addr) => addr.clone(),
-            None => return Ok(None),
+        let Some(ws_addr) = &self.config.ws_addr else {
+            return Ok(None);
         };
 
         let (client, driver) = WebSocketClient::new(ws_addr.as_str())

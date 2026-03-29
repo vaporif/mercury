@@ -27,7 +27,7 @@ impl Default for TelemetryConfig {
 }
 
 fn default_metrics_host() -> String {
-    "127.0.0.1".to_string()
+    String::from("127.0.0.1")
 }
 
 pub fn init(config: &TelemetryConfig) -> eyre::Result<()> {

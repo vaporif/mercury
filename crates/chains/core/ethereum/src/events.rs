@@ -164,12 +164,11 @@ impl PacketEvents for EthereumChain {
     async fn subscribe_block_events(
         &self,
     ) -> Result<Option<mercury_chain_traits::events::BlockEventStream<EvmHeight, EvmEvent>>> {
-        let ws_addr = match &self.config.ws_addr {
-            Some(addr) => addr.clone(),
-            None => return Ok(None),
+        let Some(ws_addr) = &self.config.ws_addr else {
+            return Ok(None);
         };
 
-        let ws = WsConnect::new(ws_addr);
+        let ws = WsConnect::new(ws_addr.clone());
         let ws_provider = alloy::providers::ProviderBuilder::new()
             .connect_ws(ws)
             .await

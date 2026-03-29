@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use mercury_chain_traits::types::{MessageSender, TxReceipt};
 use mercury_core::error::{Result, eyre};
 use tokio::sync::{mpsc, oneshot};
@@ -63,15 +65,11 @@ where
             );
         }
 
-        // eyre::Report is not Clone, so convert the error to a shareable string
-        // before broadcasting to all waiting callers.
-        let broadcast: Result<TxReceipt, String> = chain
-            .send_messages(all_messages)
-            .await
-            .map_err(|e| e.to_string());
+        let broadcast: std::result::Result<TxReceipt, Arc<eyre::Report>> =
+            chain.send_messages(all_messages).await.map_err(Arc::new);
 
         for response in responses {
-            let result = broadcast.clone().map_err(|msg| eyre!("{msg}"));
+            let result = broadcast.clone().map_err(|e| eyre!("{e}"));
             let _ = response.send(result);
         }
     }

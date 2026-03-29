@@ -185,10 +185,17 @@ async fn shutdown_signal() {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
-        let mut sigterm = signal(SignalKind::terminate()).expect("failed to register SIGTERM");
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            _ = sigterm.recv() => {}
+        match signal(SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = sigterm.recv() => {}
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to register SIGTERM handler, using ctrl-c only");
+                tokio::signal::ctrl_c().await.ok();
+            }
         }
     }
     #[cfg(not(unix))]

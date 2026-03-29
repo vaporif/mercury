@@ -187,8 +187,8 @@ fn solana_packet_to_v2(packet: &SolanaPacket) -> V2Packet {
             .payloads
             .iter()
             .map(|p| channel::Payload {
-                source_port: p.source_port.clone().into(),
-                destination_port: p.dest_port.clone().into(),
+                source_port: p.source_port.0.clone(),
+                destination_port: p.dest_port.0.clone(),
                 version: p.version.clone(),
                 encoding: p.encoding.clone(),
                 value: p.data.clone(),
