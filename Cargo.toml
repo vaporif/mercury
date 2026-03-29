@@ -16,8 +16,8 @@ members = [
   "crates/chains/relay-pairs/cosmos-solana",
   "crates/relay",
   "bin",
-  "crates/e2e",
-  "crates/e2e/mock-wasm-eth-lc",
+  "e2e",
+  "e2e/mock-wasm-eth-lc",
   "crates/telemetry",
 ]
 

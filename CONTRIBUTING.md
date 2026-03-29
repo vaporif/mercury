@@ -102,7 +102,7 @@ Start with the [Architecture](./docs/architecture.md) doc. It covers the trait h
 | `mercury-ethereum-counterparties` (`crates/chains/counterparties/ethereum`) | Ethereum adapter + cross-chain trait impls |
 | `mercury-cosmos-cosmos-relay` (`crates/chains/relay-pairs/cosmos-cosmos`) | Cosmos↔Cosmos relay pair plugin |
 | `mercury-cosmos-ethereum-relay` (`crates/chains/relay-pairs/cosmos-ethereum`) | Cosmos↔Ethereum relay pair plugin |
-| `mercury-e2e` (`crates/e2e`) | End-to-end tests |
+| `mercury-e2e` (`e2e`) | End-to-end tests |
 
 ### Entry points
 

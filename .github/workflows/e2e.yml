@@ -98,7 +98,7 @@ jobs:
             -o target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm
           gzip -kf target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm
           cp target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm.gz \
-            crates/e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
+            e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
 
       - name: Build relayer binary
         run: cargo build -p mercury-cli --release
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: mock-wasm-eth-lc
-          path: crates/e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
+          path: e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
 
       - name: Generate matrix
         id: matrix
@@ -176,7 +176,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: mock-wasm-eth-lc
-          path: crates/e2e/mock-wasm-eth-lc
+          path: e2e/mock-wasm-eth-lc
 
       - name: Download relayer binary
         uses: actions/download-artifact@v8
