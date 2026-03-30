@@ -54,7 +54,7 @@ futures = "0.3"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry", "fmt"] }
 axum = "0.8"
 
 mercury-core = { path = "crates/core" }
@@ -136,9 +136,11 @@ sp1-sdk = { version = "5.0", default-features = false, features = ["network"] }
 sp1-prover = { version = "5.0", default-features = false }
 ibc-eureka-solidity-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee", features = ["rpc"] }
 governor = "0.10.4"
-metrics = "0.24"
-metrics-exporter-prometheus = { version = "0.18", default-features = false, features = ["http-listener"] }
-metrics-process = "2.4"
+opentelemetry = { version = "0.31", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "metrics", "trace", "spec_unstable_metrics_views"] }
+opentelemetry-otlp = { version = "0.31", features = ["http-proto", "metrics", "trace", "reqwest-client"] }
+tracing-opentelemetry = "0.32"
+opentelemetry-system-metrics = "0.31"
 mercury-telemetry = { path = "crates/telemetry" }
 
 [profile.dev]

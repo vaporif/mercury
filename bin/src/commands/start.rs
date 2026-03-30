@@ -8,8 +8,12 @@ use mercury_core::plugin::{AnyChain, ChainId, DynRelay, DynRelayConfig};
 use mercury_core::registry::ChainRegistry;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::instrument;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
+use tracing_subscriber::EnvFilter;
 
+use crate::LogFormat;
 use crate::config::RelayConfig;
 use crate::registry::build_registry;
 
@@ -26,8 +30,8 @@ pub struct StartCmd {
 }
 
 impl StartCmd {
-    pub async fn run(self) -> eyre::Result<()> {
-        run_start(&self.config, self.health_port).await
+    pub async fn run(self, log_format: LogFormat) -> eyre::Result<()> {
+        run_start(&self.config, self.health_port, log_format).await
     }
 }
 
@@ -42,11 +46,13 @@ struct HealthChainEntry {
     chain: AnyChain,
 }
 
-#[instrument(skip_all, name = "run_start")]
-async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result<()> {
+async fn run_start(config_path: &Path, health_port: Option<u16>, log_format: LogFormat) -> eyre::Result<()> {
     let registry = build_registry();
     let cfg = crate::config::load_config(config_path, &registry)?;
-    mercury_telemetry::init(&cfg.telemetry)?;
+    let telemetry_guard = mercury_telemetry::init(&cfg.telemetry)?;
+
+    init_subscriber(log_format, &telemetry_guard);
+
     let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
 
     for relay in &cfg.relays {
@@ -136,7 +142,36 @@ async fn run_start(config_path: &Path, health_port: Option<u16>) -> eyre::Result
         }
     }
 
+    drop(telemetry_guard);
+
     Ok(())
+}
+
+fn init_subscriber(log_format: LogFormat, telemetry_guard: &mercury_telemetry::TelemetryGuard) {
+    let fmt_layer = match log_format {
+        LogFormat::Pretty => tracing_subscriber::fmt::layer()
+            .with_target(false)
+            .boxed(),
+        LogFormat::Json => tracing_subscriber::fmt::layer()
+            .json()
+            .boxed(),
+    };
+
+    let subscriber = tracing_subscriber::registry()
+        .with(EnvFilter::from_default_env())
+        .with(fmt_layer);
+
+    if let Some(otel_layer) = telemetry_guard.otel_layer() {
+        subscriber.with(otel_layer).init();
+    } else {
+        subscriber.init();
+    }
+
+    if telemetry_guard.is_enabled() {
+        tracing::info!("telemetry enabled (OTLP)");
+    } else {
+        tracing::info!("telemetry disabled (no otlp_endpoint configured)");
+    }
 }
 
 fn spawn_relay_pair(

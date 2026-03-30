@@ -60,9 +60,13 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub async fn run(self) -> eyre::Result<()> {
+    pub const fn is_start(&self) -> bool {
+        matches!(self, Self::Start(_))
+    }
+
+    pub async fn run(self, log_format: crate::LogFormat) -> eyre::Result<()> {
         match self {
-            Self::Start(cmd) => cmd.run().await,
+            Self::Start(cmd) => cmd.run(log_format).await,
             Self::Status(cmd) => cmd.run().await,
             Self::Config(cmd) => cmd.run().await,
             Self::HealthCheck(cmd) => cmd.run().await,

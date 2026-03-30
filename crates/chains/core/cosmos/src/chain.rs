@@ -27,6 +27,9 @@ pub struct CosmosChain<S: CosmosSigner> {
     pub block_time: Duration,
     pub rpc_guard: mercury_core::rpc_guard::RpcGuard,
     pub dynamic_gas_backend: Arc<OnceLock<crate::gas::DynamicGasBackend>>,
+    /// Lives here (rather than in a relay worker) because gas price resolution
+    /// happens inside `estimate_fee_with_nonce`, which only `CosmosChain` owns.
+    pub gas_metrics: mercury_telemetry::recorder::GasMetrics,
     label: mercury_core::ChainLabel,
 }
 
@@ -86,6 +89,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
 
         let name = config.chain_name.as_deref().unwrap_or("cosmos");
         let label = mercury_core::ChainLabel::with_id(name, chain_id.to_string());
+        let gas_metrics = mercury_telemetry::recorder::GasMetrics::new(&label);
         Ok(Self {
             block_time: config.block_time,
             config,
@@ -95,6 +99,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
             signer,
             rpc_guard,
             dynamic_gas_backend: Arc::new(OnceLock::new()),
+            gas_metrics,
             label,
         })
     }

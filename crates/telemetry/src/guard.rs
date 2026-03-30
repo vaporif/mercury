@@ -1,4 +1,5 @@
-use metrics::gauge;
+use opentelemetry::metrics::UpDownCounter;
+use opentelemetry::{global, KeyValue};
 
 use mercury_core::ChainLabel;
 
@@ -6,15 +7,19 @@ use crate::metric;
 
 /// RAII guard that increments the worker gauge on creation and decrements on drop.
 pub struct WorkerGuard {
-    labels: Vec<(&'static str, String)>,
+    attrs: Vec<KeyValue>,
+    counter: UpDownCounter<i64>,
 }
 
 impl WorkerGuard {
     #[must_use]
     pub fn new(worker_type: &'static str) -> Self {
-        let labels = vec![("type", worker_type.to_owned())];
-        gauge!(metric::worker::WORKERS, &labels).increment(1.0);
-        Self { labels }
+        let attrs = vec![KeyValue::new("type", worker_type)];
+        let counter = global::meter("mercury_telemetry")
+            .i64_up_down_counter(metric::worker::WORKERS)
+            .build();
+        counter.add(1, &attrs);
+        Self { attrs, counter }
     }
 
     #[must_use]
@@ -23,18 +28,25 @@ impl WorkerGuard {
         chain: &ChainLabel,
         counterparty: Option<&ChainLabel>,
     ) -> Self {
-        let mut labels = vec![("type", worker_type.to_owned())];
-        labels.extend(chain.metric_labels());
-        if let Some(cp) = counterparty {
-            labels.extend(cp.counterparty_metric_labels());
+        let mut attrs = vec![KeyValue::new("type", worker_type)];
+        for (k, v) in chain.metric_labels() {
+            attrs.push(KeyValue::new(k, v));
         }
-        gauge!(metric::worker::WORKERS, &labels).increment(1.0);
-        Self { labels }
+        if let Some(cp) = counterparty {
+            for (k, v) in cp.counterparty_metric_labels() {
+                attrs.push(KeyValue::new(k, v));
+            }
+        }
+        let counter = global::meter("mercury_telemetry")
+            .i64_up_down_counter(metric::worker::WORKERS)
+            .build();
+        counter.add(1, &attrs);
+        Self { attrs, counter }
     }
 }
 
 impl Drop for WorkerGuard {
     fn drop(&mut self) {
-        gauge!(metric::worker::WORKERS, &self.labels).decrement(1.0);
+        self.counter.add(-1, &self.attrs);
     }
 }

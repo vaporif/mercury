@@ -16,6 +16,7 @@ workspace = true
 [dependencies]
 mercury-core = { workspace = true }
 mercury-chain-traits = { workspace = true }
+mercury-telemetry = { workspace = true }
 
 async-trait = { workspace = true }
 tokio = { workspace = true }

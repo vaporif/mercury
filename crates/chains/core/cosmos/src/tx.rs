@@ -442,7 +442,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
         let gas_limit = adjust_gas(gas_used, gas_multiplier, self.config.max_gas).max(tx_size_gas);
 
         let gas_price_amount = if let Some(ref dgp) = self.config.dynamic_gas_price {
-            crate::gas::resolve_gas_price(
+            let price = crate::gas::resolve_gas_price(
                 self.grpc_channel.clone(),
                 &self.config.gas_price.denom,
                 self.config.gas_price.amount,
@@ -450,7 +450,9 @@ impl<S: CosmosSigner> CosmosChain<S> {
                 &self.dynamic_gas_backend,
                 &self.rpc_guard,
             )
-            .await
+            .await;
+            self.gas_metrics.record_gas_price(price);
+            price
         } else {
             self.config.gas_price.amount
         };

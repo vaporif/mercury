@@ -3,7 +3,6 @@ pub mod client;
 pub mod event;
 pub mod gas;
 pub mod packet;
-pub mod proof;
 pub mod query;
 pub mod tx;
 pub mod wallet;

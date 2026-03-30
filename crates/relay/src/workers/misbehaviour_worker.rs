@@ -198,7 +198,7 @@ mod tests {
             relay: Arc::new(relay),
             token: CancellationToken::new(),
             scan_interval: Duration::from_millis(10),
-            metrics: MisbehaviourMetrics::new(mercury_core::ChainLabel::new("mock")),
+            metrics: MisbehaviourMetrics::new(&mercury_core::ChainLabel::new("mock")),
         };
 
         (worker, src_state, dst_state)
