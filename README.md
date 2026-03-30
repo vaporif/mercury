@@ -40,6 +40,7 @@ Each relay direction (A→B, B→A) runs its own workers connected by `tokio::mp
 - [Architecture](./docs/architecture.md) - trait hierarchy, crate layout, worker pipeline
 - [IBC v2](./docs/ibc-v2.md) - Eureka protocol changes vs v1
 - [Adding a new chain](./docs/adding-a-chain.md) - step by step
+- [Feature parity](./docs/feature-parity.md) - Mercury vs Hermes comparison
 
 ## Usage
 

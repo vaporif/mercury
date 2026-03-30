@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use mercury_chain_cache::CachedChain;
 use mercury_chain_traits::builders::{ClientMessageBuilder, ClientPayloadBuilder};
 use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
-use mercury_chain_traits::types::ChainTypes;
+use mercury_chain_traits::types::{ChainTypes, MessageSender};
 use mercury_core::plugin::{
     self, AnyChain, ChainId, ChainPlugin, ChainStatusInfo, ClientStateInfo, DynRelayConfig,
 };
@@ -242,6 +242,81 @@ impl ChainPlugin for CosmosPlugin {
         let sequences =
             PacketStateQuery::query_commitment_sequences(c, &parsed_id, &query_height).await?;
         Ok(sequences.into_iter().map(u64::from).collect())
+    }
+
+    async fn build_update_client_payload(
+        &self,
+        chain: &AnyChain,
+        trusted_height: u64,
+        target_height: u64,
+        _counterparty_client_state: Option<&(dyn Any + Send + Sync)>,
+    ) -> eyre::Result<Box<dyn Any + Send + Sync>> {
+        let c = downcast_cosmos(chain)?;
+
+        let trusted = tendermint::block::Height::try_from(trusted_height)?;
+        let target = tendermint::block::Height::try_from(target_height)?;
+
+        let payload =
+            ClientPayloadBuilder::<CosmosAdapter<Secp256k1KeyPair>>::build_update_client_payload(
+                c,
+                &trusted,
+                &target,
+                &CosmosClientState::placeholder(),
+            )
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        Ok(Box::new(payload))
+    }
+
+    async fn update_client(
+        &self,
+        chain: &AnyChain,
+        client_id: &str,
+        payload: Box<dyn Any + Send + Sync>,
+    ) -> eyre::Result<()> {
+        let c = downcast_cosmos(chain)?;
+        let parsed_id = parse_cosmos_client_id(client_id)?;
+
+        #[cfg(feature = "ethereum-beacon")]
+        if let Some(eth_payload) =
+            payload.downcast_ref::<mercury_ethereum::builders::UpdateClientPayload>()
+        {
+            let output =
+                ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_update_client_message(
+                    c,
+                    &parsed_id,
+                    eth_payload.clone(),
+                )
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+            c.inner()
+                .0
+                .send_messages(output.messages)
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+            return Ok(());
+        }
+
+        if let Some(cosmos_payload) =
+            payload.downcast_ref::<crate::builders::CosmosUpdateClientPayload>()
+        {
+            let output =
+                ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_update_client_message(
+                    c,
+                    &parsed_id,
+                    cosmos_payload.clone(),
+                )
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+            c.inner()
+                .0
+                .send_messages(output.messages)
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+            return Ok(());
+        }
+
+        eyre::bail!("unsupported reference chain payload type for cosmos host");
     }
 }
 
