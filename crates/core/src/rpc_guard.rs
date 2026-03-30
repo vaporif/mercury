@@ -69,9 +69,8 @@ pub struct RpcGuard {
 }
 
 impl RpcGuard {
-    /// # Panics
-    /// This function will not panic in practice; the fallback ensures a valid `NonZeroU32`.
     #[must_use]
+    #[allow(clippy::missing_panics_doc)]
     pub fn new(chain_id: &str, config: RpcConfig) -> Self {
         let quota = Quota::per_second(
             NonZeroU32::new(config.rate_limit.try_into().unwrap_or(u32::MAX))

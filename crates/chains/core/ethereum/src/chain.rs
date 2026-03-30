@@ -303,6 +303,7 @@ impl ClientMessageBuilder<Self> for EthereumChain {
             .map(to_sol_merkle_prefix)
             .unwrap_or_default();
 
+        // Starts empty; populated by migrateClient later.
         let call = ICS26Router::addClient_1Call {
             counterpartyInfo: IICS02ClientMsgs::CounterpartyInfo {
                 clientId: payload.counterparty_client_id.unwrap_or_default(),

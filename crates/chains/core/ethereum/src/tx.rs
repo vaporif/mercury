@@ -126,7 +126,7 @@ impl EthereumChain {
             .logs()
             .iter()
             .map(EvmEvent::from_alloy_log)
-            .collect();
+            .collect::<eyre::Result<Vec<_>>>()?;
 
         Ok(EvmTxResponse {
             tx_hash,

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 use mercury_chain_traits::events::{BlockEvents, PacketEvents};
-use mercury_core::error::Result;
+use mercury_core::error::{Result, WrapErr as _};
 use prost::Message as _;
 use tendermint_rpc::event::EventData;
 use tendermint_rpc::query::EventType;
@@ -276,14 +276,14 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
 
         let (client, driver) = WebSocketClient::new(ws_addr.as_str())
             .await
-            .map_err(|e| eyre::eyre!("websocket connect failed: {e}"))?;
+            .wrap_err("websocket connect failed")?;
 
         tokio::spawn(driver.run());
 
         let subscription = client
             .subscribe(tendermint_rpc::query::Query::from(EventType::Tx))
             .await
-            .map_err(|e| eyre::eyre!("websocket subscription failed: {e}"))?;
+            .wrap_err("websocket subscription failed")?;
 
         let flush_timeout = self.config.block_time * 2;
         Ok(Some(Box::pin(cosmos_ws_stream(
@@ -396,19 +396,42 @@ mod tests {
 
     type TestChain = CosmosChain<Secp256k1KeyPair>;
 
+    macro_rules! attrs {
+        ($($k:expr => $v:expr),* $(,)?) => {
+            vec![$(($k.to_string(), $v.to_string())),*]
+        };
+    }
+
+    fn test_payload(port: &str, version: &str, encoding: &str, data: &[u8]) -> Payload {
+        Payload {
+            source_port: port.to_string(),
+            destination_port: port.to_string(),
+            version: version.to_string(),
+            encoding: encoding.to_string(),
+            value: data.to_vec(),
+        }
+    }
+
+    fn test_packet(seq: u64, timeout: u64, payloads: Vec<Payload>) -> Packet {
+        Packet {
+            sequence: seq,
+            source_client: "07-tendermint-0".to_string(),
+            destination_client: "07-tendermint-1".to_string(),
+            timeout_timestamp: timeout,
+            payloads,
+        }
+    }
+
     #[test]
     fn get_attr_finds_existing_key() {
-        let attrs = vec![
-            ("foo".to_string(), "bar".to_string()),
-            ("baz".to_string(), "qux".to_string()),
-        ];
+        let attrs = attrs!["foo" => "bar", "baz" => "qux"];
         assert_eq!(get_attr(&attrs, "foo"), Some("bar"));
         assert_eq!(get_attr(&attrs, "baz"), Some("qux"));
     }
 
     #[test]
     fn get_attr_returns_none_for_missing_key() {
-        let attrs = vec![("foo".to_string(), "bar".to_string())];
+        let attrs = attrs!["foo" => "bar"];
         assert_eq!(get_attr(&attrs, "missing"), None);
     }
 
@@ -420,19 +443,16 @@ mod tests {
 
     #[test]
     fn v2_packet_to_cosmos_valid_packet() {
-        let pkt = Packet {
-            sequence: 42,
-            source_client: "07-tendermint-0".to_string(),
-            destination_client: "07-tendermint-1".to_string(),
-            timeout_timestamp: 1_700_000_000,
-            payloads: vec![Payload {
-                source_port: "transfer".to_string(),
-                destination_port: "transfer".to_string(),
-                version: "ics20-1".to_string(),
-                encoding: "application/json".to_string(),
-                value: b"hello".to_vec(),
-            }],
-        };
+        let pkt = test_packet(
+            42,
+            1_700_000_000,
+            vec![test_payload(
+                "transfer",
+                "ics20-1",
+                "application/json",
+                b"hello",
+            )],
+        );
 
         let result = v2_packet_to_cosmos(pkt);
         assert_eq!(result.sequence, PacketSequence(42));
@@ -464,24 +484,16 @@ mod tests {
 
     #[test]
     fn try_extract_send_packet_event_valid() {
-        let packet = Packet {
-            sequence: 7,
-            source_client: "07-tendermint-0".to_string(),
-            destination_client: "07-tendermint-1".to_string(),
-            timeout_timestamp: 999,
-            payloads: vec![Payload {
-                source_port: "transfer".to_string(),
-                destination_port: "transfer".to_string(),
-                version: "ics20-1".to_string(),
-                encoding: "json".to_string(),
-                value: b"data".to_vec(),
-            }],
-        };
+        let packet = test_packet(
+            7,
+            999,
+            vec![test_payload("transfer", "ics20-1", "json", b"data")],
+        );
         let hex_encoded = hex::encode(packet.encode_to_vec());
 
         let event = CosmosEvent {
             kind: "send_packet".to_string(),
-            attributes: vec![(ENCODED_PACKET_HEX.to_string(), hex_encoded)],
+            attributes: attrs![ENCODED_PACKET_HEX => hex_encoded],
         };
 
         let result = TestChain::try_extract_send_packet_event(&event);
@@ -501,34 +513,20 @@ mod tests {
 
     #[test]
     fn try_extract_write_ack_event_valid() {
-        let packet = Packet {
-            sequence: 3,
-            source_client: "07-tendermint-0".to_string(),
-            destination_client: "07-tendermint-1".to_string(),
-            timeout_timestamp: 500,
-            payloads: vec![Payload {
-                source_port: "transfer".to_string(),
-                destination_port: "transfer".to_string(),
-                version: "ics20-1".to_string(),
-                encoding: "json".to_string(),
-                value: b"payload".to_vec(),
-            }],
-        };
+        let packet = test_packet(
+            3,
+            500,
+            vec![test_payload("transfer", "ics20-1", "json", b"payload")],
+        );
         let ack = Acknowledgement {
             app_acknowledgements: vec![b"ack_data".to_vec()],
         };
 
         let event = CosmosEvent {
             kind: "write_acknowledgement".to_string(),
-            attributes: vec![
-                (
-                    ENCODED_PACKET_HEX.to_string(),
-                    hex::encode(packet.encode_to_vec()),
-                ),
-                (
-                    "encoded_acknowledgement_hex".to_string(),
-                    hex::encode(ack.encode_to_vec()),
-                ),
+            attributes: attrs![
+                ENCODED_PACKET_HEX => hex::encode(packet.encode_to_vec()),
+                "encoded_acknowledgement_hex" => hex::encode(ack.encode_to_vec()),
             ],
         };
 

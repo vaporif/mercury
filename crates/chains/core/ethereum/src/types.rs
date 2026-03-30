@@ -1,5 +1,6 @@
 use alloy::primitives::{Address, B256, U256};
 use alloy::rpc::types::Log;
+use eyre::{OptionExt, Result};
 
 use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
 
@@ -119,15 +120,15 @@ pub struct EvmEvent {
 }
 
 impl EvmEvent {
-    pub fn from_alloy_log(log: &Log) -> Self {
-        Self {
+    pub fn from_alloy_log(log: &Log) -> Result<Self> {
+        Ok(Self {
             address: log.address(),
             topics: log.topics().to_vec(),
             data: log.data().data.to_vec(),
-            block_number: BlockNumber(log.block_number.unwrap_or(0)),
-            tx_hash: log.transaction_hash.unwrap_or_default(),
-            log_index: LogIndex(log.log_index.unwrap_or(0)),
-        }
+            block_number: BlockNumber(log.block_number.ok_or_eyre("missing block_number")?),
+            tx_hash: log.transaction_hash.ok_or_eyre("missing tx_hash")?,
+            log_index: LogIndex(log.log_index.ok_or_eyre("missing log_index")?),
+        })
     }
 }
 
