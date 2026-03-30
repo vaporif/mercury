@@ -163,8 +163,7 @@ impl MessageSender for MockChain {
         &self,
         messages: Vec<Self::Message>,
     ) -> Result<mercury_chain_traits::types::TxReceipt> {
-        let mut state = self.state.lock().unwrap();
-        state.messages_sent.extend(messages);
+        self.state.lock().unwrap().messages_sent.extend(messages);
         Ok(mercury_chain_traits::types::TxReceipt {
             gas_used: None,
             confirmed_at: std::time::Instant::now(),

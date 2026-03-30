@@ -66,11 +66,11 @@ pub struct RelayConfig {
     pub excluded_sequences: Vec<u64>,
 }
 
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
 }
 
-fn default_clear_limit() -> usize {
+const fn default_clear_limit() -> usize {
     50
 }
 

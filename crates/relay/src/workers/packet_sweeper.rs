@@ -110,7 +110,13 @@ impl<R: Relay> PacketSweeper<R> {
             }
         }
 
-        let ack_budget = self.clear_limit.saturating_sub(recv_unrelayed.len());
+        // Reserve at least 25% of the limit for acks so recv-heavy states don't
+        // permanently starve ack sweeping.
+        let min_ack_budget = self.clear_limit / 4;
+        let ack_budget = self
+            .clear_limit
+            .saturating_sub(recv_unrelayed.len())
+            .max(min_ack_budget);
 
         let (ack_unrelayed, ack_excluded) = if ack_budget > 0 {
             discover_unrelayed_acks(

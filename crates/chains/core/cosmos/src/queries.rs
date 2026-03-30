@@ -312,7 +312,7 @@ async fn paginated_packet_sequences<S: CosmosSigner>(
                 let bytes = hex::decode(hex_str).ok()?;
                 let pkt =
                     ibc_proto::ibc::core::channel::v2::Packet::decode(bytes.as_slice()).ok()?;
-                (client_field(&pkt) == client_id.as_str()).then(|| PacketSequence(pkt.sequence))
+                (client_field(&pkt) == client_id.as_str()).then_some(PacketSequence(pkt.sequence))
             });
 
         sequences.extend(matched);
