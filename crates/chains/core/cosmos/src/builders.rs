@@ -19,6 +19,7 @@ use tracing::instrument;
 
 use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder, UpdateClientOutput,
+    UpgradeClientPayload,
 };
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::MembershipProofs;
@@ -36,7 +37,7 @@ use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgeme
 
 const DEFAULT_TRUSTING_PERIOD: Duration = Duration::from_secs(14 * 24 * 3600);
 const DEFAULT_UNBONDING_PERIOD: Duration = Duration::from_secs(21 * 24 * 3600);
-const DEFAULT_MAX_CLOCK_DRIFT: Duration = Duration::from_secs(40);
+pub(crate) const DEFAULT_MAX_CLOCK_DRIFT: Duration = Duration::from_secs(40);
 
 /// Payload for creating a Tendermint light client on a counterparty chain.
 #[derive(Clone, Debug)]
@@ -211,6 +212,83 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
             membership_proofs: MembershipProofs::new(),
         })
     }
+
+    #[instrument(skip_all, name = "build_upgrade_client_payload", fields(chain = %self.chain_label()))]
+    async fn build_upgrade_client_payload(&self) -> Result<Option<UpgradeClientPayload>> {
+        use ibc_proto::cosmos::upgrade::v1beta1::{
+            QueryCurrentPlanRequest, query_client::QueryClient as UpgradeQueryClient,
+        };
+
+        let plan_response = self
+            .rpc_guard
+            .guarded(|| async {
+                UpgradeQueryClient::new(self.grpc_channel.clone())
+                    .current_plan(QueryCurrentPlanRequest {})
+                    .await
+                    .map(tonic::Response::into_inner)
+                    .map_err(Into::into)
+            })
+            .await?;
+
+        let plan = match plan_response.plan {
+            Some(plan) if plan.height > 0 => plan,
+            _ => return Ok(None),
+        };
+
+        let latest_status = self
+            .rpc_guard
+            .guarded(|| async { self.rpc_client.status().await.map_err(Into::into) })
+            .await?;
+        let latest_height = latest_status.sync_info.latest_block_height.value();
+
+        if latest_height < plan.height.cast_unsigned() {
+            return Ok(None);
+        }
+
+        tracing::info!(plan_height = plan.height, "source chain upgrade detected");
+
+        let proof_height = Some(
+            TmHeight::try_from(latest_height)
+                .map_err(|e| eyre::eyre!("invalid proof height: {e}"))?,
+        );
+
+        let client_key = format!("upgradedIBCState/{}/upgradedClient", plan.height);
+        let client_resp = crate::queries::query_abci(
+            &self.rpc_client,
+            &self.rpc_guard,
+            "store/upgrade/key",
+            client_key.into_bytes(),
+            proof_height,
+            true,
+        )
+        .await?;
+
+        if client_resp.value.is_empty() {
+            return Ok(None);
+        }
+
+        let cons_key = format!("upgradedIBCState/{}/upgradedConsState", plan.height);
+        let cons_resp = crate::queries::query_abci(
+            &self.rpc_client,
+            &self.rpc_guard,
+            "store/upgrade/key",
+            cons_key.into_bytes(),
+            proof_height,
+            true,
+        )
+        .await?;
+
+        let proof_client = crate::queries::extract_proof(&client_resp)?.proof_bytes;
+        let proof_consensus = crate::queries::extract_proof(&cons_resp)?.proof_bytes;
+
+        Ok(Some(UpgradeClientPayload {
+            plan_height: plan.height,
+            upgraded_client_state: client_resp.value,
+            upgraded_consensus_state: cons_resp.value,
+            proof_upgrade_client: proof_client,
+            proof_upgrade_consensus_state: proof_consensus,
+        }))
+    }
 }
 
 fn find_proposer(
@@ -282,6 +360,33 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
         };
 
         Ok(to_any(&msg))
+    }
+
+    #[instrument(skip_all, name = "build_upgrade_client_message", fields(chain = %self.chain_label(), client_id = %client_id))]
+    async fn build_upgrade_client_message(
+        &self,
+        client_id: &Self::ClientId,
+        payload: UpgradeClientPayload,
+    ) -> Result<Vec<CosmosMessage>> {
+        use ibc_proto::ibc::core::client::v1::MsgUpgradeClient;
+
+        let client_state = prost::Message::decode(payload.upgraded_client_state.as_slice())
+            .map_err(|e| eyre::eyre!("failed to decode upgraded client state: {e}"))?;
+
+        let consensus_state =
+            prost::Message::decode(payload.upgraded_consensus_state.as_slice())
+                .map_err(|e| eyre::eyre!("failed to decode upgraded consensus state: {e}"))?;
+
+        let msg = MsgUpgradeClient {
+            client_id: client_id.to_string(),
+            client_state: Some(client_state),
+            consensus_state: Some(consensus_state),
+            proof_upgrade_client: payload.proof_upgrade_client,
+            proof_upgrade_consensus_state: payload.proof_upgrade_consensus_state,
+            signer: self.signer.account_address()?,
+        };
+
+        Ok(vec![to_any(&msg)])
     }
 }
 

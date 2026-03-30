@@ -555,6 +555,9 @@ where
 
             let mut deliverable = Vec::new();
             let mut timed_out = Vec::new();
+            let mut drift_zone = Vec::new();
+
+            let drift_secs = self.relay.dst_chain().max_clock_drift().as_secs();
 
             for ps in new_sends {
                 let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
@@ -564,10 +567,19 @@ where
                     let seq = <SrcChain<R> as IbcTypes>::packet_sequence(pkt);
                     debug!(%seq, "packet timed out, will relay timeout");
                     timed_out.push(ps);
+                } else if ts_secs > 0 && dst_timestamp_secs.saturating_add(drift_secs) >= ts_secs {
+                    let seq = <SrcChain<R> as IbcTypes>::packet_sequence(pkt);
+                    debug!(%seq, "packet in drift zone (drift buffer {drift_secs}s), deferring");
+                    drift_zone.push(ps);
                 } else {
                     deliverable.push(ps);
                 }
             }
+
+            // Packets in the drift zone are too close to timeout to deliver safely,
+            // but the destination chain hasn't reached the timeout yet. Keep them
+            // pending so they get re-evaluated on the next loop iteration.
+            pending.extend(drift_zone);
 
             self.metrics
                 .record_backlog(in_flight.len() + deliverable.len() + timed_out.len());

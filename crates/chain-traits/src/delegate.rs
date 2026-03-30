@@ -69,6 +69,9 @@ macro_rules! delegate_chain {
             fn block_time(&self) -> ::std::time::Duration {
                 self.0.block_time()
             }
+            fn max_clock_drift(&self) -> ::std::time::Duration {
+                self.0.max_clock_drift()
+            }
             fn chain_id(&self) -> &Self::ChainId {
                 self.0.chain_id()
             }
@@ -333,6 +336,16 @@ macro_rules! delegate_chain {
             ) {
                 self.0.finalize_batch(update_output, packet_messages);
             }
+
+            async fn build_upgrade_client_message(
+                &self,
+                client_id: &Self::ClientId,
+                payload: $crate::builders::UpgradeClientPayload,
+            ) -> $crate::_mercury_core::error::Result<Vec<Self::Message>> {
+                self.0
+                    .build_upgrade_client_message(client_id, payload)
+                    .await
+            }
         }
 
         #[$crate::_async_trait::async_trait]
@@ -504,6 +517,14 @@ macro_rules! delegate_chain {
             ) -> Option<u64> {
                 self.0.required_dst_timestamp_secs(payload)
             }
+
+            async fn build_upgrade_client_payload(
+                &self,
+            ) -> $crate::_mercury_core::error::Result<
+                Option<$crate::builders::UpgradeClientPayload>,
+            > {
+                self.0.build_upgrade_client_payload().await
+            }
         }
     };
     (@cpb [] $Wrapper:ty, $Inner:ty) => {
@@ -561,6 +582,14 @@ macro_rules! delegate_chain {
                 payload: &Self::UpdateClientPayload,
             ) -> Option<u64> {
                 self.0.required_dst_timestamp_secs(payload)
+            }
+
+            async fn build_upgrade_client_payload(
+                &self,
+            ) -> $crate::_mercury_core::error::Result<
+                Option<$crate::builders::UpgradeClientPayload>,
+            > {
+                self.0.build_upgrade_client_payload().await
             }
         }
     };

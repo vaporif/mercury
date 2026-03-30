@@ -186,6 +186,7 @@ where
             metrics: ClientMetrics::new(src_label.clone())
                 .with_counterparty(dst_label.clone())
                 .with_client_id(self.dst_client_id.to_string()),
+            last_upgrade_plan_height: None,
         };
 
         let packet_worker = PacketWorker {
