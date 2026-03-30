@@ -10,7 +10,7 @@ mod registry;
 use commands::Commands;
 
 #[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
-enum LogFormat {
+pub enum LogFormat {
     #[default]
     Pretty,
     Json,
@@ -31,20 +31,22 @@ async fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     let cli = Cli::parse();
 
-    match cli.log_format {
-        LogFormat::Pretty => {
-            tracing_subscriber::fmt()
-                .with_env_filter(EnvFilter::from_default_env())
-                .with_target(false)
-                .init();
-        }
-        LogFormat::Json => {
-            tracing_subscriber::fmt()
-                .with_env_filter(EnvFilter::from_default_env())
-                .json()
-                .init();
+    if !cli.command.is_start() {
+        match cli.log_format {
+            LogFormat::Pretty => {
+                tracing_subscriber::fmt()
+                    .with_env_filter(EnvFilter::from_default_env())
+                    .with_target(false)
+                    .init();
+            }
+            LogFormat::Json => {
+                tracing_subscriber::fmt()
+                    .with_env_filter(EnvFilter::from_default_env())
+                    .json()
+                    .init();
+            }
         }
     }
 
-    cli.command.run().await
+    cli.command.run(cli.log_format).await
 }

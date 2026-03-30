@@ -258,6 +258,31 @@ where
         (messages, still_pending, membership_entries)
     }
 
+    fn record_backlog_metrics(
+        &self,
+        in_flight: &[PendingSend<SendEvent<R>>],
+        deliverable: &[PendingSend<SendEvent<R>>],
+        timed_out: &[PendingSend<SendEvent<R>>],
+    ) {
+        type SrcChain<R> = <R as Relay>::SrcChain;
+        let total = in_flight.len() + deliverable.len() + timed_out.len();
+        self.metrics.record_backlog(total);
+
+        let oldest = in_flight
+            .iter()
+            .chain(deliverable.iter())
+            .chain(timed_out.iter())
+            .map(|ps| {
+                let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
+                u64::from(<SrcChain<R> as IbcTypes>::packet_sequence(pkt))
+            })
+            .min();
+
+        if let Some(seq) = oldest {
+            self.metrics.record_oldest_sequence(seq);
+        }
+    }
+
     /// Checks dst receipts for in-flight packets past the grace period.
     /// Got a receipt? Drop it. No receipt? Reset and retry.
     #[instrument(skip_all, name = "confirm_in_flight", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
@@ -581,8 +606,7 @@ where
             // pending so they get re-evaluated on the next loop iteration.
             pending.extend(drift_zone);
 
-            self.metrics
-                .record_backlog(in_flight.len() + deliverable.len() + timed_out.len());
+            self.record_backlog_metrics(&in_flight, &deliverable, &timed_out);
 
             if !deliverable.is_empty() || !write_acks.is_empty() {
                 match self.build_dst_update_client_payload().await {

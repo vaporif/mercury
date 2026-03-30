@@ -176,15 +176,15 @@ where
             token: pipeline_token.clone(),
             start_height,
             packet_filter: config.packet_filter.clone(),
-            metrics: EventMetrics::new(src_label.clone()).with_counterparty(dst_label.clone()),
+            metrics: EventMetrics::new(&src_label).with_counterparty(&dst_label),
         };
 
         let client_refresh = ClientRefreshWorker {
             relay: Arc::clone(self),
             sender: tx_req_tx.clone(),
             token: pipeline_token.clone(),
-            metrics: ClientMetrics::new(src_label.clone())
-                .with_counterparty(dst_label.clone())
+            metrics: ClientMetrics::new(&src_label)
+                .with_counterparty(&dst_label)
                 .with_client_id(self.dst_client_id.to_string()),
             last_upgrade_plan_height: None,
         };
@@ -195,23 +195,21 @@ where
             sender: tx_req_tx,
             src_sender: src_tx_req_tx,
             token: pipeline_token.clone(),
-            metrics: PacketMetrics::new(src_label.clone()).with_counterparty(dst_label.clone()),
+            metrics: PacketMetrics::new(&src_label).with_counterparty(&dst_label),
         };
 
         let tx_worker = TxWorker {
             relay: Arc::clone(self),
             receiver: tx_req_rx,
             token: pipeline_token.clone(),
-            metrics: TxMetrics::new(TxDirection::Dst, dst_label.clone())
-                .with_counterparty(src_label.clone()),
+            metrics: TxMetrics::new(TxDirection::Dst, &dst_label).with_counterparty(&src_label),
         };
 
         let src_tx_worker = SrcTxWorker {
             relay: Arc::clone(self),
             receiver: src_tx_req_rx,
             token: pipeline_token.clone(),
-            metrics: TxMetrics::new(TxDirection::Src, src_label.clone())
-                .with_counterparty(dst_label.clone()),
+            metrics: TxMetrics::new(TxDirection::Src, &src_label).with_counterparty(&dst_label),
         };
 
         let event_watcher_handle = spawn_worker(event_watcher);
@@ -229,8 +227,7 @@ where
                     token: pipeline_token.clone(),
                     interval,
                     packet_filter: config.packet_filter.clone(),
-                    metrics: SweepMetrics::new(src_label.clone())
-                        .with_counterparty(dst_label.clone()),
+                    metrics: SweepMetrics::new(&src_label).with_counterparty(&dst_label),
                 };
                 spawn_worker(packet_sweeper)
             },
@@ -243,8 +240,8 @@ where
                     relay: Arc::clone(self),
                     token: pipeline_token.clone(),
                     scan_interval: interval,
-                    metrics: MisbehaviourMetrics::new(src_label.clone())
-                        .with_counterparty(dst_label.clone())
+                    metrics: MisbehaviourMetrics::new(&src_label)
+                        .with_counterparty(&dst_label)
                         .with_client_id(self.dst_client_id.to_string()),
                 };
                 spawn_worker(misbehaviour_worker)

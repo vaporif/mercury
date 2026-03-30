@@ -6,7 +6,8 @@ use std::time::Duration;
 use governor::clock::DefaultClock;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter};
-use metrics::{Counter, Histogram, counter, histogram};
+use opentelemetry::metrics::{Counter, Histogram};
+use opentelemetry::{KeyValue, global};
 
 use crate::error::{Result, RpcError};
 
@@ -59,11 +60,12 @@ pub struct RpcGuard {
     config: RpcConfig,
     rate_limiter: Arc<GovernorLimiter>,
     chain_id: Arc<str>,
-    m_requests: Counter,
-    m_errors: Counter,
-    m_timeouts: Counter,
-    m_duration: Histogram,
-    m_rate_wait: Histogram,
+    chain_attrs: Vec<KeyValue>,
+    m_requests: Counter<u64>,
+    m_errors: Counter<u64>,
+    m_timeouts: Counter<u64>,
+    m_duration: Histogram<f64>,
+    m_rate_wait: Histogram<f64>,
 }
 
 impl RpcGuard {
@@ -76,15 +78,18 @@ impl RpcGuard {
                 .unwrap_or(NonZeroU32::new(1).expect("1 is non-zero")),
         );
         let chain: Arc<str> = chain_id.into();
+        let m = global::meter("mercury_core");
+        let chain_attr = vec![KeyValue::new("chain", chain.to_string())];
         Self {
             config,
             rate_limiter: Arc::new(RateLimiter::direct(quota)),
-            m_requests: counter!(RPC_REQUESTS_TOTAL, "chain" => chain.clone()),
-            m_errors: counter!(RPC_ERRORS_TOTAL, "chain" => chain.clone()),
-            m_timeouts: counter!(RPC_TIMEOUTS_TOTAL, "chain" => chain.clone()),
-            m_duration: histogram!(RPC_REQUEST_DURATION_MS, "chain" => chain.clone()),
-            m_rate_wait: histogram!(RPC_RATE_LIMIT_WAIT_MS, "chain" => chain.clone()),
+            m_requests: m.u64_counter(RPC_REQUESTS_TOTAL).build(),
+            m_errors: m.u64_counter(RPC_ERRORS_TOTAL).build(),
+            m_timeouts: m.u64_counter(RPC_TIMEOUTS_TOTAL).build(),
+            m_duration: m.f64_histogram(RPC_REQUEST_DURATION_MS).build(),
+            m_rate_wait: m.f64_histogram(RPC_RATE_LIMIT_WAIT_MS).build(),
             chain_id: chain,
+            chain_attrs: chain_attr,
         }
     }
 
@@ -108,7 +113,7 @@ impl RpcGuard {
         self.rate_limiter.until_ready().await;
         let wait_ms = wait_start.elapsed().as_secs_f64() * 1000.0;
         if wait_ms > 1.0 {
-            self.m_rate_wait.record(wait_ms);
+            self.m_rate_wait.record(wait_ms, &self.chain_attrs);
         }
 
         let start = std::time::Instant::now();
@@ -117,27 +122,25 @@ impl RpcGuard {
 
         match result {
             Ok(Ok(value)) => {
-                self.m_requests.increment(1);
-                self.m_duration.record(elapsed_ms);
+                self.m_requests.add(1, &self.chain_attrs);
+                self.m_duration.record(elapsed_ms, &self.chain_attrs);
                 Ok(value)
             }
             Ok(Err(e)) => {
-                self.m_requests.increment(1);
-                self.m_errors.increment(1);
-                self.m_duration.record(elapsed_ms);
+                self.m_requests.add(1, &self.chain_attrs);
+                self.m_errors.add(1, &self.chain_attrs);
+                self.m_duration.record(elapsed_ms, &self.chain_attrs);
                 Err(e)
             }
             Err(_) => {
-                self.m_requests.increment(1);
-                self.m_timeouts.increment(1);
-                self.m_duration.record(elapsed_ms);
+                self.m_requests.add(1, &self.chain_attrs);
+                self.m_timeouts.add(1, &self.chain_attrs);
+                self.m_duration.record(elapsed_ms, &self.chain_attrs);
                 Err(RpcError::Timeout(self.config.rpc_timeout).into())
             }
         }
     }
 
-    /// Run two futures concurrently under a single timeout.
-    /// Consumes one rate-limit token (the pair is one logical operation).
     pub async fn guarded_pair<F1, Fut1, T1, F2, Fut2, T2>(&self, f1: F1, f2: F2) -> Result<(T1, T2)>
     where
         F1: FnOnce() -> Fut1,
@@ -149,7 +152,7 @@ impl RpcGuard {
         self.rate_limiter.until_ready().await;
         let wait_ms = wait_start.elapsed().as_secs_f64() * 1000.0;
         if wait_ms > 1.0 {
-            self.m_rate_wait.record(wait_ms);
+            self.m_rate_wait.record(wait_ms, &self.chain_attrs);
         }
 
         let start = std::time::Instant::now();
@@ -161,20 +164,20 @@ impl RpcGuard {
 
         match result {
             Ok(Ok((v1, v2))) => {
-                self.m_requests.increment(2);
-                self.m_duration.record(elapsed_ms);
+                self.m_requests.add(2, &self.chain_attrs);
+                self.m_duration.record(elapsed_ms, &self.chain_attrs);
                 Ok((v1, v2))
             }
             Ok(Err(e)) => {
-                self.m_requests.increment(2);
-                self.m_errors.increment(1);
-                self.m_duration.record(elapsed_ms);
+                self.m_requests.add(2, &self.chain_attrs);
+                self.m_errors.add(1, &self.chain_attrs);
+                self.m_duration.record(elapsed_ms, &self.chain_attrs);
                 Err(e)
             }
             Err(_) => {
-                self.m_requests.increment(2);
-                self.m_timeouts.increment(1);
-                self.m_duration.record(elapsed_ms);
+                self.m_requests.add(2, &self.chain_attrs);
+                self.m_timeouts.add(1, &self.chain_attrs);
+                self.m_duration.record(elapsed_ms, &self.chain_attrs);
                 Err(RpcError::Timeout(self.config.rpc_timeout).into())
             }
         }
