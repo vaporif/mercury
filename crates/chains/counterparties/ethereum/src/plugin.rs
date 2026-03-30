@@ -218,15 +218,11 @@ impl ChainPlugin for EthereumPlugin {
             .and_then(|s| s.downcast_ref::<EvmClientState>().cloned())
             .unwrap_or_else(|| EvmClientState(Vec::new()));
 
-        let payload =
-            ClientPayloadBuilder::<EthereumChain>::build_update_client_payload(
-                c,
-                &trusted,
-                &target,
-                &cs,
-            )
-            .await
-            .map_err(|e| eyre::eyre!("{e}"))?;
+        let payload = ClientPayloadBuilder::<EthereumChain>::build_update_client_payload(
+            c, &trusted, &target, &cs,
+        )
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
         Ok(Box::new(payload))
     }
 
@@ -248,7 +244,9 @@ impl ChainPlugin for EthereumPlugin {
         {
             let output = ClientMessageBuilder::<
                 mercury_cosmos::chain::CosmosChain<mercury_cosmos::keys::Secp256k1KeyPair>,
-            >::build_update_client_message(c, &parsed_id, cosmos_payload.clone())
+            >::build_update_client_message(
+                c, &parsed_id, cosmos_payload.clone()
+            )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
             c.inner()
