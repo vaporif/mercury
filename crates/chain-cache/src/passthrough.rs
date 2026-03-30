@@ -213,9 +213,7 @@ impl<C: PacketEvents> PacketEvents for CachedChain<C> {
         client_id: &Self::ClientId,
         sequence: PacketSequence,
     ) -> Result<Option<Self::WriteAckEvent>> {
-        self.inner
-            .query_write_ack_event(client_id, sequence)
-            .await
+        self.inner.query_write_ack_event(client_id, sequence).await
     }
 }
 

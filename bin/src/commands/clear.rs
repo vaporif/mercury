@@ -81,7 +81,9 @@ impl ClearPacketsCmd {
         let dst_plugin = registry.chain(&counterparty_cfg.chain_type)?;
 
         let src_chain = src_plugin.connect(&chain_cfg.raw, config_dir).await?;
-        let dst_chain = dst_plugin.connect(&counterparty_cfg.raw, config_dir).await?;
+        let dst_chain = dst_plugin
+            .connect(&counterparty_cfg.raw, config_dir)
+            .await?;
 
         let src_client_id = src_plugin.parse_client_id(&self.client)?;
         let dst_client_id = dst_plugin.parse_client_id(&self.counterparty_client)?;
@@ -95,7 +97,9 @@ impl ClearPacketsCmd {
             None => SweepScope::All,
         };
 
-        eprintln!("Note: if the relayer is running, some packets may already be in-flight and submissions may fail.");
+        eprintln!(
+            "Note: if the relayer is running, some packets may already be in-flight and submissions may fail."
+        );
 
         let (fwd_result, rev_result) =
             tokio::join!(fwd.clear_packets(scope.clone()), rev.clear_packets(scope),);

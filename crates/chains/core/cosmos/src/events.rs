@@ -201,8 +201,8 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
     ) -> Result<Option<WriteAckEvent>> {
         use tendermint_rpc::query::{EventType, Query};
 
-        let query = Query::from(EventType::Tx)
-            .and_exists("write_acknowledgement.encoded_packet_hex");
+        let query =
+            Query::from(EventType::Tx).and_exists("write_acknowledgement.encoded_packet_hex");
 
         let mut page = 1u32;
         let per_page = 100u8;

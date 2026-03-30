@@ -280,8 +280,8 @@ pub async fn discover_unrelayed_acks<R: Relay>(
                     .query_packet_commitment(&dst_client_id, seq, &dst_height)
                     .await
                 {
-                    Ok((Some(_), _)) => Some(seq),  // commitment exists = ack not relayed
-                    Ok((None, _)) => None,           // no commitment = already acked
+                    Ok((Some(_), _)) => Some(seq), // commitment exists = ack not relayed
+                    Ok((None, _)) => None,         // no commitment = already acked
                     Err(e) => {
                         warn!(%seq, error = %e, "failed to query commitment for ack, skipping");
                         None

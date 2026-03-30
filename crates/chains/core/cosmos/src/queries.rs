@@ -274,8 +274,7 @@ async fn paginated_packet_sequences<S: CosmosSigner>(
     use std::collections::HashSet;
     use tendermint_rpc::query::{EventType, Query};
 
-    let query =
-        Query::from(EventType::Tx).and_exists(format!("{event_kind}.encoded_packet_hex"));
+    let query = Query::from(EventType::Tx).and_exists(format!("{event_kind}.encoded_packet_hex"));
 
     let mut sequences = HashSet::new();
     let mut page = 1u32;
@@ -400,8 +399,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         client_id: &Self::ClientId,
         _height: &Self::Height,
     ) -> Result<Vec<PacketSequence>> {
-        paginated_packet_sequences(self, "send_packet", client_id, |pkt| &pkt.source_client)
-            .await
+        paginated_packet_sequences(self, "send_packet", client_id, |pkt| &pkt.source_client).await
     }
 
     #[instrument(skip_all, name = "query_ack_sequences", fields(chain = %self.chain_label(), client_id = %client_id))]
