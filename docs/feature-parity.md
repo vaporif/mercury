@@ -25,6 +25,7 @@ Comparison of Mercury (IBC v2) against [Hermes](https://github.com/informalsyste
 | Misbehaviour detection | Yes | Yes | -- |
 | Misbehaviour submission | Yes | Yes | -- |
 | Misbehaviour CLI command | Yes | Planned | P2 |
+| Configurable client refresh rate | Yes | Planned | P3 |
 | **Fee & Gas** | | | |
 | Static gas pricing | Yes | Yes | -- |
 | Dynamic gas pricing | Yes | Yes | -- |
@@ -37,7 +38,13 @@ Comparison of Mercury (IBC v2) against [Hermes](https://github.com/informalsyste
 | **Configuration** | | | |
 | Memo prefix/overwrite | Yes | Planned | P3 |
 | Trusted node mode | Yes | Planned | P3 |
+| Configurable retry params | Yes | Planned | P3 |
+| Sequential batch tx mode | Yes | Planned | P3 |
 | Ethermint address derivation | Yes | Planned | P3 |
+| CometBFT compat mode (0.34/0.37) | Yes | Planned | P3 |
+| Extension options (Ethermint dynamic fee) | Yes | Planned | P3 |
+| Per-chain clear interval override | Yes | Planned | P3 |
+| Idle worker auto-cleanup | Yes | Planned | P3 |
 | Event source: WebSocket push | Yes | Yes | -- |
 | Event source: RPC polling | Yes | Yes | -- |
 | gRPC TLS | Yes | Yes | -- |
@@ -51,7 +58,9 @@ Comparison of Mercury (IBC v2) against [Hermes](https://github.com/informalsyste
 | Prometheus/OTLP metrics | Yes | Yes | -- |
 | TX latency / gas histograms | Yes | Yes | -- |
 | Health check endpoint | Yes | Yes | -- |
+| Balance monitoring/alerts | Yes | Planned | P2 |
 | REST API | Yes | Planned | P2 |
+| Custom telemetry histogram buckets | Yes | Planned | P3 |
 | Runtime log level control | Yes | Planned | P3 |
 | **CLI Commands** | | | |
 | `start` / `status` / `health-check` | Yes | Yes | -- |
@@ -66,6 +75,10 @@ Comparison of Mercury (IBC v2) against [Hermes](https://github.com/informalsyste
 | `query packet pending-acks` | Yes | Planned | P2 |
 | `keys add/delete/list/balance` | Yes | Planned | P1 |
 | `clear packets` | Yes | Planned | P1 |
+| `tx transfer` (initiate ICS20 transfer) | Yes | Planned | P3 |
+| `query tx events` | Yes | Planned | P3 |
+| `query denom trace` | Yes | Planned | P3 |
+| `evidence` (Tendermint evidence) | Yes | Planned | P3 |
 | `listen` (event display) | Yes | Planned | P3 |
 | Shell completions | Yes | Planned | P3 |
 | **Caching** | | | |
