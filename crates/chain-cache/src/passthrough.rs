@@ -140,6 +140,14 @@ impl<C: PacketStateQuery> PacketStateQuery for CachedChain<C> {
             .await
     }
 
+    async fn query_ack_sequences(
+        &self,
+        client_id: &Self::ClientId,
+        height: &Self::Height,
+    ) -> Result<Vec<PacketSequence>> {
+        self.inner.query_ack_sequences(client_id, height).await
+    }
+
     fn commitment_to_membership_entry(
         &self,
         client_id: &Self::ClientId,
@@ -197,6 +205,16 @@ impl<C: PacketEvents> PacketEvents for CachedChain<C> {
     ) -> Result<Option<Self::SendPacketEvent>> {
         self.inner
             .query_send_packet_event(client_id, sequence)
+            .await
+    }
+
+    async fn query_write_ack_event(
+        &self,
+        client_id: &Self::ClientId,
+        sequence: PacketSequence,
+    ) -> Result<Option<Self::WriteAckEvent>> {
+        self.inner
+            .query_write_ack_event(client_id, sequence)
             .await
     }
 }

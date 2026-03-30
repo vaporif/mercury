@@ -316,4 +316,43 @@ impl PacketStateQuery for EthereumChain {
         sequences.dedup();
         Ok(sequences)
     }
+
+    #[instrument(skip_all, name = "query_ack_sequences", fields(chain = %self.chain_label(), client_id = %client_id))]
+    async fn query_ack_sequences(
+        &self,
+        client_id: &EvmClientId,
+        height: &EvmHeight,
+    ) -> Result<Vec<PacketSequence>> {
+        let filter = Filter::new()
+            .address(self.router_address)
+            .event_signature(ICS26Router::WriteAcknowledgement::SIGNATURE_HASH)
+            .from_block(self.config.deployment_block)
+            .to_block(height.0);
+
+        let logs = self
+            .rpc_guard
+            .guarded(|| async {
+                self.provider
+                    .get_logs(&filter)
+                    .await
+                    .wrap_err("querying WriteAcknowledgement logs")
+            })
+            .await?;
+
+        let mut sequences: Vec<PacketSequence> = logs
+            .iter()
+            .filter_map(|log| {
+                let decoded = ICS26Router::WriteAcknowledgement::decode_log(log.as_ref()).ok()?;
+                if decoded.data.packet.destClient == client_id.0 {
+                    Some(PacketSequence(decoded.data.packet.sequence))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        sequences.sort_unstable();
+        sequences.dedup();
+        Ok(sequences)
+    }
 }

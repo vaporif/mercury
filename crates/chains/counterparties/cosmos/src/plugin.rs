@@ -359,6 +359,9 @@ pub fn dyn_to_worker_config(config: &DynRelayConfig) -> eyre::Result<RelayWorker
             .misbehaviour_scan_interval_secs
             .map(std::time::Duration::from_secs),
         packet_filter,
+        clear_on_start: config.clear_on_start,
+        clear_limit: config.clear_limit.unwrap_or(50),
+        excluded_sequences: config.excluded_sequences.clone(),
     })
 }
 

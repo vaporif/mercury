@@ -161,6 +161,55 @@ impl PacketEvents for EthereumChain {
         Ok(event)
     }
 
+    async fn query_write_ack_event(
+        &self,
+        client_id: &EvmClientId,
+        sequence: PacketSequence,
+    ) -> Result<Option<EvmWriteAckEvent>> {
+        let filter = Filter::new()
+            .address(self.router_address)
+            .event_signature(ICS26Router::WriteAcknowledgement::SIGNATURE_HASH)
+            .topic2(B256::from(U256::from(sequence.0)))
+            .from_block(self.config.deployment_block);
+
+        let logs = self
+            .rpc_guard
+            .guarded(|| async {
+                self.provider
+                    .get_logs(&filter)
+                    .await
+                    .wrap_err("querying WriteAcknowledgement event")
+            })
+            .await?;
+
+        let event = logs.iter().find_map(|log| {
+            let decoded = ICS26Router::WriteAcknowledgement::decode_log(log.as_ref()).ok()?;
+            if decoded.data.packet.destClient != client_id.0 {
+                return None;
+            }
+            let ack_bytes = decoded.data.acknowledgements.into_iter().next()?.to_vec();
+            Some(EvmWriteAckEvent {
+                packet: sol_packet_to_evm(&decoded.data.packet),
+                ack: EvmAcknowledgement(ack_bytes),
+                block_number: BlockNumber(log.block_number?),
+            })
+        });
+
+        if logs.is_empty() {
+            return Ok(None);
+        }
+
+        if event.is_none() {
+            tracing::warn!(
+                client_id = %client_id,
+                sequence = %sequence,
+                "matched WriteAcknowledgement log but failed to decode or client mismatch"
+            );
+        }
+
+        Ok(event)
+    }
+
     async fn subscribe_block_events(
         &self,
     ) -> Result<Option<mercury_chain_traits::events::BlockEventStream<EvmHeight, EvmEvent>>> {

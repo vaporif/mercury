@@ -6,7 +6,7 @@ use prost::Message as _;
 use tendermint_rpc::event::EventData;
 use tendermint_rpc::query::EventType;
 use tendermint_rpc::{Client, SubscriptionClient, WebSocketClient};
-use tracing::warn;
+use tracing::{instrument, warn};
 
 use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
 
@@ -189,6 +189,65 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
                 "tx_search returned no results — event may have been pruned from node's tx index"
             );
         }
+
+        Ok(None)
+    }
+
+    #[instrument(skip_all, name = "query_write_ack_event", fields(seq = %sequence))]
+    async fn query_write_ack_event(
+        &self,
+        client_id: &ibc::core::host::types::identifiers::ClientId,
+        sequence: PacketSequence,
+    ) -> Result<Option<WriteAckEvent>> {
+        use tendermint_rpc::query::{EventType, Query};
+
+        let query = Query::from(EventType::Tx)
+            .and_exists("write_acknowledgement.encoded_packet_hex");
+
+        let mut page = 1u32;
+        let per_page = 100u8;
+
+        loop {
+            let response = self
+                .rpc_guard
+                .guarded(|| async {
+                    self.rpc_client
+                        .tx_search(
+                            query.clone(),
+                            false,
+                            page,
+                            per_page,
+                            tendermint_rpc::Order::Descending,
+                        )
+                        .await
+                        .map_err(Into::into)
+                })
+                .await?;
+
+            for tx in &response.txs {
+                for event in &tx.tx_result.events {
+                    let cosmos_event = abci_event_to_cosmos_event(event);
+                    if let Some(write_ack) =
+                        <Self as PacketEvents>::try_extract_write_ack_event(&cosmos_event)
+                        && write_ack.packet.dest_client_id.as_ref() == client_id.as_str()
+                        && write_ack.packet.sequence == sequence
+                    {
+                        return Ok(Some(write_ack));
+                    }
+                }
+            }
+
+            if response.txs.is_empty() || response.txs.len() < per_page as usize {
+                break;
+            }
+            page += 1;
+        }
+
+        warn!(
+            sequence = sequence.0,
+            %client_id,
+            "write_ack event not found — may have been pruned from tx index"
+        );
 
         Ok(None)
     }

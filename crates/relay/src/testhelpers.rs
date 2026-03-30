@@ -292,6 +292,13 @@ impl PacketEvents for MockChain {
     ) -> Result<Option<MockSendPacketEvent>> {
         Ok(None)
     }
+    async fn query_write_ack_event(
+        &self,
+        _client_id: &String,
+        _sequence: PacketSequence,
+    ) -> Result<Option<MockWriteAckEvent>> {
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -364,6 +371,13 @@ impl PacketStateQuery for MockChain {
         Ok((None, MockCommitmentProof))
     }
     async fn query_commitment_sequences(
+        &self,
+        _client_id: &String,
+        _height: &u64,
+    ) -> Result<Vec<PacketSequence>> {
+        Ok(vec![])
+    }
+    async fn query_ack_sequences(
         &self,
         _client_id: &String,
         _height: &u64,

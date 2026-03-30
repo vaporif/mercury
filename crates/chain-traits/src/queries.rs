@@ -84,6 +84,12 @@ pub trait PacketStateQuery: IbcTypes {
         height: &Self::Height,
     ) -> Result<Vec<PacketSequence>>;
 
+    async fn query_ack_sequences(
+        &self,
+        client_id: &Self::ClientId,
+        height: &Self::Height,
+    ) -> Result<Vec<PacketSequence>>;
+
     fn commitment_to_membership_entry(
         &self,
         _client_id: &Self::ClientId,
