@@ -216,7 +216,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
     #[instrument(skip_all, name = "build_upgrade_client_payload", fields(chain = %self.chain_label()))]
     async fn build_upgrade_client_payload(&self) -> Result<Option<UpgradeClientPayload>> {
         use ibc_proto::cosmos::upgrade::v1beta1::{
-            query_client::QueryClient as UpgradeQueryClient, QueryCurrentPlanRequest,
+            QueryCurrentPlanRequest, query_client::QueryClient as UpgradeQueryClient,
         };
 
         let plan_response = self
@@ -370,9 +370,8 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
     ) -> Result<Vec<CosmosMessage>> {
         use ibc_proto::ibc::core::client::v1::MsgUpgradeClient;
 
-        let client_state =
-            prost::Message::decode(payload.upgraded_client_state.as_slice())
-                .map_err(|e| eyre::eyre!("failed to decode upgraded client state: {e}"))?;
+        let client_state = prost::Message::decode(payload.upgraded_client_state.as_slice())
+            .map_err(|e| eyre::eyre!("failed to decode upgraded client state: {e}"))?;
 
         let consensus_state =
             prost::Message::decode(payload.upgraded_consensus_state.as_slice())
