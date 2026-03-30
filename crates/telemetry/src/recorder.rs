@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{KeyValue, global};
 
-use mercury_core::error::TxError;
 use mercury_core::ChainLabel;
+use mercury_core::error::TxError;
 
 use crate::metric;
 

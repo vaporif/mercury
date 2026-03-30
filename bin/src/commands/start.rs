@@ -8,10 +8,10 @@ use mercury_core::plugin::{AnyChain, ChainId, DynRelay, DynRelayConfig};
 use mercury_core::registry::ChainRegistry;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
-use tracing_subscriber::EnvFilter;
 
 use crate::LogFormat;
 use crate::config::RelayConfig;
@@ -46,7 +46,11 @@ struct HealthChainEntry {
     chain: AnyChain,
 }
 
-async fn run_start(config_path: &Path, health_port: Option<u16>, log_format: LogFormat) -> eyre::Result<()> {
+async fn run_start(
+    config_path: &Path,
+    health_port: Option<u16>,
+    log_format: LogFormat,
+) -> eyre::Result<()> {
     let registry = build_registry();
     let cfg = crate::config::load_config(config_path, &registry)?;
     let telemetry_guard = mercury_telemetry::init(&cfg.telemetry)?;
@@ -149,12 +153,8 @@ async fn run_start(config_path: &Path, health_port: Option<u16>, log_format: Log
 
 fn init_subscriber(log_format: LogFormat, telemetry_guard: &mercury_telemetry::TelemetryGuard) {
     let fmt_layer = match log_format {
-        LogFormat::Pretty => tracing_subscriber::fmt::layer()
-            .with_target(false)
-            .boxed(),
-        LogFormat::Json => tracing_subscriber::fmt::layer()
-            .json()
-            .boxed(),
+        LogFormat::Pretty => tracing_subscriber::fmt::layer().with_target(false).boxed(),
+        LogFormat::Json => tracing_subscriber::fmt::layer().json().boxed(),
     };
 
     let subscriber = tracing_subscriber::registry()

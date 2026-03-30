@@ -2,13 +2,13 @@ use eyre::Context;
 use opentelemetry::global;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::{Protocol, WithExportConfig};
 use opentelemetry_sdk::metrics::{Aggregation, Instrument, SdkMeterProvider, Stream};
 use opentelemetry_sdk::trace::SdkTracerProvider;
-use opentelemetry_otlp::{Protocol, WithExportConfig};
+use opentelemetry_system_metrics::init_process_observer_once;
 use serde::Deserialize;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::registry::LookupSpan;
-use opentelemetry_system_metrics::init_process_observer_once;
 
 pub mod guard;
 pub mod metric;

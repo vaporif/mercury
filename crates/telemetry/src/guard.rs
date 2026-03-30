@@ -1,5 +1,5 @@
 use opentelemetry::metrics::UpDownCounter;
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{KeyValue, global};
 
 use mercury_core::ChainLabel;
 
