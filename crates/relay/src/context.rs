@@ -40,6 +40,9 @@ pub struct RelayWorkerConfig {
     pub sweep_interval: Option<Duration>,
     pub misbehaviour_scan_interval: Option<Duration>,
     pub packet_filter: Option<PacketFilter>,
+    pub clear_on_start: bool,
+    pub clear_limit: usize,
+    pub excluded_sequences: Vec<u64>,
 }
 
 pub struct RelayContext<Src: ChainTypes, Dst: ChainTypes> {
@@ -228,6 +231,9 @@ where
                     interval,
                     packet_filter: config.packet_filter.clone(),
                     metrics: SweepMetrics::new(&src_label).with_counterparty(&dst_label),
+                    clear_on_start: config.clear_on_start,
+                    clear_limit: config.clear_limit,
+                    excluded_sequences: config.excluded_sequences.clone(),
                 };
                 spawn_worker(packet_sweeper)
             },

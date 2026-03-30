@@ -4,6 +4,7 @@ pub mod event;
 pub mod gas;
 pub mod packet;
 pub mod query;
+pub mod sweep;
 pub mod tx;
 pub mod wallet;
 pub mod worker;

@@ -14,6 +14,8 @@ use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQu
 use mercury_chain_traits::types::{ChainTypes, PacketSequence};
 use mercury_core::error::{ProofError, QueryError, Result};
 
+use crate::events::ENCODED_PACKET_HEX;
+
 use crate::chain::CosmosChain;
 use crate::client_types::{
     CosmosClientState, CosmosConsensusState, TENDERMINT_CLIENT_STATE_TYPE_URL,
@@ -265,6 +267,67 @@ pub(crate) fn extract_proof(
     })
 }
 
+async fn paginated_packet_sequences<S: CosmosSigner>(
+    chain: &CosmosChain<S>,
+    event_kind: &str,
+    client_id: &ibc::core::host::types::identifiers::ClientId,
+    client_field: fn(&ibc_proto::ibc::core::channel::v2::Packet) -> &str,
+) -> Result<Vec<PacketSequence>> {
+    use std::collections::HashSet;
+    use tendermint_rpc::query::{EventType, Query};
+
+    let query = Query::from(EventType::Tx).and_exists(format!("{event_kind}.{ENCODED_PACKET_HEX}"));
+
+    let mut sequences = HashSet::new();
+    let mut page = 1u32;
+    let per_page = 100u8;
+
+    loop {
+        let response = chain
+            .rpc_guard
+            .guarded(|| async {
+                chain
+                    .rpc_client
+                    .tx_search(
+                        query.clone(),
+                        false,
+                        page,
+                        per_page,
+                        tendermint_rpc::Order::Ascending,
+                    )
+                    .await
+                    .map_err(Into::into)
+            })
+            .await?;
+
+        let matched = response
+            .txs
+            .iter()
+            .flat_map(|tx| &tx.tx_result.events)
+            .filter(|event| event.kind == event_kind)
+            .filter_map(|event| {
+                let hex_str = event.attributes.iter().find_map(|attr| {
+                    (attr.key_str().ok()? == ENCODED_PACKET_HEX).then(|| attr.value_str().ok())?
+                })?;
+                let bytes = hex::decode(hex_str).ok()?;
+                let pkt =
+                    ibc_proto::ibc::core::channel::v2::Packet::decode(bytes.as_slice()).ok()?;
+                (client_field(&pkt) == client_id.as_str()).then_some(PacketSequence(pkt.sequence))
+            });
+
+        sequences.extend(matched);
+
+        if response.txs.len() < usize::from(per_page) {
+            break;
+        }
+        page += 1;
+    }
+
+    let mut result: Vec<_> = sequences.into_iter().collect();
+    result.sort_unstable();
+    Ok(result)
+}
+
 #[async_trait]
 impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
     #[instrument(skip_all, name = "query_packet_commitment", fields(chain = %self.chain_label(), seq = %sequence))]
@@ -325,72 +388,25 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         Ok((receipt, proof))
     }
 
-    // TODO: break and refactor
     #[instrument(skip_all, name = "query_commitment_sequences", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_commitment_sequences(
         &self,
         client_id: &Self::ClientId,
         _height: &Self::Height,
     ) -> Result<Vec<PacketSequence>> {
-        use std::collections::HashSet;
-        use tendermint_rpc::query::{EventType, Query};
+        paginated_packet_sequences(self, "send_packet", client_id, |pkt| &pkt.source_client).await
+    }
 
-        let query = Query::from(EventType::Tx).and_exists("send_packet.encoded_packet_hex");
-
-        let mut sequences = HashSet::new();
-        let mut page = 1u32;
-        let per_page = 100u8;
-
-        loop {
-            let response = self
-                .rpc_guard
-                .guarded(|| async {
-                    self.rpc_client
-                        .tx_search(
-                            query.clone(),
-                            false,
-                            page,
-                            per_page,
-                            tendermint_rpc::Order::Ascending,
-                        )
-                        .await
-                        .map_err(Into::into)
-                })
-                .await?;
-
-            for tx in &response.txs {
-                for event in &tx.tx_result.events {
-                    if event.kind != "send_packet" {
-                        continue;
-                    }
-                    let hex_attr = event.attributes.iter().find_map(|attr| {
-                        let key = attr.key_str().ok()?;
-                        if key == "encoded_packet_hex" {
-                            attr.value_str().ok()
-                        } else {
-                            None
-                        }
-                    });
-                    if let Some(hex_str) = hex_attr
-                        && let Ok(bytes) = hex::decode(hex_str)
-                        && let Ok(pkt) =
-                            ibc_proto::ibc::core::channel::v2::Packet::decode(bytes.as_slice())
-                        && pkt.source_client == client_id.as_str()
-                    {
-                        sequences.insert(PacketSequence(pkt.sequence));
-                    }
-                }
-            }
-
-            if response.txs.len() < per_page as usize {
-                break;
-            }
-            page += 1;
-        }
-
-        let mut result: Vec<PacketSequence> = sequences.into_iter().collect();
-        result.sort_unstable();
-        Ok(result)
+    #[instrument(skip_all, fields(chain = %self.chain_label(), client_id = %client_id))]
+    async fn query_ack_sequences(
+        &self,
+        client_id: &Self::ClientId,
+        _height: &Self::Height,
+    ) -> Result<Vec<PacketSequence>> {
+        paginated_packet_sequences(self, "write_acknowledgement", client_id, |pkt| {
+            &pkt.destination_client
+        })
+        .await
     }
 
     #[instrument(skip_all, name = "query_packet_ack", fields(chain = %self.chain_label(), seq = %sequence))]

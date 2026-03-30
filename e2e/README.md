@@ -5,13 +5,13 @@ End-to-end tests that spin up real chain infrastructure (Docker containers, Anvi
 ## Running
 
 ```bash
-# All E2E tests (requires Docker + Foundry for Ethereum tests)
+# All E2E tests (requires Docker + Foundry + Kurtosis for Ethereum tests)
 cargo nextest run -p mercury-e2e --run-ignored all
 
 # Cosmos-only tests (requires Docker)
 cargo nextest run -p mercury-e2e --run-ignored all --test cosmos_cosmos
 
-# Cosmos-Ethereum tests (requires Docker + Foundry)
+# Cosmos-Ethereum tests (requires Docker + Foundry  + Kurtosis )
 cargo nextest run -p mercury-e2e --run-ignored all --test cosmos_ethereum
 ```
 

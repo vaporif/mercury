@@ -73,7 +73,24 @@ pub struct ClientStateInfo {
     pub chain_id: String,
 }
 
+#[derive(Clone, Debug)]
+pub enum SweepScope {
+    All,
+    Sequences(Vec<u64>),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ClearResult {
+    pub recv_cleared: usize,
+    pub ack_cleared: usize,
+}
+
 pub trait DynRelay: Send + Sync {
+    fn clear_packets(
+        self: Arc<Self>,
+        scope: SweepScope,
+    ) -> BoxFuture<'static, crate::error::Result<ClearResult>>;
+
     fn run(
         self: Arc<Self>,
         token: tokio_util::sync::CancellationToken,
@@ -87,6 +104,9 @@ pub struct DynRelayConfig {
     pub sweep_interval_secs: Option<u64>,
     pub misbehaviour_scan_interval_secs: Option<u64>,
     pub packet_filter_config: Option<toml::Value>,
+    pub clear_on_start: bool,
+    pub clear_limit: usize,
+    pub excluded_sequences: Vec<u64>,
 }
 
 #[async_trait]

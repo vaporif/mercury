@@ -12,7 +12,7 @@ Comparison of Mercury (IBC v2) against [Hermes](https://github.com/informalsyste
 | Packet relay (recv/ack/timeout) | Yes | Yes | -- |
 | Periodic packet sweeping | Yes | Yes | -- |
 | Packet filtering (allow/deny) | Yes | Yes | -- |
-| Packet clearing (manual CLI) | Yes | Planned | P1 |
+| Packet clearing (manual CLI) | Yes | Yes | -- |
 | Packet sequence exclusions | Yes | Planned | P3 |
 | ICS20 memo/receiver size filtering | Yes | Planned | P3 |
 | Clear on start | Yes | Planned | P2 |
@@ -74,7 +74,7 @@ Comparison of Mercury (IBC v2) against [Hermes](https://github.com/informalsyste
 | `query packet pending-sends` | Yes | Planned | P2 |
 | `query packet pending-acks` | Yes | Planned | P2 |
 | `keys add/delete/list/balance` | Yes | Planned | P1 |
-| `clear packets` | Yes | Planned | P1 |
+| `clear packets` | Yes | Yes | -- |
 | `tx transfer` (initiate ICS20 transfer) | Yes | Planned | P3 |
 | `query tx events` | Yes | Planned | P3 |
 | `query denom trace` | Yes | Planned | P3 |
