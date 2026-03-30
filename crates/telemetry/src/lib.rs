@@ -139,7 +139,7 @@ mod tests {
     fn init_noop_when_disabled() {
         let config = TelemetryConfig::default();
         let guard = init(&config).unwrap();
-        drop(guard);
+        assert!(!guard.is_enabled());
     }
 
     #[test]

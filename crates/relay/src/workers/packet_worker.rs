@@ -84,8 +84,8 @@ where
     async fn build_dst_update_client_payload(
         &self,
     ) -> Result<(
-        <R::SrcChain as ChainTypes>::Height,
-        Option<<R::SrcChain as ChainTypes>::Height>,
+        SrcHeight<R>,
+        Option<SrcHeight<R>>,
         Option<<R::DstChain as ClientMessageBuilder<SrcCore<R>>>::UpdateClientPayload>,
     )>{
         type SrcChain<R> = <R as Relay>::SrcChain;
@@ -161,7 +161,7 @@ where
     #[instrument(skip_all, name = "build_src_update_client", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
     async fn build_src_update_client_messages(
         &self,
-    ) -> UpdateClientResult<<R::DstChain as ChainTypes>::Height, <R::SrcChain as ChainTypes>::Message>
+    ) -> UpdateClientResult<DstHeight<R>, <R::SrcChain as ChainTypes>::Message>
     {
         type SrcChain<R> = <R as Relay>::SrcChain;
         type DstChain<R> = <R as Relay>::DstChain;
@@ -201,9 +201,9 @@ where
     async fn build_recv_messages_tracked(
         &self,
         send_packets: Vec<PendingSend<SendEvent<R>>>,
-        src_height: &<R::SrcChain as ChainTypes>::Height,
-        message_proof_height: Option<&<R::SrcChain as ChainTypes>::Height>,
-    ) -> BuildMessagesResult<<R::DstChain as ChainTypes>::Message, R> {
+        src_height: &SrcHeight<R>,
+        message_proof_height: Option<&SrcHeight<R>>,
+    ) -> BuildMessagesResult<DstMessage<R>, R> {
         type SrcChain<R> = <R as Relay>::SrcChain;
 
         let relay = &self.relay;
@@ -289,7 +289,7 @@ where
     async fn confirm_in_flight(
         &self,
         in_flight: Vec<PendingSend<SendEvent<R>>>,
-        dst_height: &<R::DstChain as ChainTypes>::Height,
+        dst_height: &DstHeight<R>,
     ) -> Vec<PendingSend<SendEvent<R>>> {
         type SrcChain<R> = <R as Relay>::SrcChain;
 
@@ -339,10 +339,10 @@ where
     async fn build_ack_messages_tracked(
         &self,
         write_acks: WriteAckEvents<R>,
-        src_height: &<R::SrcChain as ChainTypes>::Height,
-        message_proof_height: Option<&<R::SrcChain as ChainTypes>::Height>,
+        src_height: &SrcHeight<R>,
+        message_proof_height: Option<&SrcHeight<R>>,
     ) -> (
-        Vec<<R::DstChain as ChainTypes>::Message>,
+        Vec<DstMessage<R>>,
         WriteAckEvents<R>,
         Vec<mercury_core::MembershipProofEntry>,
     ) {
@@ -403,7 +403,7 @@ where
     async fn build_timeout_messages(
         &self,
         timed_out: Vec<PendingSend<SendEvent<R>>>,
-        dst_height: &<R::DstChain as ChainTypes>::Height,
+        dst_height: &DstHeight<R>,
     ) -> (
         Vec<<R::SrcChain as ChainTypes>::Message>,
         Vec<PendingSend<SendEvent<R>>>,
@@ -451,6 +451,9 @@ where
 
 type SendEvent<R> = <<R as Relay>::SrcChain as PacketEvents>::SendPacketEvent;
 type WriteAckEvents<R> = Vec<<<R as Relay>::SrcChain as PacketEvents>::WriteAckEvent>;
+type SrcHeight<R> = <<R as Relay>::SrcChain as ChainTypes>::Height;
+type DstHeight<R> = <<R as Relay>::DstChain as ChainTypes>::Height;
+type DstMessage<R> = <<R as Relay>::DstChain as ChainTypes>::Message;
 
 #[instrument(skip_all, name = "retry_proof_fetch")]
 async fn retry_proof_fetch<F, Fut, T>(f: F) -> Result<T>
@@ -471,7 +474,7 @@ where
             }
         }
     }
-    Err(last_err.unwrap_or_else(|| eyre::eyre!("retry loop completed without attempting")))
+    Err(last_err.expect("loop always executes at least once"))
 }
 
 #[async_trait]

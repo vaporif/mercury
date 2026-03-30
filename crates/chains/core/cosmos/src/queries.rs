@@ -201,16 +201,21 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
         match client_state {
             CosmosClientState::Tendermint(cs) => {
                 let h = cs.latest_height.revision_height();
-                TmHeight::try_from(h.max(1)).unwrap_or_else(|_| TmHeight::from(1_u32))
+                if h == 0 {
+                    warn!("Tendermint client state has revision_height 0, clamping to 1");
+                }
+                TmHeight::try_from(h.max(1)).expect("nonzero after .max(1)")
             }
-            CosmosClientState::Wasm(cs) => cs
-                .latest_height
-                .as_ref()
-                .and_then(|h| TmHeight::try_from(h.revision_height.max(1)).ok())
-                .unwrap_or_else(|| {
-                    tracing::warn!("WASM client state missing latest_height, defaulting to 1");
-                    TmHeight::from(1_u32)
-                }),
+            CosmosClientState::Wasm(cs) => {
+                let Some(h) = cs.latest_height.as_ref() else {
+                    warn!("WASM client state missing latest_height, defaulting to 1");
+                    return TmHeight::from(1_u32);
+                };
+                if h.revision_height == 0 {
+                    warn!("WASM client state has revision_height 0, clamping to 1");
+                }
+                TmHeight::try_from(h.revision_height.max(1)).expect("nonzero after .max(1)")
+            }
         }
     }
 }

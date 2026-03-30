@@ -23,7 +23,7 @@ use mercury_chain_traits::builders::{
 };
 use mercury_chain_traits::types::{ChainTypes, IbcTypes};
 use mercury_core::MembershipProofs;
-use mercury_core::error::Result;
+use mercury_core::error::{Context as _, Result};
 
 use ibc_proto::ibc::core::channel::v2::{
     self as channel, MsgAcknowledgement, MsgRecvPacket, MsgTimeout, Packet as V2Packet,
@@ -247,10 +247,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
 
         tracing::info!(plan_height = plan.height, "source chain upgrade detected");
 
-        let proof_height = Some(
-            TmHeight::try_from(latest_height)
-                .map_err(|e| eyre::eyre!("invalid proof height: {e}"))?,
-        );
+        let proof_height = Some(TmHeight::try_from(latest_height).context("invalid proof height")?);
 
         let client_key = format!("upgradedIBCState/{}/upgradedClient", plan.height);
         let client_resp = crate::queries::query_abci(
@@ -371,11 +368,10 @@ impl<S: CosmosSigner> ClientMessageBuilder<Self> for CosmosChain<S> {
         use ibc_proto::ibc::core::client::v1::MsgUpgradeClient;
 
         let client_state = prost::Message::decode(payload.upgraded_client_state.as_slice())
-            .map_err(|e| eyre::eyre!("failed to decode upgraded client state: {e}"))?;
+            .context("failed to decode upgraded client state")?;
 
-        let consensus_state =
-            prost::Message::decode(payload.upgraded_consensus_state.as_slice())
-                .map_err(|e| eyre::eyre!("failed to decode upgraded consensus state: {e}"))?;
+        let consensus_state = prost::Message::decode(payload.upgraded_consensus_state.as_slice())
+            .context("failed to decode upgraded consensus state")?;
 
         let msg = MsgUpgradeClient {
             client_id: client_id.to_string(),
