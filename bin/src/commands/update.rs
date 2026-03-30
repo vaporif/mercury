@@ -56,16 +56,15 @@ impl UpdateClientCmd {
             eyre::bail!("client '{}' is frozen, cannot update", self.client);
         }
 
-        let ref_chain_id = match &self.reference_chain {
-            Some(id) => id.clone(),
-            None => {
-                if client_info.chain_id.is_empty() {
-                    eyre::bail!(
-                        "cannot auto-detect reference chain for wasm client; use --reference-chain"
-                    );
-                }
-                client_info.chain_id.clone()
+        let ref_chain_id = if let Some(id) = &self.reference_chain {
+            id.clone()
+        } else {
+            if client_info.chain_id.is_empty() {
+                eyre::bail!(
+                    "cannot auto-detect reference chain for wasm client; use --reference-chain"
+                );
             }
+            client_info.chain_id.clone()
         };
 
         let explicit = self.reference_chain.is_some();
@@ -80,12 +79,11 @@ impl UpdateClientCmd {
         ref_plugin.validate_config(&ref_cfg.raw)?;
         let ref_chain = ref_plugin.connect(&ref_cfg.raw, config_dir).await?;
 
-        let target_height = match self.height {
-            Some(h) => h,
-            None => {
-                let status = ref_plugin.query_status(&ref_chain).await?;
-                status.height
-            }
+        let target_height = if let Some(h) = self.height {
+            h
+        } else {
+            let status = ref_plugin.query_status(&ref_chain).await?;
+            status.height
         };
 
         if target_height <= trusted_height {

@@ -22,7 +22,8 @@ pub enum CosmosConsensusState {
 
 impl CosmosClientState {
     /// Dummy value for APIs that require a client state but don't read it.
-    pub fn placeholder() -> Self {
+    #[must_use]
+    pub const fn placeholder() -> Self {
         Self::Wasm(ibc_proto::ibc::lightclients::wasm::v1::ClientState {
             data: Vec::new(),
             checksum: Vec::new(),
