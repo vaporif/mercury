@@ -46,6 +46,7 @@ struct HealthChainEntry {
     chain: AnyChain,
 }
 
+#[instrument(skip_all)]
 async fn run_start(
     config_path: &Path,
     health_port: Option<u16>,
