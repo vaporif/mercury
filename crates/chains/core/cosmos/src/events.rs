@@ -396,12 +396,6 @@ mod tests {
 
     type TestChain = CosmosChain<Secp256k1KeyPair>;
 
-    macro_rules! attrs {
-        ($($k:expr => $v:expr),* $(,)?) => {
-            vec![$(($k.to_string(), $v.to_string())),*]
-        };
-    }
-
     fn test_payload(port: &str, version: &str, encoding: &str, data: &[u8]) -> Payload {
         Payload {
             source_port: port.to_string(),
@@ -424,14 +418,17 @@ mod tests {
 
     #[test]
     fn get_attr_finds_existing_key() {
-        let attrs = attrs!["foo" => "bar", "baz" => "qux"];
+        let attrs = vec![
+            ("foo".to_string(), "bar".to_string()),
+            ("baz".to_string(), "qux".to_string()),
+        ];
         assert_eq!(get_attr(&attrs, "foo"), Some("bar"));
         assert_eq!(get_attr(&attrs, "baz"), Some("qux"));
     }
 
     #[test]
     fn get_attr_returns_none_for_missing_key() {
-        let attrs = attrs!["foo" => "bar"];
+        let attrs = vec![("foo".to_string(), "bar".to_string())];
         assert_eq!(get_attr(&attrs, "missing"), None);
     }
 
@@ -493,7 +490,7 @@ mod tests {
 
         let event = CosmosEvent {
             kind: "send_packet".to_string(),
-            attributes: attrs![ENCODED_PACKET_HEX => hex_encoded],
+            attributes: vec![(ENCODED_PACKET_HEX.to_string(), hex_encoded)],
         };
 
         let result = TestChain::try_extract_send_packet_event(&event);
@@ -524,9 +521,15 @@ mod tests {
 
         let event = CosmosEvent {
             kind: "write_acknowledgement".to_string(),
-            attributes: attrs![
-                ENCODED_PACKET_HEX => hex::encode(packet.encode_to_vec()),
-                "encoded_acknowledgement_hex" => hex::encode(ack.encode_to_vec()),
+            attributes: vec![
+                (
+                    ENCODED_PACKET_HEX.to_string(),
+                    hex::encode(packet.encode_to_vec()),
+                ),
+                (
+                    "encoded_acknowledgement_hex".to_string(),
+                    hex::encode(ack.encode_to_vec()),
+                ),
             ],
         };
 
