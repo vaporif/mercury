@@ -155,6 +155,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
         Ok(events)
     }
 
+    #[instrument(skip_all, fields(seq = %sequence))]
     async fn query_send_packet_event(
         &self,
         client_id: &ibc::core::host::types::identifiers::ClientId,
@@ -166,8 +167,19 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
             .and_eq("send_packet.packet_sequence", sequence.0.to_string());
 
         let response = self
-            .rpc_client
-            .tx_search(query, false, 1, 100, tendermint_rpc::Order::Descending)
+            .rpc_guard
+            .guarded(|| async {
+                self.rpc_client
+                    .tx_search(
+                        query.clone(),
+                        false,
+                        1,
+                        100,
+                        tendermint_rpc::Order::Descending,
+                    )
+                    .await
+                    .map_err(Into::into)
+            })
             .await?;
 
         for tx in &response.txs {
@@ -193,7 +205,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
         Ok(None)
     }
 
-    #[instrument(skip_all, name = "query_write_ack_event", fields(seq = %sequence))]
+    #[instrument(skip_all, fields(seq = %sequence))]
     async fn query_write_ack_event(
         &self,
         client_id: &ibc::core::host::types::identifiers::ClientId,

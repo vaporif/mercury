@@ -317,7 +317,7 @@ impl PacketStateQuery for EthereumChain {
         Ok(sequences)
     }
 
-    #[instrument(skip_all, name = "query_ack_sequences", fields(chain = %self.chain_label(), client_id = %client_id))]
+    #[instrument(skip_all, fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_ack_sequences(
         &self,
         client_id: &EvmClientId,

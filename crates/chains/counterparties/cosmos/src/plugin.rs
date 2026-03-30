@@ -360,7 +360,7 @@ pub fn dyn_to_worker_config(config: &DynRelayConfig) -> eyre::Result<RelayWorker
             .map(std::time::Duration::from_secs),
         packet_filter,
         clear_on_start: config.clear_on_start,
-        clear_limit: config.clear_limit.unwrap_or(50),
+        clear_limit: config.clear_limit,
         excluded_sequences: config.excluded_sequences.clone(),
     })
 }

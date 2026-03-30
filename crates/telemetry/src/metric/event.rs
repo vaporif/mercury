@@ -1,6 +1,5 @@
 pub const SEND_PACKET_EVENTS: &str = "send_packet_events";
 pub const ACK_EVENTS: &str = "ack_events";
-pub use super::sweep::SWEPT_EVENTS;
 pub const EVENT_WATCHER_LAG_SECS: &str = "event_watcher_lag_secs";
 pub const EVENT_SOURCE_MODE: &str = "event_source_mode";
 pub const WS_RECONNECT_TOTAL: &str = "ws_reconnect_total";

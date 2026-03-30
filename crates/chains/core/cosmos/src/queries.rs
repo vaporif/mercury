@@ -402,7 +402,7 @@ impl<S: CosmosSigner> PacketStateQuery for CosmosChain<S> {
         paginated_packet_sequences(self, "send_packet", client_id, |pkt| &pkt.source_client).await
     }
 
-    #[instrument(skip_all, name = "query_ack_sequences", fields(chain = %self.chain_label(), client_id = %client_id))]
+    #[instrument(skip_all, fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_ack_sequences(
         &self,
         client_id: &Self::ClientId,

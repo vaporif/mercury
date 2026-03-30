@@ -105,7 +105,7 @@ pub struct DynRelayConfig {
     pub misbehaviour_scan_interval_secs: Option<u64>,
     pub packet_filter_config: Option<toml::Value>,
     pub clear_on_start: bool,
-    pub clear_limit: Option<usize>,
+    pub clear_limit: usize,
     pub excluded_sequences: Vec<u64>,
 }
 

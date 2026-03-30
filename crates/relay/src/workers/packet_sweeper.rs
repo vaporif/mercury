@@ -21,7 +21,7 @@ use crate::filter::PacketFilter;
 
 const RECEIPT_CHECK_CONCURRENCY: usize = 8;
 
-/// Scans for unrelayed packet commitments and acks, feeding recovered events into the relay pipeline.
+/// Periodically sweeps for stuck packets and acks, re-injecting them into the relay pipeline.
 pub struct PacketSweeper<R: Relay> {
     pub relay: Arc<R>,
     pub sender: mpsc::Sender<Vec<IbcEvent<R>>>,
@@ -72,7 +72,6 @@ impl<R: Relay> PacketSweeper<R> {
 
         let mut total_excluded = 0;
 
-        // Phase 1: Recv clearing
         let (recv_unrelayed, recv_excluded) = discover_unreceived_packets(
             self.relay.as_ref(),
             scope,
@@ -111,7 +110,6 @@ impl<R: Relay> PacketSweeper<R> {
             }
         }
 
-        // Phase 2: Ack clearing (uses remaining budget)
         let ack_budget = self.clear_limit.saturating_sub(recv_unrelayed.len());
 
         let (ack_unrelayed, ack_excluded) = if ack_budget > 0 {
@@ -144,7 +142,6 @@ impl<R: Relay> PacketSweeper<R> {
             }
         }
 
-        // Record metrics
         self.metrics
             .record_swept(recv_events.len() + ack_events.len());
         self.metrics.record_recv_cleared(recv_events.len());
@@ -152,7 +149,6 @@ impl<R: Relay> PacketSweeper<R> {
         self.metrics.record_excluded(total_excluded);
         self.metrics.record_scan_duration(start.elapsed());
 
-        // Send events to pipeline
         let mut all_events = recv_events;
         all_events.extend(ack_events);
 
@@ -172,8 +168,7 @@ impl<R: Relay> PacketSweeper<R> {
     }
 }
 
-/// Discover unreceived packets: commitments on src with no receipt on dst.
-/// Returns `(unrelayed_sequences, excluded_count)`.
+/// Find committed packets on src that dst hasn't received yet.
 pub async fn discover_unreceived_packets<R: Relay>(
     relay: &R,
     scope: &SweepScope,
@@ -189,17 +184,14 @@ pub async fn discover_unreceived_packets<R: Relay>(
         .query_commitment_sequences(relay.src_client_id(), &src_height)
         .await?;
 
-    // Apply scope filter
     if let SweepScope::Sequences(seqs) = scope {
         commitment_seqs.retain(|s| seqs.contains(&s.0));
     }
 
-    // Apply excluded_sequences filter
     let pre_exclude = commitment_seqs.len();
     commitment_seqs.retain(|s| !excluded_sequences.contains(&s.0));
     let excluded_count = pre_exclude - commitment_seqs.len();
 
-    // Apply limit
     commitment_seqs.truncate(limit);
 
     if commitment_seqs.is_empty() {
@@ -234,8 +226,7 @@ pub async fn discover_unreceived_packets<R: Relay>(
     Ok((unrelayed, excluded_count))
 }
 
-/// Discover unrelayed acks: acks written on src, but commitment still exists on dst.
-/// Returns `(unrelayed_sequences, excluded_count)`.
+/// Find acks on src whose corresponding commitment on dst hasn't been cleared.
 pub async fn discover_unrelayed_acks<R: Relay>(
     relay: &R,
     scope: &SweepScope,
@@ -251,17 +242,14 @@ pub async fn discover_unrelayed_acks<R: Relay>(
         .query_ack_sequences(relay.src_client_id(), &src_height)
         .await?;
 
-    // Apply scope filter
     if let SweepScope::Sequences(seqs) = scope {
         ack_seqs.retain(|s| seqs.contains(&s.0));
     }
 
-    // Apply excluded_sequences filter
     let pre_exclude = ack_seqs.len();
     ack_seqs.retain(|s| !excluded_sequences.contains(&s.0));
     let excluded_count = pre_exclude - ack_seqs.len();
 
-    // Apply limit
     ack_seqs.truncate(limit);
 
     if ack_seqs.is_empty() {
@@ -270,7 +258,6 @@ pub async fn discover_unrelayed_acks<R: Relay>(
 
     let dst_client_id = relay.dst_client_id().clone();
 
-    // For ack clearing: if dst still has a commitment, the ack hasn't been relayed
     let unrelayed: Vec<PacketSequence> = stream::iter(ack_seqs)
         .map(|seq| {
             let dst_client_id = dst_client_id.clone();
@@ -280,8 +267,8 @@ pub async fn discover_unrelayed_acks<R: Relay>(
                     .query_packet_commitment(&dst_client_id, seq, &dst_height)
                     .await
                 {
-                    Ok((Some(_), _)) => Some(seq), // commitment exists = ack not relayed
-                    Ok((None, _)) => None,         // no commitment = already acked
+                    Ok((Some(_), _)) => Some(seq),
+                    Ok((None, _)) => None,
                     Err(e) => {
                         warn!(%seq, error = %e, "failed to query commitment for ack, skipping");
                         None
@@ -297,12 +284,7 @@ pub async fn discover_unrelayed_acks<R: Relay>(
     Ok((unrelayed, excluded_count))
 }
 
-/// One-shot packet discovery: find unrelayed packets and acks, return counts.
-///
-/// Shares discovery logic with `PacketSweeper` but only reports what was found.
-/// Does not build or submit relay messages — the counts indicate how many
-/// unrelayed items exist. Useful for CLI diagnostics.
-// TODO: extend to build and submit messages directly for full CLI clearing.
+/// Quick scan used by the CLI `clear` command — just counts what's stuck.
 pub async fn clear_packets_once<R>(relay: Arc<R>, scope: SweepScope) -> Result<ClearResult>
 where
     R: Relay,
@@ -310,37 +292,14 @@ where
     let excluded: &[u64] = &[];
     let limit = usize::MAX;
 
-    // Phase 1: Recv
     let (recv_unrelayed, _) =
         discover_unreceived_packets(relay.as_ref(), &scope, excluded, limit).await?;
 
-    let src_client_id = relay.src_client_id().clone();
-    let src = relay.src_chain();
-
-    let mut recv_count = 0;
-    for seq in &recv_unrelayed {
-        match src.query_send_packet_event(&src_client_id, *seq).await {
-            Ok(Some(_)) => recv_count += 1,
-            Ok(None) => warn!(%seq, "send packet event not found"),
-            Err(e) => warn!(%seq, error = %e, "failed to recover send packet"),
-        }
-    }
-
-    // Phase 2: Ack
     let (ack_unrelayed, _) =
         discover_unrelayed_acks(relay.as_ref(), &scope, excluded, limit).await?;
 
-    let mut ack_count = 0;
-    for seq in &ack_unrelayed {
-        match src.query_write_ack_event(&src_client_id, *seq).await {
-            Ok(Some(_)) => ack_count += 1,
-            Ok(None) => warn!(%seq, "write ack event not found"),
-            Err(e) => warn!(%seq, error = %e, "failed to recover write ack"),
-        }
-    }
-
     Ok(ClearResult {
-        recv_cleared: recv_count,
-        ack_cleared: ack_count,
+        recv_cleared: recv_unrelayed.len(),
+        ack_cleared: ack_unrelayed.len(),
     })
 }

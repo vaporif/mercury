@@ -182,6 +182,10 @@ impl PacketEvents for EthereumChain {
             })
             .await?;
 
+        if logs.is_empty() {
+            return Ok(None);
+        }
+
         let event = logs.iter().find_map(|log| {
             let decoded = ICS26Router::WriteAcknowledgement::decode_log(log.as_ref()).ok()?;
             if decoded.data.packet.destClient != client_id.0 {
@@ -194,10 +198,6 @@ impl PacketEvents for EthereumChain {
                 block_number: BlockNumber(log.block_number?),
             })
         });
-
-        if logs.is_empty() {
-            return Ok(None);
-        }
 
         if event.is_none() {
             tracing::warn!(

@@ -61,7 +61,7 @@ pub struct RelayConfig {
     #[serde(default = "default_true")]
     pub clear_on_start: bool,
     #[serde(default = "default_clear_limit")]
-    pub clear_limit: Option<usize>,
+    pub clear_limit: usize,
     #[serde(default)]
     pub excluded_sequences: Vec<u64>,
 }
@@ -70,8 +70,8 @@ fn default_true() -> bool {
     true
 }
 
-fn default_clear_limit() -> Option<usize> {
-    Some(50)
+fn default_clear_limit() -> usize {
+    50
 }
 
 pub fn load_config(path: &Path, registry: &ChainRegistry) -> eyre::Result<RelayerConfig> {
