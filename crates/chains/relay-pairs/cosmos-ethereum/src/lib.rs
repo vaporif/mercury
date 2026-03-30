@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use mercury_chain_cache::CachedChain;
-use mercury_core::plugin::{AnyChain, AnyClientId, DynRelay, DynRelayConfig, RelayPairPlugin};
+use mercury_core::plugin::{
+    AnyChain, AnyClientId, ClearResult, DynRelay, DynRelayConfig, RelayPairPlugin, SweepScope,
+};
 use mercury_core::registry::ChainRegistry;
 use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
 use mercury_cosmos_counterparties::plugin::{downcast_cosmos, dyn_to_worker_config};
@@ -116,6 +118,16 @@ impl RelayPairPlugin for EthereumToCosmosRelay {
 struct CosmosEthRelay(Arc<RelayContext<CosmosCached, EthCached>>);
 
 impl DynRelay for CosmosEthRelay {
+    fn clear_packets(
+        self: Arc<Self>,
+        scope: SweepScope,
+    ) -> BoxFuture<'static, mercury_core::error::Result<ClearResult>> {
+        let inner = Arc::clone(&self.0);
+        Box::pin(async move {
+            mercury_relay::workers::packet_sweeper::clear_packets_once(inner, scope).await
+        })
+    }
+
     fn run(
         self: Arc<Self>,
         token: tokio_util::sync::CancellationToken,
@@ -132,6 +144,16 @@ impl DynRelay for CosmosEthRelay {
 struct EthCosmosRelay(Arc<RelayContext<EthCached, CosmosCached>>);
 
 impl DynRelay for EthCosmosRelay {
+    fn clear_packets(
+        self: Arc<Self>,
+        scope: SweepScope,
+    ) -> BoxFuture<'static, mercury_core::error::Result<ClearResult>> {
+        let inner = Arc::clone(&self.0);
+        Box::pin(async move {
+            mercury_relay::workers::packet_sweeper::clear_packets_once(inner, scope).await
+        })
+    }
+
     fn run(
         self: Arc<Self>,
         token: tokio_util::sync::CancellationToken,

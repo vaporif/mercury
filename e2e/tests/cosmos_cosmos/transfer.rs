@@ -1,3 +1,4 @@
+#![allow(clippy::similar_names)]
 use std::time::Duration;
 
 use mercury_e2e::bootstrap::traits::ChainHandle;

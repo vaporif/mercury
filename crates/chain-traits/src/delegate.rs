@@ -171,6 +171,14 @@ macro_rules! delegate_chain {
                 self.0.query_commitment_sequences(client_id, height).await
             }
 
+            async fn query_ack_sequences(
+                &self,
+                client_id: &Self::ClientId,
+                height: &Self::Height,
+            ) -> $crate::_mercury_core::error::Result<Vec<$crate::types::PacketSequence>> {
+                self.0.query_ack_sequences(client_id, height).await
+            }
+
             fn commitment_to_membership_entry(
                 &self,
                 client_id: &Self::ClientId,
@@ -229,6 +237,14 @@ macro_rules! delegate_chain {
                 sequence: $crate::types::PacketSequence,
             ) -> $crate::_mercury_core::error::Result<Option<Self::SendPacketEvent>> {
                 self.0.query_send_packet_event(client_id, sequence).await
+            }
+
+            async fn query_write_ack_event(
+                &self,
+                client_id: &Self::ClientId,
+                sequence: $crate::types::PacketSequence,
+            ) -> $crate::_mercury_core::error::Result<Option<Self::WriteAckEvent>> {
+                self.0.query_write_ack_event(client_id, sequence).await
             }
 
             async fn subscribe_block_events(

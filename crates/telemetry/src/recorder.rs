@@ -314,6 +314,11 @@ impl EventMetrics {
 pub struct SweepMetrics {
     cached_attrs: Vec<KeyValue>,
     swept_events: Counter<u64>,
+    recv_cleared: Counter<u64>,
+    ack_cleared: Counter<u64>,
+    excluded: Counter<u64>,
+    scan_duration: Histogram<f64>,
+    errors: Counter<u64>,
 }
 
 impl SweepMetrics {
@@ -322,7 +327,14 @@ impl SweepMetrics {
         let m = meter();
         Self {
             cached_attrs: build_attributes(label, None),
-            swept_events: m.u64_counter(metric::event::SWEPT_EVENTS).build(),
+            swept_events: m.u64_counter(metric::sweep::SWEPT_EVENTS).build(),
+            recv_cleared: m.u64_counter(metric::sweep::SWEEP_RECV_CLEARED).build(),
+            ack_cleared: m.u64_counter(metric::sweep::SWEEP_ACK_CLEARED).build(),
+            excluded: m.u64_counter(metric::sweep::SWEEP_EXCLUDED).build(),
+            scan_duration: m
+                .f64_histogram(metric::sweep::SWEEP_SCAN_DURATION_SECONDS)
+                .build(),
+            errors: m.u64_counter(metric::sweep::SWEEP_ERRORS).build(),
         }
     }
 
@@ -340,8 +352,38 @@ impl SweepMetrics {
                 .add(count_as_u64(count), &self.cached_attrs);
         }
     }
-}
 
+    pub fn record_recv_cleared(&self, count: usize) {
+        if count > 0 {
+            self.recv_cleared
+                .add(count_as_u64(count), &self.cached_attrs);
+        }
+    }
+
+    pub fn record_ack_cleared(&self, count: usize) {
+        if count > 0 {
+            self.ack_cleared
+                .add(count_as_u64(count), &self.cached_attrs);
+        }
+    }
+
+    pub fn record_excluded(&self, count: usize) {
+        if count > 0 {
+            self.excluded.add(count_as_u64(count), &self.cached_attrs);
+        }
+    }
+
+    pub fn record_scan_duration(&self, duration: Duration) {
+        self.scan_duration
+            .record(duration.as_secs_f64(), &self.cached_attrs);
+    }
+
+    pub fn record_error(&self, phase: &str) {
+        let mut attrs = self.cached_attrs.clone();
+        attrs.push(KeyValue::new("phase", phase.to_owned()));
+        self.errors.add(1, &attrs);
+    }
+}
 #[derive(Clone)]
 pub struct ClientMetrics {
     cached_attrs: Vec<KeyValue>,

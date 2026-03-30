@@ -35,6 +35,12 @@ pub trait PacketEvents: IbcTypes {
         sequence: PacketSequence,
     ) -> Result<Option<Self::SendPacketEvent>>;
 
+    async fn query_write_ack_event(
+        &self,
+        client_id: &Self::ClientId,
+        sequence: PacketSequence,
+    ) -> Result<Option<Self::WriteAckEvent>>;
+
     async fn subscribe_block_events(
         &self,
     ) -> Result<Option<BlockEventStream<Self::Height, Self::Event>>> {

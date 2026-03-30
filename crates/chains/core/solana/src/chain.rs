@@ -180,6 +180,14 @@ impl PacketStateQuery for SolanaChain {
     ) -> Result<Vec<PacketSequence>> {
         todo!("scan Solana program accounts for outstanding packet commitments")
     }
+
+    async fn query_ack_sequences(
+        &self,
+        _client_id: &Self::ClientId,
+        _height: &Self::Height,
+    ) -> Result<Vec<PacketSequence>> {
+        todo!("scan Solana program accounts for outstanding ack sequences")
+    }
 }
 
 #[async_trait]
@@ -215,6 +223,14 @@ impl PacketEvents for SolanaChain {
         _sequence: PacketSequence,
     ) -> Result<Option<SendPacketEvent>> {
         todo!("search Solana transaction history for specific send_packet event")
+    }
+
+    async fn query_write_ack_event(
+        &self,
+        _client_id: &SolanaClientId,
+        _sequence: PacketSequence,
+    ) -> Result<Option<WriteAckEvent>> {
+        todo!("search Solana transaction history for specific write_ack event")
     }
 }
 

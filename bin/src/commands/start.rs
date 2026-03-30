@@ -190,6 +190,9 @@ fn spawn_relay_pair(
         sweep_interval_secs: relay.sweep_interval_secs,
         misbehaviour_scan_interval_secs: relay.misbehaviour_scan_interval_secs,
         packet_filter_config: relay.packet_filter.clone(),
+        clear_on_start: relay.clear_on_start,
+        clear_limit: relay.clear_limit,
+        excluded_sequences: relay.excluded_sequences.clone(),
     };
 
     tokio::spawn(async move {

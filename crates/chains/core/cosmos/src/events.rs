@@ -6,9 +6,11 @@ use prost::Message as _;
 use tendermint_rpc::event::EventData;
 use tendermint_rpc::query::EventType;
 use tendermint_rpc::{Client, SubscriptionClient, WebSocketClient};
-use tracing::warn;
+use tracing::{instrument, warn};
 
 use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+
+pub(crate) const ENCODED_PACKET_HEX: &str = "encoded_packet_hex";
 
 use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
@@ -78,7 +80,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
         if event.kind != "send_packet" {
             return None;
         }
-        let hex_str = get_attr(&event.attributes, "encoded_packet_hex")?;
+        let hex_str = get_attr(&event.attributes, ENCODED_PACKET_HEX)?;
         let bytes = hex::decode(hex_str)
             .inspect_err(|e| warn!(error = %e, "failed to hex-decode send_packet"))
             .ok()?;
@@ -94,7 +96,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
         if event.kind != "write_acknowledgement" {
             return None;
         }
-        let pkt_hex = get_attr(&event.attributes, "encoded_packet_hex")?;
+        let pkt_hex = get_attr(&event.attributes, ENCODED_PACKET_HEX)?;
         let ack_hex = get_attr(&event.attributes, "encoded_acknowledgement_hex")?;
         let pkt_bytes = hex::decode(pkt_hex)
             .inspect_err(|e| warn!(error = %e, "failed to hex-decode write_ack packet"))
@@ -155,6 +157,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
         Ok(events)
     }
 
+    #[instrument(skip_all, fields(seq = %sequence))]
     async fn query_send_packet_event(
         &self,
         client_id: &ibc::core::host::types::identifiers::ClientId,
@@ -166,20 +169,87 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
             .and_eq("send_packet.packet_sequence", sequence.0.to_string());
 
         let response = self
-            .rpc_client
-            .tx_search(query, false, 1, 100, tendermint_rpc::Order::Descending)
+            .rpc_guard
+            .guarded(|| async {
+                self.rpc_client
+                    .tx_search(
+                        query.clone(),
+                        false,
+                        1,
+                        100,
+                        tendermint_rpc::Order::Descending,
+                    )
+                    .await
+                    .map_err(Into::into)
+            })
             .await?;
 
-        for tx in &response.txs {
-            for event in &tx.tx_result.events {
-                let cosmos_event = abci_event_to_cosmos_event(event);
-                if let Some(send_event) =
-                    <Self as PacketEvents>::try_extract_send_packet_event(&cosmos_event)
-                    && send_event.packet.source_client_id.as_ref() == client_id.as_str()
-                {
-                    return Ok(Some(send_event));
-                }
-            }
+        let found = response
+            .txs
+            .iter()
+            .flat_map(|tx| &tx.tx_result.events)
+            .map(abci_event_to_cosmos_event)
+            .find_map(|event| {
+                let send = <Self as PacketEvents>::try_extract_send_packet_event(&event)?;
+                (send.packet.source_client_id.as_ref() == client_id.as_str()).then_some(send)
+            });
+
+        if let Some(send_event) = found {
+            return Ok(Some(send_event));
+        }
+
+        if response.txs.is_empty() {
+            warn!(
+                sequence = sequence.0,
+                %client_id,
+                "tx_search returned no results — event may have been pruned from node's tx index"
+            );
+        }
+
+        Ok(None)
+    }
+
+    #[instrument(skip_all, fields(seq = %sequence))]
+    async fn query_write_ack_event(
+        &self,
+        client_id: &ibc::core::host::types::identifiers::ClientId,
+        sequence: PacketSequence,
+    ) -> Result<Option<WriteAckEvent>> {
+        use tendermint_rpc::query::{EventType, Query};
+
+        let query = Query::from(EventType::Tx).and_eq(
+            "write_acknowledgement.packet_sequence",
+            sequence.0.to_string(),
+        );
+
+        let response = self
+            .rpc_guard
+            .guarded(|| async {
+                self.rpc_client
+                    .tx_search(
+                        query.clone(),
+                        false,
+                        1,
+                        100,
+                        tendermint_rpc::Order::Descending,
+                    )
+                    .await
+                    .map_err(Into::into)
+            })
+            .await?;
+
+        let found = response
+            .txs
+            .iter()
+            .flat_map(|tx| &tx.tx_result.events)
+            .map(abci_event_to_cosmos_event)
+            .find_map(|event| {
+                let ack = <Self as PacketEvents>::try_extract_write_ack_event(&event)?;
+                (ack.packet.dest_client_id.as_ref() == client_id.as_str()).then_some(ack)
+            });
+
+        if let Some(write_ack) = found {
+            return Ok(Some(write_ack));
         }
 
         if response.txs.is_empty() {
@@ -411,7 +481,7 @@ mod tests {
 
         let event = CosmosEvent {
             kind: "send_packet".to_string(),
-            attributes: vec![("encoded_packet_hex".to_string(), hex_encoded)],
+            attributes: vec![(ENCODED_PACKET_HEX.to_string(), hex_encoded)],
         };
 
         let result = TestChain::try_extract_send_packet_event(&event);
@@ -452,7 +522,7 @@ mod tests {
             kind: "write_acknowledgement".to_string(),
             attributes: vec![
                 (
-                    "encoded_packet_hex".to_string(),
+                    ENCODED_PACKET_HEX.to_string(),
                     hex::encode(packet.encode_to_vec()),
                 ),
                 (
