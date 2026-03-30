@@ -10,6 +10,8 @@ use tracing::{instrument, warn};
 
 use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
 
+pub(crate) const ENCODED_PACKET_HEX: &str = "encoded_packet_hex";
+
 use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
 use crate::types::{
@@ -78,7 +80,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
         if event.kind != "send_packet" {
             return None;
         }
-        let hex_str = get_attr(&event.attributes, "encoded_packet_hex")?;
+        let hex_str = get_attr(&event.attributes, ENCODED_PACKET_HEX)?;
         let bytes = hex::decode(hex_str)
             .inspect_err(|e| warn!(error = %e, "failed to hex-decode send_packet"))
             .ok()?;
@@ -94,7 +96,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
         if event.kind != "write_acknowledgement" {
             return None;
         }
-        let pkt_hex = get_attr(&event.attributes, "encoded_packet_hex")?;
+        let pkt_hex = get_attr(&event.attributes, ENCODED_PACKET_HEX)?;
         let ack_hex = get_attr(&event.attributes, "encoded_acknowledgement_hex")?;
         let pkt_bytes = hex::decode(pkt_hex)
             .inspect_err(|e| warn!(error = %e, "failed to hex-decode write_ack packet"))
@@ -182,16 +184,18 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
             })
             .await?;
 
-        for tx in &response.txs {
-            for event in &tx.tx_result.events {
-                let cosmos_event = abci_event_to_cosmos_event(event);
-                if let Some(send_event) =
-                    <Self as PacketEvents>::try_extract_send_packet_event(&cosmos_event)
-                    && send_event.packet.source_client_id.as_ref() == client_id.as_str()
-                {
-                    return Ok(Some(send_event));
-                }
-            }
+        let found = response
+            .txs
+            .iter()
+            .flat_map(|tx| &tx.tx_result.events)
+            .map(abci_event_to_cosmos_event)
+            .find_map(|event| {
+                let send = <Self as PacketEvents>::try_extract_send_packet_event(&event)?;
+                (send.packet.source_client_id.as_ref() == client_id.as_str()).then_some(send)
+            });
+
+        if let Some(send_event) = found {
+            return Ok(Some(send_event));
         }
 
         if response.txs.is_empty() {
@@ -213,8 +217,8 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
     ) -> Result<Option<WriteAckEvent>> {
         use tendermint_rpc::query::{EventType, Query};
 
-        let query =
-            Query::from(EventType::Tx).and_exists("write_acknowledgement.encoded_packet_hex");
+        let query = Query::from(EventType::Tx)
+            .and_exists(format!("write_acknowledgement.{ENCODED_PACKET_HEX}"));
 
         let mut page = 1u32;
         let per_page = 100u8;
@@ -236,17 +240,20 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
                 })
                 .await?;
 
-            for tx in &response.txs {
-                for event in &tx.tx_result.events {
-                    let cosmos_event = abci_event_to_cosmos_event(event);
-                    if let Some(write_ack) =
-                        <Self as PacketEvents>::try_extract_write_ack_event(&cosmos_event)
-                        && write_ack.packet.dest_client_id.as_ref() == client_id.as_str()
-                        && write_ack.packet.sequence == sequence
-                    {
-                        return Ok(Some(write_ack));
-                    }
-                }
+            let found = response
+                .txs
+                .iter()
+                .flat_map(|tx| &tx.tx_result.events)
+                .map(abci_event_to_cosmos_event)
+                .find_map(|event| {
+                    let ack = <Self as PacketEvents>::try_extract_write_ack_event(&event)?;
+                    (ack.packet.dest_client_id.as_ref() == client_id.as_str()
+                        && ack.packet.sequence == sequence)
+                        .then_some(ack)
+                });
+
+            if let Some(write_ack) = found {
+                return Ok(Some(write_ack));
             }
 
             if response.txs.is_empty() || response.txs.len() < usize::from(per_page) {
@@ -482,7 +489,7 @@ mod tests {
 
         let event = CosmosEvent {
             kind: "send_packet".to_string(),
-            attributes: vec![("encoded_packet_hex".to_string(), hex_encoded)],
+            attributes: vec![(ENCODED_PACKET_HEX.to_string(), hex_encoded)],
         };
 
         let result = TestChain::try_extract_send_packet_event(&event);
@@ -523,7 +530,7 @@ mod tests {
             kind: "write_acknowledgement".to_string(),
             attributes: vec![
                 (
-                    "encoded_packet_hex".to_string(),
+                    ENCODED_PACKET_HEX.to_string(),
                     hex::encode(packet.encode_to_vec()),
                 ),
                 (

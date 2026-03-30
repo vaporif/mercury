@@ -14,6 +14,8 @@ use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQu
 use mercury_chain_traits::types::{ChainTypes, PacketSequence};
 use mercury_core::error::{ProofError, QueryError, Result};
 
+use crate::events::ENCODED_PACKET_HEX;
+
 use crate::chain::CosmosChain;
 use crate::client_types::{
     CosmosClientState, CosmosConsensusState, TENDERMINT_CLIENT_STATE_TYPE_URL,
@@ -274,7 +276,7 @@ async fn paginated_packet_sequences<S: CosmosSigner>(
     use std::collections::HashSet;
     use tendermint_rpc::query::{EventType, Query};
 
-    let query = Query::from(EventType::Tx).and_exists(format!("{event_kind}.encoded_packet_hex"));
+    let query = Query::from(EventType::Tx).and_exists(format!("{event_kind}.{ENCODED_PACKET_HEX}"));
 
     let mut sequences = HashSet::new();
     let mut page = 1u32;
@@ -298,29 +300,22 @@ async fn paginated_packet_sequences<S: CosmosSigner>(
             })
             .await?;
 
-        for tx in &response.txs {
-            for event in &tx.tx_result.events {
-                if event.kind != event_kind {
-                    continue;
-                }
-                let hex_attr = event.attributes.iter().find_map(|attr| {
-                    let key = attr.key_str().ok()?;
-                    if key == "encoded_packet_hex" {
-                        attr.value_str().ok()
-                    } else {
-                        None
-                    }
-                });
-                if let Some(hex_str) = hex_attr
-                    && let Ok(bytes) = hex::decode(hex_str)
-                    && let Ok(pkt) =
-                        ibc_proto::ibc::core::channel::v2::Packet::decode(bytes.as_slice())
-                    && client_field(&pkt) == client_id.as_str()
-                {
-                    sequences.insert(PacketSequence(pkt.sequence));
-                }
-            }
-        }
+        let matched = response
+            .txs
+            .iter()
+            .flat_map(|tx| &tx.tx_result.events)
+            .filter(|event| event.kind == event_kind)
+            .filter_map(|event| {
+                let hex_str = event.attributes.iter().find_map(|attr| {
+                    (attr.key_str().ok()? == ENCODED_PACKET_HEX).then(|| attr.value_str().ok())?
+                })?;
+                let bytes = hex::decode(hex_str).ok()?;
+                let pkt =
+                    ibc_proto::ibc::core::channel::v2::Packet::decode(bytes.as_slice()).ok()?;
+                (client_field(&pkt) == client_id.as_str()).then(|| PacketSequence(pkt.sequence))
+            });
+
+        sequences.extend(matched);
 
         if response.txs.len() < usize::from(per_page) {
             break;
