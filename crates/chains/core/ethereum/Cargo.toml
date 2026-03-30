@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 mercury-core = { workspace = true }
 mercury-chain-traits = { workspace = true }
+derive_more = { workspace = true }
 
 alloy = { workspace = true }
 
