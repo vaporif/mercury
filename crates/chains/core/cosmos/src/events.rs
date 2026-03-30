@@ -237,7 +237,7 @@ impl<S: CosmosSigner> PacketEvents for CosmosChain<S> {
                 }
             }
 
-            if response.txs.is_empty() || response.txs.len() < per_page as usize {
+            if response.txs.is_empty() || response.txs.len() < usize::from(per_page) {
                 break;
             }
             page += 1;

@@ -323,7 +323,7 @@ async fn paginated_packet_sequences<S: CosmosSigner>(
             }
         }
 
-        if response.txs.len() < per_page as usize {
+        if response.txs.len() < usize::from(per_page) {
             break;
         }
         page += 1;
