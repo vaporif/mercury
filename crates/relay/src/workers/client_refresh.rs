@@ -48,14 +48,13 @@ impl<R: Relay> ClientRefreshWorker<R> {
     }
 
     async fn try_submit_upgrade(&mut self) -> Result<()> {
-        let payload = match self
+        let Some(payload) = self
             .relay
             .src_chain()
             .build_upgrade_client_payload()
             .await?
-        {
-            Some(p) => p,
-            None => return Ok(()),
+        else {
+            return Ok(());
         };
 
         if self.last_upgrade_plan_height == Some(payload.plan_height) {

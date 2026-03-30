@@ -241,7 +241,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
             .await?;
         let latest_height = latest_status.sync_info.latest_block_height.value();
 
-        if latest_height < plan.height as u64 {
+        if latest_height < plan.height.cast_unsigned() {
             return Ok(None);
         }
 
