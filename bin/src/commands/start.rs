@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Args;
+use tracing::instrument;
 use mercury_core::plugin::{AnyChain, ChainId, DynRelay, DynRelayConfig};
 use mercury_core::registry::ChainRegistry;
 use tokio::task::JoinHandle;

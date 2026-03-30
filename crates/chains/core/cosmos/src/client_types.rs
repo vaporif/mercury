@@ -20,6 +20,17 @@ pub enum CosmosConsensusState {
     Wasm(WasmConsensusState),
 }
 
+impl CosmosClientState {
+    /// Dummy value for APIs that require a client state but don't read it.
+    pub fn placeholder() -> Self {
+        Self::Wasm(ibc_proto::ibc::lightclients::wasm::v1::ClientState {
+            data: Vec::new(),
+            checksum: Vec::new(),
+            latest_height: None,
+        })
+    }
+}
+
 pub const TENDERMINT_CLIENT_STATE_TYPE_URL: &str = "ibc.lightclients.tendermint.v1.ClientState";
 pub const WASM_CLIENT_STATE_TYPE_URL: &str = "ibc.lightclients.wasm.v1.ClientState";
 pub const TENDERMINT_CONSENSUS_STATE_TYPE_URL: &str =

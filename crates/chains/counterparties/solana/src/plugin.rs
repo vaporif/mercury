@@ -112,6 +112,25 @@ impl ChainPlugin for SolanaPlugin {
     ) -> eyre::Result<Vec<u64>> {
         todo!("query commitment sequences on Solana chain")
     }
+
+    async fn build_update_client_payload(
+        &self,
+        _chain: &AnyChain,
+        _trusted_height: u64,
+        _target_height: u64,
+        _counterparty_client_state: Option<&(dyn Any + Send + Sync)>,
+    ) -> eyre::Result<Box<dyn Any + Send + Sync>> {
+        todo!("build update client payload on Solana chain")
+    }
+
+    async fn update_client(
+        &self,
+        _chain: &AnyChain,
+        _client_id: &str,
+        _payload: Box<dyn Any + Send + Sync>,
+    ) -> eyre::Result<()> {
+        todo!("update client on Solana chain")
+    }
 }
 
 pub fn register(registry: &mut ChainRegistry) {

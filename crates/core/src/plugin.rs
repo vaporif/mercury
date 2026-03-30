@@ -123,6 +123,23 @@ pub trait ChainPlugin: Send + Sync {
         client_id: &str,
         height: Option<u64>,
     ) -> eyre::Result<Vec<u64>>;
+
+    /// Builds headers/proofs from the reference chain for a client update.
+    /// Ethereum beacon mode needs `counterparty_client_state` to read the trusted slot.
+    async fn build_update_client_payload(
+        &self,
+        chain: &AnyChain,
+        trusted_height: u64,
+        target_height: u64,
+        counterparty_client_state: Option<&(dyn Any + Send + Sync)>,
+    ) -> eyre::Result<Box<dyn Any + Send + Sync>>;
+
+    async fn update_client(
+        &self,
+        chain: &AnyChain,
+        client_id: &str,
+        payload: Box<dyn Any + Send + Sync>,
+    ) -> eyre::Result<()>;
 }
 
 pub trait RelayPairPlugin: Send + Sync {

@@ -52,7 +52,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         id: sp1-cache
         with:
           path: |
@@ -69,7 +69,7 @@ jobs:
       - name: Add SP1 to PATH
         run: echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: external/solidity-ibc-eureka/node_modules
           key: bun-${{ hashFiles('external/solidity-ibc-eureka/bun.lock') }}
