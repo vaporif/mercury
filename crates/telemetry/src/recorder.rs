@@ -73,7 +73,7 @@ impl TxMetrics {
     pub fn new(direction: TxDirection, label: &ChainLabel) -> Self {
         let m = meter();
         let mut cached_attrs = vec![KeyValue::new("direction", direction.as_str())];
-        cached_attrs.extend(build_attributes(&label, None));
+        cached_attrs.extend(build_attributes(label, None));
         Self {
             cached_attrs,
             tx_submitted: m.u64_counter(metric::tx::TX_SUBMITTED).build(),
@@ -152,7 +152,7 @@ impl PacketMetrics {
     pub fn new(label: &ChainLabel) -> Self {
         let m = meter();
         Self {
-            cached_attrs: build_attributes(&label, None),
+            cached_attrs: build_attributes(label, None),
             receive_packets: m.u64_counter(metric::packet::RECEIVE_PACKETS).build(),
             ack_packets: m.u64_counter(metric::packet::ACK_PACKETS).build(),
             timeout_packets: m.u64_counter(metric::packet::TIMEOUT_PACKETS).build(),
@@ -224,7 +224,7 @@ impl EventMetrics {
     pub fn new(label: &ChainLabel) -> Self {
         let m = meter();
         Self {
-            cached_attrs: build_attributes(&label, None),
+            cached_attrs: build_attributes(label, None),
             send_packet_events: m.u64_counter(metric::event::SEND_PACKET_EVENTS).build(),
             ack_events: m.u64_counter(metric::event::ACK_EVENTS).build(),
             filtered_packets: m.u64_counter(metric::packet::FILTERED_PACKETS).build(),
@@ -321,7 +321,7 @@ impl SweepMetrics {
     pub fn new(label: &ChainLabel) -> Self {
         let m = meter();
         Self {
-            cached_attrs: build_attributes(&label, None),
+            cached_attrs: build_attributes(label, None),
             swept_events: m.u64_counter(metric::event::SWEPT_EVENTS).build(),
         }
     }
@@ -354,7 +354,7 @@ impl ClientMetrics {
     pub fn new(label: &ChainLabel) -> Self {
         let m = meter();
         Self {
-            cached_attrs: build_attributes(&label, None),
+            cached_attrs: build_attributes(label, None),
             updates_submitted: m
                 .u64_counter(metric::client::CLIENT_UPDATES_SUBMITTED)
                 .build(),
@@ -399,7 +399,7 @@ impl MisbehaviourMetrics {
     pub fn new(label: &ChainLabel) -> Self {
         let m = meter();
         Self {
-            cached_attrs: build_attributes(&label, None),
+            cached_attrs: build_attributes(label, None),
             submitted: m
                 .u64_counter(metric::client::MISBEHAVIOURS_SUBMITTED)
                 .build(),
@@ -440,7 +440,7 @@ impl WalletMetrics {
     pub fn new(label: &ChainLabel) -> Self {
         let m = meter();
         Self {
-            cached_attrs: build_attributes(&label, None),
+            cached_attrs: build_attributes(label, None),
             wallet_balance: m.f64_gauge(metric::wallet::WALLET_BALANCE).build(),
         }
     }
@@ -470,7 +470,7 @@ impl GasMetrics {
     pub fn new(label: &ChainLabel) -> Self {
         let m = meter();
         Self {
-            cached_attrs: build_attributes(&label, None),
+            cached_attrs: build_attributes(label, None),
             gas_price_gwei: m.f64_histogram(metric::gas::GAS_PRICE_GWEI).build(),
         }
     }
