@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
+use mercury_core::plugin::ClientMode;
 use tracing::info;
 
 #[derive(Subcommand)]
@@ -27,6 +28,9 @@ pub struct CreateClientCmd {
     /// Chain being tracked by the client
     #[arg(long)]
     reference_chain: String,
+    /// Client mode (omit for default)
+    #[arg(long, value_enum)]
+    mode: Option<ClientMode>,
 }
 
 impl CreateClientCmd {
@@ -47,8 +51,12 @@ impl CreateClientCmd {
         let host_chain = host_plugin.connect(&host_cfg.raw, config_dir).await?;
         let ref_chain = ref_plugin.connect(&ref_cfg.raw, config_dir).await?;
 
-        let payload = ref_plugin.build_create_client_payload(&ref_chain).await?;
-        let client_id = host_plugin.create_client(&host_chain, payload).await?;
+        let mode = self.mode.unwrap_or_default();
+
+        let builder = registry.client_builder(&ref_cfg.chain_type, &host_cfg.chain_type, &mode)?;
+
+        let payload = builder.build_create_payload(&ref_chain).await?;
+        let client_id = builder.create_client(&host_chain, payload).await?;
 
         info!(
             %client_id,

@@ -25,6 +25,7 @@ tokio-util = { workspace = true }
 
 # Cross-chain (optional)
 mercury-cosmos = { workspace = true, optional = true }
+mercury-cosmos-counterparties = { workspace = true, optional = true }
 ibc = { workspace = true, optional = true }
 ibc-client-tendermint = { workspace = true, optional = true }
 tendermint = { workspace = true, optional = true }
@@ -32,6 +33,7 @@ tendermint = { workspace = true, optional = true }
 [features]
 cosmos = [
     "dep:mercury-cosmos",
+    "dep:mercury-cosmos-counterparties",
     "dep:ibc",
     "dep:ibc-client-tendermint",
     "dep:tendermint",

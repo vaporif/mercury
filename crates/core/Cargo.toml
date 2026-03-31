@@ -25,3 +25,4 @@ opentelemetry = { workspace = true }
 toml = { workspace = true }
 futures = { workspace = true }
 tokio-util = { workspace = true }
+clap = { workspace = true }

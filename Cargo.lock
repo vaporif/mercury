@@ -5231,6 +5231,7 @@ name = "mercury-core"
 version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
+ "clap",
  "eyre",
  "futures",
  "governor",
@@ -5511,6 +5512,7 @@ dependencies = [
  "mercury-chain-traits",
  "mercury-core",
  "mercury-cosmos",
+ "mercury-cosmos-counterparties",
  "mercury-relay",
  "mercury-solana",
  "serde",

@@ -168,6 +168,14 @@ impl DynRelay for EthCosmosRelay {
 }
 
 pub fn register(registry: &mut ChainRegistry) {
-    registry.register_pair(CosmosToEthereumRelay);
-    registry.register_pair(EthereumToCosmosRelay);
+    use mercury_core::plugin::{ChainPair, ClientMode};
+
+    registry.register_pair(
+        ChainPair::new("cosmos", "ethereum", ClientMode::Default),
+        Box::new(CosmosToEthereumRelay),
+    );
+    registry.register_pair(
+        ChainPair::new("ethereum", "cosmos", ClientMode::Default),
+        Box::new(EthereumToCosmosRelay),
+    );
 }

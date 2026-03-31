@@ -12,6 +12,9 @@ pub mod worker;
 pub trait ThreadSafe: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> ThreadSafe for T {}
 
+/// Type-erased thread-safe value that supports downcasting.
+pub type ThreadSafeAny = dyn std::any::Any + Send + Sync;
+
 /// Human-readable chain identifier
 #[derive(Clone, Debug)]
 pub struct ChainLabel {

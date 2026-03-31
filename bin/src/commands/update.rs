@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
+use mercury_core::plugin::ClientMode;
 use tracing::info;
 
 #[derive(Subcommand)]
@@ -34,6 +35,9 @@ pub struct UpdateClientCmd {
     /// Target height to update to; defaults to latest
     #[arg(long)]
     height: Option<u64>,
+    /// Client mode (omit for default)
+    #[arg(long, value_enum)]
+    mode: Option<ClientMode>,
 }
 
 impl UpdateClientCmd {
@@ -96,11 +100,15 @@ impl UpdateClientCmd {
             return Ok(());
         }
 
-        let payload = ref_plugin
-            .build_update_client_payload(&ref_chain, trusted_height, target_height, None)
+        let mode = self.mode.unwrap_or_default();
+
+        let builder = registry.client_builder(&ref_cfg.chain_type, &host_cfg.chain_type, &mode)?;
+
+        let payload = builder
+            .build_update_payload(&ref_chain, trusted_height, target_height, None)
             .await?;
 
-        host_plugin
+        builder
             .update_client(&host_chain, &self.client, payload)
             .await?;
 

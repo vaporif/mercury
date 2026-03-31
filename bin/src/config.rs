@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use eyre::Context;
-use mercury_core::plugin::ChainId;
+use mercury_core::plugin::{ChainId, ClientMode};
 use mercury_core::registry::ChainRegistry;
 use serde::Deserialize;
 
@@ -64,6 +64,8 @@ pub struct RelayConfig {
     pub clear_limit: usize,
     #[serde(default)]
     pub excluded_sequences: Vec<u64>,
+    #[serde(default)]
+    pub mode: ClientMode,
 }
 
 const fn default_true() -> bool {

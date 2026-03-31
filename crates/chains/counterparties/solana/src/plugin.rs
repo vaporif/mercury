@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -80,21 +79,6 @@ impl ChainPlugin for SolanaPlugin {
             .ok_or_else(|| eyre::eyre!("missing 'rpc_addr' in solana config"))
     }
 
-    async fn build_create_client_payload(
-        &self,
-        _chain: &AnyChain,
-    ) -> eyre::Result<Box<dyn Any + Send + Sync>> {
-        todo!("build Solana create client payload")
-    }
-
-    async fn create_client(
-        &self,
-        _chain: &AnyChain,
-        _payload: Box<dyn Any + Send + Sync>,
-    ) -> eyre::Result<String> {
-        todo!("create client on Solana chain")
-    }
-
     async fn query_client_state_info(
         &self,
         _chain: &AnyChain,
@@ -112,27 +96,22 @@ impl ChainPlugin for SolanaPlugin {
     ) -> eyre::Result<Vec<u64>> {
         todo!("query commitment sequences on Solana chain")
     }
-
-    async fn build_update_client_payload(
-        &self,
-        _chain: &AnyChain,
-        _trusted_height: u64,
-        _target_height: u64,
-        _counterparty_client_state: Option<&(dyn Any + Send + Sync)>,
-    ) -> eyre::Result<Box<dyn Any + Send + Sync>> {
-        todo!("build update client payload on Solana chain")
-    }
-
-    async fn update_client(
-        &self,
-        _chain: &AnyChain,
-        _client_id: &str,
-        _payload: Box<dyn Any + Send + Sync>,
-    ) -> eyre::Result<()> {
-        todo!("update client on Solana chain")
-    }
 }
 
 pub fn register(registry: &mut ChainRegistry) {
+    use mercury_core::plugin::{ChainPair, ClientMode};
+
     registry.register_chain(SolanaPlugin);
+
+    #[cfg(feature = "cosmos")]
+    {
+        registry.register_client_builder(
+            ChainPair::new("cosmos", "solana", ClientMode::Default),
+            Box::new(crate::client_builders::SolanaTendermintClientBuilder),
+        );
+        registry.register_client_builder(
+            ChainPair::new("solana", "cosmos", ClientMode::Native),
+            Box::new(crate::client_builders::SolanaNativeClientBuilder),
+        );
+    }
 }

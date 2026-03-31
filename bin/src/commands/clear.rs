@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
-use mercury_core::plugin::SweepScope;
+use mercury_core::plugin::{ClientMode, SweepScope};
 
 #[derive(Subcommand)]
 pub enum ClearCmd {
@@ -88,7 +88,11 @@ impl ClearPacketsCmd {
         let src_client_id = src_plugin.parse_client_id(&self.client)?;
         let dst_client_id = dst_plugin.parse_client_id(&self.counterparty_client)?;
 
-        let pair = registry.pair(&chain_cfg.chain_type, &counterparty_cfg.chain_type)?;
+        let pair = registry.pair(
+            &chain_cfg.chain_type,
+            &counterparty_cfg.chain_type,
+            &ClientMode::Default,
+        )?;
         let (fwd, rev) =
             pair.build_relay(&src_chain, &dst_chain, &src_client_id, &dst_client_id)?;
 

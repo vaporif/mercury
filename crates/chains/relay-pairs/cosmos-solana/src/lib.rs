@@ -162,6 +162,14 @@ impl DynRelay for SolCosmosRelay {
 }
 
 pub fn register(registry: &mut ChainRegistry) {
-    registry.register_pair(CosmosToSolanaRelay);
-    registry.register_pair(SolanaToCosmosRelay);
+    use mercury_core::plugin::{ChainPair, ClientMode};
+
+    registry.register_pair(
+        ChainPair::new("cosmos", "solana", ClientMode::Default),
+        Box::new(CosmosToSolanaRelay),
+    );
+    registry.register_pair(
+        ChainPair::new("solana", "cosmos", ClientMode::Default),
+        Box::new(SolanaToCosmosRelay),
+    );
 }

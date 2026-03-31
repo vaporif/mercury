@@ -1,9 +1,72 @@
-use std::any::Any;
 use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
+
+use crate::ThreadSafeAny;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, serde::Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum ClientMode {
+    #[default]
+    Default,
+    Native,
+    Zk,
+    Attested,
+    Optimistic,
+    Mock,
+    /// CLI: `--mode trusted-execution`, TOML: `mode = "trusted_execution"`
+    #[value(name = "trusted-execution")]
+    TrustedExecution,
+    Multisig,
+    Proxy,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ChainPair {
+    pub src_type: String,
+    pub dst_type: String,
+    pub mode: ClientMode,
+}
+
+impl ChainPair {
+    pub fn new(src_type: impl Into<String>, dst_type: impl Into<String>, mode: ClientMode) -> Self {
+        Self {
+            src_type: src_type.into(),
+            dst_type: dst_type.into(),
+            mode,
+        }
+    }
+}
+
+// TODO: consider typed errors (e.g. ClientBuilderError with UnsupportedOperation variant)
+//       once callers need to branch on error kind
+#[async_trait]
+pub trait ClientBuilder: Send + Sync {
+    async fn build_create_payload(&self, src_chain: &AnyChain) -> eyre::Result<Box<ThreadSafeAny>>;
+
+    async fn create_client(
+        &self,
+        host_chain: &AnyChain,
+        payload: Box<ThreadSafeAny>,
+    ) -> eyre::Result<String>;
+
+    async fn build_update_payload(
+        &self,
+        src_chain: &AnyChain,
+        trusted_height: u64,
+        target_height: u64,
+        counterparty_client_state: Option<&ThreadSafeAny>,
+    ) -> eyre::Result<Box<ThreadSafeAny>>;
+
+    async fn update_client(
+        &self,
+        host_chain: &AnyChain,
+        client_id: &str,
+        payload: Box<ThreadSafeAny>,
+    ) -> eyre::Result<()>;
+}
 
 #[cfg(unix)]
 pub fn warn_key_file_permissions(key_path: &Path) {
@@ -19,9 +82,8 @@ pub fn warn_key_file_permissions(key_path: &Path) {
     }
 }
 
-pub type AnyChain = Arc<dyn Any + Send + Sync>;
-
-pub type AnyClientId = Box<dyn Any + Send + Sync>;
+pub type AnyChain = Arc<ThreadSafeAny>;
+pub type AnyClientId = Box<ThreadSafeAny>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ChainId(pub String);
@@ -119,17 +181,6 @@ pub trait ChainPlugin: Send + Sync {
     fn chain_id_from_config(&self, raw: &toml::Table) -> eyre::Result<ChainId>;
     fn rpc_addr_from_config(&self, raw: &toml::Table) -> eyre::Result<String>;
 
-    async fn build_create_client_payload(
-        &self,
-        chain: &AnyChain,
-    ) -> eyre::Result<Box<dyn Any + Send + Sync>>;
-
-    async fn create_client(
-        &self,
-        chain: &AnyChain,
-        payload: Box<dyn Any + Send + Sync>,
-    ) -> eyre::Result<String>;
-
     async fn query_client_state_info(
         &self,
         chain: &AnyChain,
@@ -143,23 +194,6 @@ pub trait ChainPlugin: Send + Sync {
         client_id: &str,
         height: Option<u64>,
     ) -> eyre::Result<Vec<u64>>;
-
-    /// Builds headers/proofs from the reference chain for a client update.
-    /// Ethereum beacon mode needs `counterparty_client_state` to read the trusted slot.
-    async fn build_update_client_payload(
-        &self,
-        chain: &AnyChain,
-        trusted_height: u64,
-        target_height: u64,
-        counterparty_client_state: Option<&(dyn Any + Send + Sync)>,
-    ) -> eyre::Result<Box<dyn Any + Send + Sync>>;
-
-    async fn update_client(
-        &self,
-        chain: &AnyChain,
-        client_id: &str,
-        payload: Box<dyn Any + Send + Sync>,
-    ) -> eyre::Result<()>;
 }
 
 pub trait RelayPairPlugin: Send + Sync {

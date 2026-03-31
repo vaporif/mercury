@@ -87,5 +87,10 @@ impl RelayPairPlugin for CosmosToCosmosRelay {
 }
 
 pub fn register(registry: &mut ChainRegistry) {
-    registry.register_pair(CosmosToCosmosRelay);
+    use mercury_core::plugin::{ChainPair, ClientMode};
+
+    registry.register_pair(
+        ChainPair::new("cosmos", "cosmos", ClientMode::Default),
+        Box::new(CosmosToCosmosRelay),
+    );
 }

@@ -1,3 +1,4 @@
+pub mod client_builders;
 pub mod wrapper;
 
 #[cfg(feature = "ethereum-beacon")]

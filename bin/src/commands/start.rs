@@ -99,7 +99,7 @@ async fn run_start(
         let src_client_id = src_plugin.parse_client_id(&relay.src_client_id)?;
         let dst_client_id = dst_plugin.parse_client_id(&relay.dst_client_id)?;
 
-        let pair = registry.pair(&src.chain_type, &dst.chain_type)?;
+        let pair = registry.pair(&src.chain_type, &dst.chain_type, &relay.mode)?;
         let (fwd, rev) =
             pair.build_relay(&src.chain, &dst.chain, &src_client_id, &dst_client_id)?;
 
