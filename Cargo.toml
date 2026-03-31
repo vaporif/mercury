@@ -46,6 +46,7 @@ branches_sharing_code = "allow"
 async-trait = "0.1"
 eyre = "0.6"
 thiserror = "2"
+derive_more = { version = "2", default-features = false, features = ["display", "from", "into", "as_ref"] }
 color-eyre = "0.6"
 tracing = "0.1"
 tokio = { version = "1", features = ["full"] }

@@ -13,121 +13,27 @@ use crate::chain::CosmosChain;
 use crate::keys::CosmosSigner;
 use crate::types::{CosmosEvent, CosmosMessage, CosmosTxResponse};
 
+use derive_more::{AsRef, Display, From, Into};
+
 /// Token denomination (e.g. "uatom").
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Display, From, Into, AsRef, PartialEq, Eq, Hash)]
 pub struct Denom(pub String);
 
-impl std::fmt::Display for Denom {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl From<String> for Denom {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<Denom> for String {
-    fn from(v: Denom) -> Self {
-        v.0
-    }
-}
-
-impl AsRef<str> for Denom {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
 /// Transaction fee amount in smallest denomination.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Display, From, Into, PartialEq, Eq)]
 pub struct FeeAmount(pub u64);
 
-impl std::fmt::Display for FeeAmount {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for FeeAmount {
-    fn from(v: u64) -> Self {
-        Self(v)
-    }
-}
-
-impl From<FeeAmount> for u64 {
-    fn from(v: FeeAmount) -> Self {
-        v.0
-    }
-}
-
 /// Gas limit for a transaction.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Display, From, Into, PartialEq, Eq)]
 pub struct GasLimit(pub u64);
 
-impl std::fmt::Display for GasLimit {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for GasLimit {
-    fn from(v: u64) -> Self {
-        Self(v)
-    }
-}
-
-impl From<GasLimit> for u64 {
-    fn from(v: GasLimit) -> Self {
-        v.0
-    }
-}
-
 /// Cosmos account number.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Display, From, Into, PartialEq, Eq)]
 pub struct AccountNumber(pub u64);
 
-impl std::fmt::Display for AccountNumber {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for AccountNumber {
-    fn from(v: u64) -> Self {
-        Self(v)
-    }
-}
-
-impl From<AccountNumber> for u64 {
-    fn from(v: AccountNumber) -> Self {
-        v.0
-    }
-}
-
 /// Transaction sequence (nonce) for ordering.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Display, From, Into, PartialEq, Eq)]
 pub struct TxSequence(pub u64);
-
-impl std::fmt::Display for TxSequence {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for TxSequence {
-    fn from(v: u64) -> Self {
-        Self(v)
-    }
-}
-
-impl From<TxSequence> for u64 {
-    fn from(v: TxSequence) -> Self {
-        v.0
-    }
-}
 
 const DEFAULT_GAS_MULTIPLIER: f64 = 1.3;
 const DEFAULT_GAS: u64 = 300_000;
