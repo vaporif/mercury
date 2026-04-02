@@ -113,7 +113,9 @@ impl PacketEvents for EthereumChain {
             })
             .await?;
 
-        Ok(logs.iter().map(EvmEvent::from_alloy_log).collect())
+        logs.iter()
+            .map(EvmEvent::from_alloy_log)
+            .collect::<eyre::Result<Vec<_>>>()
     }
 
     async fn query_send_packet_event(
@@ -256,7 +258,11 @@ impl PacketEvents for EthereumChain {
                                 continue;
                             };
 
-                            let event = EvmEvent::from_alloy_log(&log);
+                            let Ok(event) = EvmEvent::from_alloy_log(&log).inspect_err(|e| {
+                                tracing::warn!("skipping malformed log: {e}");
+                            }) else {
+                                continue;
+                            };
 
                             match &mut pending {
                                 Some((pending_block, pending_events))

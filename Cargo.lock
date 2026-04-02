@@ -5193,6 +5193,7 @@ name = "mercury-chain-traits"
 version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
+ "derive_more 2.1.1",
  "eyre",
  "futures",
  "mercury-core",
@@ -5248,6 +5249,7 @@ version = "0.1.0-alpha.2"
 dependencies = [
  "async-trait",
  "bech32",
+ "derive_more 2.1.1",
  "eyre",
  "futures",
  "hex",
@@ -5401,6 +5403,7 @@ dependencies = [
  "alloy",
  "async-trait",
  "base64 0.22.1",
+ "derive_more 2.1.1",
  "ethereum-apis",
  "ethereum-light-client",
  "ethereum-types",

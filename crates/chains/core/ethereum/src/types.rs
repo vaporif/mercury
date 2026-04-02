@@ -1,112 +1,31 @@
 use alloy::primitives::{Address, B256, U256};
 use alloy::rpc::types::Log;
+use eyre::{OptionExt, Result};
 
 use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+use derive_more::{Display, From, Into};
+
+#[derive(Clone, Debug, Display, From, Into, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EvmHeight(pub u64);
 
-impl std::fmt::Display for EvmHeight {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Display, From, Into, PartialEq, Eq, Hash)]
 pub struct EvmChainId(pub u64);
-
-impl std::fmt::Display for EvmChainId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EvmTimestamp(pub u64);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Display, From, Into, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BlockNumber(pub u64);
 
-impl std::fmt::Display for BlockNumber {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for BlockNumber {
-    fn from(v: u64) -> Self {
-        Self(v)
-    }
-}
-
-impl From<BlockNumber> for u64 {
-    fn from(v: BlockNumber) -> Self {
-        v.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Display, From, Into, PartialEq, Eq, Hash)]
 pub struct LogIndex(pub u64);
 
-impl std::fmt::Display for LogIndex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for LogIndex {
-    fn from(v: u64) -> Self {
-        Self(v)
-    }
-}
-
-impl From<LogIndex> for u64 {
-    fn from(v: LogIndex) -> Self {
-        v.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Display, From, Into, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProofHeight(pub u64);
 
-impl std::fmt::Display for ProofHeight {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for ProofHeight {
-    fn from(v: u64) -> Self {
-        Self(v)
-    }
-}
-
-impl From<ProofHeight> for u64 {
-    fn from(v: ProofHeight) -> Self {
-        v.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Display, From, Into, PartialEq, Eq, Hash)]
 pub struct GasUsed(pub u64);
-
-impl std::fmt::Display for GasUsed {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for GasUsed {
-    fn from(v: u64) -> Self {
-        Self(v)
-    }
-}
-
-impl From<GasUsed> for u64 {
-    fn from(v: GasUsed) -> Self {
-        v.0
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct EvmEvent {
@@ -119,15 +38,15 @@ pub struct EvmEvent {
 }
 
 impl EvmEvent {
-    pub fn from_alloy_log(log: &Log) -> Self {
-        Self {
+    pub fn from_alloy_log(log: &Log) -> Result<Self> {
+        Ok(Self {
             address: log.address(),
             topics: log.topics().to_vec(),
             data: log.data().data.to_vec(),
-            block_number: BlockNumber(log.block_number.unwrap_or(0)),
-            tx_hash: log.transaction_hash.unwrap_or_default(),
-            log_index: LogIndex(log.log_index.unwrap_or(0)),
-        }
+            block_number: BlockNumber(log.block_number.ok_or_eyre("missing block_number")?),
+            tx_hash: log.transaction_hash.ok_or_eyre("missing tx_hash")?,
+            log_index: LogIndex(log.log_index.ok_or_eyre("missing log_index")?),
+        })
     }
 }
 
@@ -152,14 +71,8 @@ pub struct EvmChainStatus {
     pub timestamp: EvmTimestamp,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Display, From, Into, PartialEq, Eq, Hash)]
 pub struct EvmClientId(pub String);
-
-impl std::fmt::Display for EvmClientId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct EvmPacket {

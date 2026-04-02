@@ -2,81 +2,22 @@ use std::fmt::{Debug, Display};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use derive_more::{AsRef, Display, From, Into};
 use mercury_core::error::Result;
 use mercury_core::{ChainLabel, ThreadSafe};
 
 /// IBC packet sequence number.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Display, From, Into, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PacketSequence(pub u64);
 
-impl Display for PacketSequence {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for PacketSequence {
-    fn from(v: u64) -> Self {
-        Self(v)
-    }
-}
-
-impl From<PacketSequence> for u64 {
-    fn from(v: PacketSequence) -> Self {
-        v.0
-    }
-}
-
 /// Packet timeout as a UNIX timestamp in seconds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, Display, From, Into, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TimeoutTimestamp(pub u64);
 
-impl Display for TimeoutTimestamp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<u64> for TimeoutTimestamp {
-    fn from(v: u64) -> Self {
-        Self(v)
-    }
-}
-
-impl From<TimeoutTimestamp> for u64 {
-    fn from(v: TimeoutTimestamp) -> Self {
-        v.0
-    }
-}
-
 /// IBC port identifier.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Deserialize)]
+#[derive(Clone, Debug, Display, From, Into, AsRef, PartialEq, Eq, Hash, serde::Deserialize)]
 #[serde(transparent)]
 pub struct Port(pub String);
-
-impl Display for Port {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl AsRef<str> for Port {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl From<String> for Port {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<Port> for String {
-    fn from(v: Port) -> Self {
-        v.0
-    }
-}
 
 /// Core associated types for a chain: identity, messages, status, and revision.
 pub trait ChainTypes: ThreadSafe {

@@ -35,8 +35,8 @@ pub use ics20_transfer::ICS20Transfer;
 pub use ics26_router::{ICS26Router, IICS02ClientMsgs, IICS26RouterMsgs};
 pub use sp1_ics07::SP1ICS07Tendermint;
 
-#[test]
-fn test_update_and_migrate_calls_exist() {
-    let _ = core::mem::size_of::<ICS26Router::updateClientCall>();
-    let _ = core::mem::size_of::<ICS26Router::migrateClientCall>();
-}
+// Ensure sol! generates these call types.
+const _: () = {
+    _ = core::mem::size_of::<ICS26Router::updateClientCall>();
+    _ = core::mem::size_of::<ICS26Router::migrateClientCall>();
+};
