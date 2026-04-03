@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -8,6 +9,7 @@ pub struct SolanaChainConfig {
     #[serde(default)]
     pub ws_addr: Option<String>,
     pub program_id: String,
+    pub keypair_path: PathBuf,
     #[serde(default = "default_block_time")]
     pub block_time: Duration,
     #[serde(default = "mercury_core::rpc_guard::default_timeout_secs")]
@@ -36,6 +38,11 @@ impl SolanaChainConfig {
             mercury_core::validate::require_ws_url("ws_addr", ws)?;
         }
         eyre::ensure!(!self.program_id.is_empty(), "program_id must not be empty");
+        eyre::ensure!(
+            self.keypair_path.exists(),
+            "keypair_path does not exist: {}",
+            self.keypair_path.display()
+        );
         Ok(())
     }
 }

@@ -4,15 +4,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mercury_chain_cache::CachedChain;
-use mercury_chain_traits::queries::ChainStatusQuery;
+use mercury_chain_traits::builders::ClientPayloadBuilder;
+use mercury_chain_traits::queries::{ChainStatusQuery, ClientQuery, PacketStateQuery};
 use mercury_chain_traits::types::ChainTypes;
 use mercury_core::plugin::{
     self, AnyChain, ChainId, ChainPlugin, ChainStatusInfo, ClientStateInfo,
 };
 use mercury_core::registry::ChainRegistry;
 
+use mercury_solana::accounts::{deserialize_anchor_account, OnChainClientState};
 use mercury_solana::config::SolanaChainConfig;
-use mercury_solana::types::SolanaClientId;
+use mercury_solana::types::{SolanaClientId, SolanaHeight};
 
 use crate::wrapper::SolanaAdapter;
 
@@ -22,6 +24,16 @@ pub fn downcast_solana(chain: &AnyChain) -> eyre::Result<&SolanaCached> {
     (**chain)
         .downcast_ref::<SolanaCached>()
         .ok_or_else(|| eyre::eyre!("expected solana chain handle"))
+}
+
+async fn resolve_height(c: &SolanaCached, height: Option<u64>) -> eyre::Result<SolanaHeight> {
+    match height {
+        Some(h) => Ok(SolanaHeight(h)),
+        None => {
+            let status = c.query_chain_status().await?;
+            Ok(*SolanaCached::chain_status_height(&status))
+        }
+    }
 }
 
 fn table_to_solana_config(raw: &toml::Table) -> eyre::Result<SolanaChainConfig> {
@@ -82,9 +94,13 @@ impl ChainPlugin for SolanaPlugin {
 
     async fn build_create_client_payload(
         &self,
-        _chain: &AnyChain,
+        chain: &AnyChain,
     ) -> eyre::Result<Box<dyn Any + Send + Sync>> {
-        todo!("build Solana create client payload")
+        let c = downcast_solana(chain)?;
+        let payload =
+            <SolanaCached as ClientPayloadBuilder<SolanaAdapter>>::build_create_client_payload(c)
+                .await?;
+        Ok(Box::new(payload))
     }
 
     async fn create_client(
@@ -92,35 +108,61 @@ impl ChainPlugin for SolanaPlugin {
         _chain: &AnyChain,
         _payload: Box<dyn Any + Send + Sync>,
     ) -> eyre::Result<String> {
-        todo!("create client on Solana chain")
+        eyre::bail!("create_client not yet implemented for Solana plugin")
     }
 
     async fn query_client_state_info(
         &self,
-        _chain: &AnyChain,
-        _client_id: &str,
-        _height: Option<u64>,
+        chain: &AnyChain,
+        client_id: &str,
+        height: Option<u64>,
     ) -> eyre::Result<ClientStateInfo> {
-        todo!("query client state on Solana chain")
+        let c = downcast_solana(chain)?;
+        let cid = SolanaClientId(client_id.to_string());
+        let h = resolve_height(c, height).await?;
+        let cs =
+            ClientQuery::<mercury_solana::chain::SolanaChain>::query_client_state(c, &cid, &h).await?;
+        let parsed: OnChainClientState = deserialize_anchor_account(&cs.0)?;
+        Ok(ClientStateInfo {
+            client_id: client_id.to_string(),
+            latest_height: parsed.latest_height.revision_height,
+            trusting_period: Some(std::time::Duration::from_secs(parsed.trusting_period)),
+            frozen: parsed.frozen_height.revision_height > 0,
+            client_type: "07-tendermint".to_string(),
+            chain_id: parsed.chain_id,
+        })
     }
 
     async fn query_commitment_sequences(
         &self,
-        _chain: &AnyChain,
-        _client_id: &str,
-        _height: Option<u64>,
+        chain: &AnyChain,
+        client_id: &str,
+        height: Option<u64>,
     ) -> eyre::Result<Vec<u64>> {
-        todo!("query commitment sequences on Solana chain")
+        let c = downcast_solana(chain)?;
+        let cid = SolanaClientId(client_id.to_string());
+        let h = resolve_height(c, height).await?;
+        let seqs = PacketStateQuery::query_commitment_sequences(c, &cid, &h).await?;
+        Ok(seqs.into_iter().map(|s| s.0).collect())
     }
 
     async fn build_update_client_payload(
         &self,
-        _chain: &AnyChain,
-        _trusted_height: u64,
-        _target_height: u64,
+        chain: &AnyChain,
+        trusted_height: u64,
+        target_height: u64,
         _counterparty_client_state: Option<&(dyn Any + Send + Sync)>,
     ) -> eyre::Result<Box<dyn Any + Send + Sync>> {
-        todo!("build update client payload on Solana chain")
+        let c = downcast_solana(chain)?;
+        let payload =
+            <SolanaCached as ClientPayloadBuilder<SolanaAdapter>>::build_update_client_payload(
+                c,
+                &SolanaHeight(trusted_height),
+                &SolanaHeight(target_height),
+                &mercury_solana::types::SolanaClientState(Vec::new()),
+            )
+            .await?;
+        Ok(Box::new(payload))
     }
 
     async fn update_client(
@@ -129,7 +171,7 @@ impl ChainPlugin for SolanaPlugin {
         _client_id: &str,
         _payload: Box<dyn Any + Send + Sync>,
     ) -> eyre::Result<()> {
-        todo!("update client on Solana chain")
+        eyre::bail!("update_client not yet implemented for Solana plugin")
     }
 }
 
