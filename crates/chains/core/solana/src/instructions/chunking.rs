@@ -141,21 +141,20 @@ pub fn chunk_payload(
     Ok((instructions, pdas))
 }
 
-#[must_use]
-#[allow(clippy::missing_panics_doc)]
 pub fn chunk_proof(
     ics26_program_id: &Pubkey,
     payer: &Pubkey,
     client_id: &str,
     sequence: u64,
     proof_data: &[u8],
-) -> (Vec<Instruction>, Vec<Pubkey>) {
+) -> eyre::Result<(Vec<Instruction>, Vec<Pubkey>)> {
     let chunks = chunk_data(proof_data);
     let mut instructions = Vec::with_capacity(chunks.len());
     let mut pdas = Vec::with_capacity(chunks.len());
 
     for (i, chunk) in chunks.into_iter().enumerate() {
-        let chunk_index = u8::try_from(i).expect("chunk index overflow");
+        let chunk_index =
+            u8::try_from(i).map_err(|_| eyre::eyre!("chunk index {i} exceeds u8::MAX"))?;
         let (pda, _) =
             Ics26Router::proof_chunk_pda(payer, client_id, sequence, chunk_index, ics26_program_id);
         pdas.push(pda);
@@ -169,7 +168,7 @@ pub fn chunk_proof(
         ));
     }
 
-    (instructions, pdas)
+    Ok((instructions, pdas))
 }
 
 #[cfg(test)]

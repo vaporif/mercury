@@ -23,11 +23,14 @@ pub fn anchor_instruction_discriminator(method_name: &str) -> [u8; ANCHOR_DISCRI
     anchor_discriminator("global", method_name)
 }
 
-pub fn encode_anchor_instruction(method: &str, args: &impl BorshSerialize) -> Vec<u8> {
+pub fn encode_anchor_instruction(
+    method: &str,
+    args: &impl BorshSerialize,
+) -> eyre::Result<Vec<u8>> {
     let disc = anchor_instruction_discriminator(method);
     let mut data = disc.to_vec();
-    args.serialize(&mut data).expect("borsh serialize");
-    data
+    args.serialize(&mut data)?;
+    Ok(data)
 }
 
 pub struct Ics26Router;
