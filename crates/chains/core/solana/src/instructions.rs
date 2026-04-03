@@ -7,7 +7,7 @@ use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::sysvar;
 
-use crate::accounts;
+use crate::accounts::{self, AccessManager, IbcApp, Ics07Tendermint, Ics26Router};
 
 pub const COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 pub const COMPUTE_UNIT_PRICE: u64 = 1000;
@@ -45,9 +45,9 @@ pub fn register_counterparty(
     };
     let data = accounts::encode_anchor_instruction("register_counterparty", &args);
 
-    let (router_state, _) = accounts::router_state_pda(ics26_program_id);
-    let (client_pda, _) = accounts::client_pda(client_id, ics26_program_id);
-    let (access_manager, _) = accounts::access_manager_pda(access_manager_program_id);
+    let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
+    let (client_pda, _) = Ics26Router::client_pda(client_id, ics26_program_id);
+    let (access_manager, _) = AccessManager::pda(access_manager_program_id);
 
     Instruction {
         program_id: *ics26_program_id,
@@ -87,16 +87,17 @@ pub fn recv_packet(
 ) -> Instruction {
     let data = accounts::encode_anchor_instruction("recv_packet", msg);
 
-    let (router_state, _) = accounts::router_state_pda(ics26_program_id);
-    let (access_manager, _) = accounts::access_manager_pda(access_manager_program_id);
-    let (ibc_app, _) = accounts::ibc_app_pda(dest_port, ics26_program_id);
+    let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
+    let (access_manager, _) = AccessManager::pda(access_manager_program_id);
+    let (ibc_app, _) = Ics26Router::ibc_app_pda(dest_port, ics26_program_id);
     let (packet_receipt, _) =
-        accounts::packet_receipt_pda(dest_client_id, sequence, ics26_program_id);
-    let (packet_ack, _) = accounts::packet_ack_pda(dest_client_id, sequence, ics26_program_id);
-    let (app_state, _) = accounts::ibc_app_state_pda(app_program_id);
-    let (client_pda, _) = accounts::client_pda(dest_client_id, ics26_program_id);
-    let (client_state, _) = accounts::ics07_client_state_pda(ics07_program_id);
-    let (consensus_state, _) = accounts::consensus_state_pda(consensus_height, ics07_program_id);
+        Ics26Router::packet_receipt_pda(dest_client_id, sequence, ics26_program_id);
+    let (packet_ack, _) = Ics26Router::packet_ack_pda(dest_client_id, sequence, ics26_program_id);
+    let (app_state, _) = IbcApp::state_pda(app_program_id);
+    let (client_pda, _) = Ics26Router::client_pda(dest_client_id, ics26_program_id);
+    let (client_state, _) = Ics07Tendermint::client_state_pda(ics07_program_id);
+    let (consensus_state, _) =
+        Ics07Tendermint::consensus_state_pda(consensus_height, ics07_program_id);
 
     Instruction {
         program_id: *ics26_program_id,
@@ -145,15 +146,16 @@ pub fn ack_packet(
 ) -> Instruction {
     let data = accounts::encode_anchor_instruction("ack_packet", msg);
 
-    let (router_state, _) = accounts::router_state_pda(ics26_program_id);
-    let (access_manager, _) = accounts::access_manager_pda(access_manager_program_id);
-    let (ibc_app, _) = accounts::ibc_app_pda(source_port, ics26_program_id);
+    let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
+    let (access_manager, _) = AccessManager::pda(access_manager_program_id);
+    let (ibc_app, _) = Ics26Router::ibc_app_pda(source_port, ics26_program_id);
     let (packet_commitment, _) =
-        accounts::packet_commitment_pda(source_client_id, sequence, ics26_program_id);
-    let (app_state, _) = accounts::ibc_app_state_pda(app_program_id);
-    let (client_pda, _) = accounts::client_pda(source_client_id, ics26_program_id);
-    let (client_state, _) = accounts::ics07_client_state_pda(ics07_program_id);
-    let (consensus_state, _) = accounts::consensus_state_pda(consensus_height, ics07_program_id);
+        Ics26Router::packet_commitment_pda(source_client_id, sequence, ics26_program_id);
+    let (app_state, _) = IbcApp::state_pda(app_program_id);
+    let (client_pda, _) = Ics26Router::client_pda(source_client_id, ics26_program_id);
+    let (client_state, _) = Ics07Tendermint::client_state_pda(ics07_program_id);
+    let (consensus_state, _) =
+        Ics07Tendermint::consensus_state_pda(consensus_height, ics07_program_id);
 
     Instruction {
         program_id: *ics26_program_id,
@@ -200,15 +202,16 @@ pub fn timeout_packet(
 ) -> Instruction {
     let data = accounts::encode_anchor_instruction("timeout_packet", msg);
 
-    let (router_state, _) = accounts::router_state_pda(ics26_program_id);
-    let (access_manager, _) = accounts::access_manager_pda(access_manager_program_id);
-    let (ibc_app, _) = accounts::ibc_app_pda(source_port, ics26_program_id);
+    let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
+    let (access_manager, _) = AccessManager::pda(access_manager_program_id);
+    let (ibc_app, _) = Ics26Router::ibc_app_pda(source_port, ics26_program_id);
     let (packet_commitment, _) =
-        accounts::packet_commitment_pda(source_client_id, sequence, ics26_program_id);
-    let (app_state, _) = accounts::ibc_app_state_pda(app_program_id);
-    let (client_pda, _) = accounts::client_pda(source_client_id, ics26_program_id);
-    let (client_state, _) = accounts::ics07_client_state_pda(ics07_program_id);
-    let (consensus_state, _) = accounts::consensus_state_pda(consensus_height, ics07_program_id);
+        Ics26Router::packet_commitment_pda(source_client_id, sequence, ics26_program_id);
+    let (app_state, _) = IbcApp::state_pda(app_program_id);
+    let (client_pda, _) = Ics26Router::client_pda(source_client_id, ics26_program_id);
+    let (client_state, _) = Ics07Tendermint::client_state_pda(ics07_program_id);
+    let (consensus_state, _) =
+        Ics07Tendermint::consensus_state_pda(consensus_height, ics07_program_id);
 
     Instruction {
         program_id: *ics26_program_id,

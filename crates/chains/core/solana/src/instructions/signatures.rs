@@ -5,7 +5,7 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::sysvar;
 
 use super::{COMPUTE_UNIT_LIMIT, COMPUTE_UNIT_PRICE};
-use crate::accounts;
+use crate::accounts::{self, Ics07Tendermint};
 
 #[derive(BorshSerialize)]
 struct UploadHeaderChunkArgs {
@@ -31,7 +31,7 @@ pub fn upload_header_chunk(
     let data = accounts::encode_anchor_instruction("upload_header_chunk", &args);
 
     let (header_chunk_pda, _) =
-        accounts::header_chunk_pda(payer, target_height, chunk_index, ics07_program_id);
+        Ics07Tendermint::header_chunk_pda(payer, target_height, chunk_index, ics07_program_id);
 
     Instruction {
         program_id: *ics07_program_id,
@@ -56,9 +56,11 @@ pub fn assemble_and_update_client(
     let disc = accounts::anchor_instruction_discriminator("assemble_and_update_client");
     let data = disc.to_vec();
 
-    let (client_state, _) = accounts::ics07_client_state_pda(ics07_program_id);
-    let (old_consensus, _) = accounts::consensus_state_pda(old_consensus_height, ics07_program_id);
-    let (new_consensus, _) = accounts::consensus_state_pda(new_consensus_height, ics07_program_id);
+    let (client_state, _) = Ics07Tendermint::client_state_pda(ics07_program_id);
+    let (old_consensus, _) =
+        Ics07Tendermint::consensus_state_pda(old_consensus_height, ics07_program_id);
+    let (new_consensus, _) =
+        Ics07Tendermint::consensus_state_pda(new_consensus_height, ics07_program_id);
 
     let mut account_metas = vec![
         AccountMeta::new(client_state, false),

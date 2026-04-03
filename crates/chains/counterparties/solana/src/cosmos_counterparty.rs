@@ -19,7 +19,7 @@ use mercury_cosmos::keys::{CosmosSigner, Secp256k1KeyPair};
 use mercury_cosmos::types::{CosmosPacket, MerkleProof, PacketAcknowledgement};
 
 use mercury_solana::accounts::{
-    self, fetch_account, resolve_ics07_program_id, OnChainRouterState,
+    self, fetch_account, resolve_ics07_program_id, Ics26Router, OnChainRouterState,
 };
 use mercury_solana::chain::{SolanaChain, SolanaMisbehaviourEvidence};
 use mercury_solana::instructions;
@@ -31,7 +31,7 @@ use mercury_solana::types::{
 use crate::wrapper::SolanaAdapter;
 
 async fn resolve_access_manager(chain: &SolanaChain) -> Result<solana_sdk::pubkey::Pubkey> {
-    let (router_pda, _) = accounts::router_state_pda(&chain.ics26_program_id);
+    let (router_pda, _) = Ics26Router::router_state_pda(&chain.ics26_program_id);
     let router: OnChainRouterState = fetch_account(&chain.rpc, &router_pda)
         .await?
         .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;

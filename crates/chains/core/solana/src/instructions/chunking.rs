@@ -2,7 +2,7 @@ use borsh::BorshSerialize;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
 
-use crate::accounts;
+use crate::accounts::{self, Ics26Router};
 
 pub const CHUNK_DATA_SIZE: usize = 900;
 
@@ -45,7 +45,7 @@ pub fn upload_payload_chunk(
     };
     let data = accounts::encode_anchor_instruction("upload_payload_chunk", &args);
 
-    let (payload_chunk, _) = accounts::payload_chunk_pda(
+    let (payload_chunk, _) = Ics26Router::payload_chunk_pda(
         payer,
         client_id,
         sequence,
@@ -92,7 +92,7 @@ pub fn upload_proof_chunk(
     let data = accounts::encode_anchor_instruction("upload_proof_chunk", &args);
 
     let (proof_chunk, _) =
-        accounts::proof_chunk_pda(payer, client_id, sequence, chunk_index, ics26_program_id);
+        Ics26Router::proof_chunk_pda(payer, client_id, sequence, chunk_index, ics26_program_id);
 
     Instruction {
         program_id: *ics26_program_id,
@@ -121,7 +121,7 @@ pub fn chunk_payload(
 
     for (i, chunk) in chunks.into_iter().enumerate() {
         let chunk_index = u8::try_from(i).expect("chunk index overflow");
-        let (pda, _) = accounts::payload_chunk_pda(
+        let (pda, _) = Ics26Router::payload_chunk_pda(
             payer,
             client_id,
             sequence,
@@ -160,7 +160,7 @@ pub fn chunk_proof(
     for (i, chunk) in chunks.into_iter().enumerate() {
         let chunk_index = u8::try_from(i).expect("chunk index overflow");
         let (pda, _) =
-            accounts::proof_chunk_pda(payer, client_id, sequence, chunk_index, ics26_program_id);
+            Ics26Router::proof_chunk_pda(payer, client_id, sequence, chunk_index, ics26_program_id);
         pdas.push(pda);
         instructions.push(upload_proof_chunk(
             ics26_program_id,

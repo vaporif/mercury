@@ -19,8 +19,8 @@ use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::signer::Signer;
 
 use crate::accounts::{
-    self, deserialize_anchor_account, fetch_account, resolve_ics07_program_id,
-    OnChainClientSequence, OnChainClientState, OnChainCommitment,
+    self, deserialize_anchor_account, fetch_account, resolve_ics07_program_id, Ics07Tendermint,
+    Ics26Router, OnChainClientSequence, OnChainClientState, OnChainCommitment,
 };
 use crate::config::SolanaChainConfig;
 use crate::events;
@@ -68,7 +68,7 @@ impl SolanaChain {
         pda_fn: impl Fn(&str, u64, &Pubkey) -> (Pubkey, u8),
     ) -> Result<Vec<PacketSequence>> {
         let (seq_pda, _) =
-            accounts::client_sequence_pda(&client_id.0, &self.ics26_program_id);
+            Ics26Router::client_sequence_pda(&client_id.0, &self.ics26_program_id);
         let seq: OnChainClientSequence = fetch_account(&self.rpc, &seq_pda)
             .await?
             .ok_or_else(|| eyre::eyre!("client sequence PDA not found for {client_id}"))?;
@@ -178,7 +178,7 @@ impl ClientQuery<Self> for SolanaChain {
     ) -> Result<Self::ClientState> {
         let ics07 =
             resolve_ics07_program_id(&self.rpc, &client_id.0, &self.ics26_program_id).await?;
-        let (pda, _) = accounts::ics07_client_state_pda(&ics07);
+        let (pda, _) = Ics07Tendermint::client_state_pda(&ics07);
         let account = self
             .rpc
             .get_account(&pda)
@@ -195,7 +195,7 @@ impl ClientQuery<Self> for SolanaChain {
     ) -> Result<Self::ConsensusState> {
         let ics07 =
             resolve_ics07_program_id(&self.rpc, &client_id.0, &self.ics26_program_id).await?;
-        let (pda, _) = accounts::consensus_state_pda(consensus_height.0, &ics07);
+        let (pda, _) = Ics07Tendermint::consensus_state_pda(consensus_height.0, &ics07);
         let account = self
             .rpc
             .get_account(&pda)
@@ -225,7 +225,7 @@ impl PacketStateQuery for SolanaChain {
         _height: &Self::Height,
     ) -> Result<(Option<SolanaPacketCommitment>, SolanaCommitmentProof)> {
         let (pda, _) =
-            accounts::packet_commitment_pda(&client_id.0, sequence.0, &self.ics26_program_id);
+            Ics26Router::packet_commitment_pda(&client_id.0, sequence.0, &self.ics26_program_id);
         let commitment: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
         let proof = SolanaCommitmentProof(Vec::new());
         Ok((
@@ -241,7 +241,7 @@ impl PacketStateQuery for SolanaChain {
         _height: &Self::Height,
     ) -> Result<(Option<SolanaPacketReceipt>, SolanaCommitmentProof)> {
         let (pda, _) =
-            accounts::packet_receipt_pda(&client_id.0, sequence.0, &self.ics26_program_id);
+            Ics26Router::packet_receipt_pda(&client_id.0, sequence.0, &self.ics26_program_id);
         let exists = self.rpc.get_account(&pda).await?.is_some();
         let proof = SolanaCommitmentProof(Vec::new());
         Ok((exists.then_some(SolanaPacketReceipt), proof))
@@ -254,7 +254,7 @@ impl PacketStateQuery for SolanaChain {
         _height: &Self::Height,
     ) -> Result<(Option<SolanaAcknowledgement>, SolanaCommitmentProof)> {
         let (pda, _) =
-            accounts::packet_ack_pda(&client_id.0, sequence.0, &self.ics26_program_id);
+            Ics26Router::packet_ack_pda(&client_id.0, sequence.0, &self.ics26_program_id);
         let commitment: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
         let proof = SolanaCommitmentProof(Vec::new());
         Ok((
@@ -269,7 +269,7 @@ impl PacketStateQuery for SolanaChain {
         _height: &Self::Height,
     ) -> Result<Vec<PacketSequence>> {
         self.scan_sequences(client_id, |cid, seq, prog| {
-            accounts::packet_commitment_pda(cid, seq, prog)
+            Ics26Router::packet_commitment_pda(cid, seq, prog)
         })
         .await
     }
@@ -280,7 +280,7 @@ impl PacketStateQuery for SolanaChain {
         _height: &Self::Height,
     ) -> Result<Vec<PacketSequence>> {
         self.scan_sequences(client_id, |cid, seq, prog| {
-            accounts::packet_ack_pda(cid, seq, prog)
+            Ics26Router::packet_ack_pda(cid, seq, prog)
         })
         .await
     }
@@ -444,7 +444,7 @@ impl ClientMessageBuilder<Self> for SolanaChain {
         counterparty_client_id: &SolanaClientId,
         counterparty_merkle_prefix: mercury_core::MerklePrefix,
     ) -> Result<SolanaMessage> {
-        let (router_pda, _) = accounts::router_state_pda(&self.ics26_program_id);
+        let (router_pda, _) = Ics26Router::router_state_pda(&self.ics26_program_id);
         let router: accounts::OnChainRouterState =
             fetch_account(&self.rpc, &router_pda)
                 .await?
@@ -481,7 +481,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
 
         let ics07 =
             resolve_ics07_program_id(&self.rpc, dest_client_id, &self.ics26_program_id).await?;
-        let (router_pda, _) = accounts::router_state_pda(&self.ics26_program_id);
+        let (router_pda, _) = Ics26Router::router_state_pda(&self.ics26_program_id);
         let router: accounts::OnChainRouterState = fetch_account(&self.rpc, &router_pda)
             .await?
             .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
@@ -528,7 +528,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
 
         let ics07 =
             resolve_ics07_program_id(&self.rpc, source_client_id, &self.ics26_program_id).await?;
-        let (router_pda, _) = accounts::router_state_pda(&self.ics26_program_id);
+        let (router_pda, _) = Ics26Router::router_state_pda(&self.ics26_program_id);
         let router: accounts::OnChainRouterState = fetch_account(&self.rpc, &router_pda)
             .await?
             .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
@@ -576,7 +576,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
 
         let ics07 =
             resolve_ics07_program_id(&self.rpc, source_client_id, &self.ics26_program_id).await?;
-        let (router_pda, _) = accounts::router_state_pda(&self.ics26_program_id);
+        let (router_pda, _) = Ics26Router::router_state_pda(&self.ics26_program_id);
         let router: accounts::OnChainRouterState = fetch_account(&self.rpc, &router_pda)
             .await?
             .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;

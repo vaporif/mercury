@@ -30,200 +30,201 @@ pub fn encode_anchor_instruction(method: &str, args: &impl BorshSerialize) -> Ve
     data
 }
 
-// ---------------------------------------------------------------------------
-// PDA seed constants — ICS26 Router
-// ---------------------------------------------------------------------------
+pub struct Ics26Router;
 
-pub const ROUTER_STATE_SEED: &[u8] = b"router_state";
-pub const CLIENT_SEED: &[u8] = b"client";
-pub const CLIENT_SEQ_SEED: &[u8] = b"cseq";
-pub const IBC_APP_SEED: &[u8] = b"ibc_app";
-pub const PACKET_COMMITMENT_SEED: &[u8] = b"packet_commitment";
-pub const PACKET_RECEIPT_SEED: &[u8] = b"packet_receipt";
-pub const PACKET_ACK_SEED: &[u8] = b"packet_ack";
-pub const PAYLOAD_CHUNK_SEED: &[u8] = b"payload_chunk";
-pub const PROOF_CHUNK_SEED: &[u8] = b"proof_chunk";
+impl Ics26Router {
+    pub const ROUTER_STATE_SEED: &[u8] = b"router_state";
+    pub const CLIENT_SEED: &[u8] = b"client";
+    pub const CLIENT_SEQ_SEED: &[u8] = b"cseq";
+    pub const IBC_APP_SEED: &[u8] = b"ibc_app";
+    pub const PACKET_COMMITMENT_SEED: &[u8] = b"packet_commitment";
+    pub const PACKET_RECEIPT_SEED: &[u8] = b"packet_receipt";
+    pub const PACKET_ACK_SEED: &[u8] = b"packet_ack";
+    pub const PAYLOAD_CHUNK_SEED: &[u8] = b"payload_chunk";
+    pub const PROOF_CHUNK_SEED: &[u8] = b"proof_chunk";
 
-// ---------------------------------------------------------------------------
-// PDA seed constants — ICS07 Tendermint
-// ---------------------------------------------------------------------------
+    #[must_use]
+    pub fn router_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[Self::ROUTER_STATE_SEED], program_id)
+    }
 
-pub const ICS07_CLIENT_STATE_SEED: &[u8] = b"client";
-pub const CONSENSUS_STATE_SEED: &[u8] = b"consensus_state";
-pub const ICS07_APP_STATE_SEED: &[u8] = b"app_state";
-pub const HEADER_CHUNK_SEED: &[u8] = b"header_chunk";
-pub const SIG_VERIFY_SEED: &[u8] = b"sig_verify";
+    #[must_use]
+    pub fn client_pda(client_id: &str, program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[Self::CLIENT_SEED, client_id.as_bytes()], program_id)
+    }
 
-// ---------------------------------------------------------------------------
-// PDA seed constants — Other
-// ---------------------------------------------------------------------------
+    #[must_use]
+    pub fn client_sequence_pda(client_id: &str, program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[Self::CLIENT_SEQ_SEED, client_id.as_bytes()], program_id)
+    }
 
-pub const APP_STATE_SEED: &[u8] = b"app_state";
-pub const ACCESS_MANAGER_SEED: &[u8] = b"access_manager";
+    #[must_use]
+    pub fn ibc_app_pda(port: &str, program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[Self::IBC_APP_SEED, port.as_bytes()], program_id)
+    }
 
-// ---------------------------------------------------------------------------
-// PDA derivation functions
-// ---------------------------------------------------------------------------
+    #[must_use]
+    pub fn packet_commitment_pda(
+        client_id: &str,
+        sequence: u64,
+        program_id: &Pubkey,
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[
+                Self::PACKET_COMMITMENT_SEED,
+                client_id.as_bytes(),
+                &sequence.to_le_bytes(),
+            ],
+            program_id,
+        )
+    }
 
-#[must_use]
-pub fn router_state_pda(ics26_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[ROUTER_STATE_SEED], ics26_program_id)
+    #[must_use]
+    pub fn packet_receipt_pda(
+        client_id: &str,
+        sequence: u64,
+        program_id: &Pubkey,
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[
+                Self::PACKET_RECEIPT_SEED,
+                client_id.as_bytes(),
+                &sequence.to_le_bytes(),
+            ],
+            program_id,
+        )
+    }
+
+    #[must_use]
+    pub fn packet_ack_pda(
+        client_id: &str,
+        sequence: u64,
+        program_id: &Pubkey,
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[
+                Self::PACKET_ACK_SEED,
+                client_id.as_bytes(),
+                &sequence.to_le_bytes(),
+            ],
+            program_id,
+        )
+    }
+
+    #[must_use]
+    pub fn payload_chunk_pda(
+        payer: &Pubkey,
+        client_id: &str,
+        sequence: u64,
+        payload_index: u8,
+        chunk_index: u8,
+        program_id: &Pubkey,
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[
+                Self::PAYLOAD_CHUNK_SEED,
+                payer.as_ref(),
+                client_id.as_bytes(),
+                &sequence.to_le_bytes(),
+                &[payload_index],
+                &[chunk_index],
+            ],
+            program_id,
+        )
+    }
+
+    #[must_use]
+    pub fn proof_chunk_pda(
+        payer: &Pubkey,
+        client_id: &str,
+        sequence: u64,
+        chunk_index: u8,
+        program_id: &Pubkey,
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[
+                Self::PROOF_CHUNK_SEED,
+                payer.as_ref(),
+                client_id.as_bytes(),
+                &sequence.to_le_bytes(),
+                &[chunk_index],
+            ],
+            program_id,
+        )
+    }
 }
 
-#[must_use]
-pub fn client_pda(client_id: &str, ics26_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[CLIENT_SEED, client_id.as_bytes()], ics26_program_id)
+pub struct Ics07Tendermint;
+
+impl Ics07Tendermint {
+    pub const CLIENT_STATE_SEED: &[u8] = b"client";
+    pub const CONSENSUS_STATE_SEED: &[u8] = b"consensus_state";
+    pub const APP_STATE_SEED: &[u8] = b"app_state";
+    pub const HEADER_CHUNK_SEED: &[u8] = b"header_chunk";
+    pub const SIG_VERIFY_SEED: &[u8] = b"sig_verify";
+
+    #[must_use]
+    pub fn client_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[Self::CLIENT_STATE_SEED], program_id)
+    }
+
+    #[must_use]
+    pub fn consensus_state_pda(height: u64, program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[Self::CONSENSUS_STATE_SEED, &height.to_le_bytes()],
+            program_id,
+        )
+    }
+
+    #[must_use]
+    pub fn app_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[Self::APP_STATE_SEED], program_id)
+    }
+
+    #[must_use]
+    pub fn header_chunk_pda(
+        submitter: &Pubkey,
+        height: u64,
+        chunk_index: u8,
+        program_id: &Pubkey,
+    ) -> (Pubkey, u8) {
+        Pubkey::find_program_address(
+            &[
+                Self::HEADER_CHUNK_SEED,
+                submitter.as_ref(),
+                &height.to_le_bytes(),
+                &[chunk_index],
+            ],
+            program_id,
+        )
+    }
+
+    #[must_use]
+    pub fn sig_verify_pda(signature_hash: &[u8], program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[Self::SIG_VERIFY_SEED, signature_hash], program_id)
+    }
 }
 
-#[must_use]
-pub fn client_sequence_pda(client_id: &str, ics26_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[CLIENT_SEQ_SEED, client_id.as_bytes()], ics26_program_id)
+pub struct IbcApp;
+
+impl IbcApp {
+    pub const STATE_SEED: &[u8] = b"app_state";
+
+    #[must_use]
+    pub fn state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[Self::STATE_SEED], program_id)
+    }
 }
 
-#[must_use]
-pub fn ibc_app_pda(port: &str, ics26_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[IBC_APP_SEED, port.as_bytes()], ics26_program_id)
-}
+pub struct AccessManager;
 
-#[must_use]
-pub fn packet_commitment_pda(
-    client_id: &str,
-    sequence: u64,
-    ics26_program_id: &Pubkey,
-) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            PACKET_COMMITMENT_SEED,
-            client_id.as_bytes(),
-            &sequence.to_le_bytes(),
-        ],
-        ics26_program_id,
-    )
-}
+impl AccessManager {
+    pub const SEED: &[u8] = b"access_manager";
 
-#[must_use]
-pub fn packet_receipt_pda(
-    client_id: &str,
-    sequence: u64,
-    ics26_program_id: &Pubkey,
-) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            PACKET_RECEIPT_SEED,
-            client_id.as_bytes(),
-            &sequence.to_le_bytes(),
-        ],
-        ics26_program_id,
-    )
-}
-
-#[must_use]
-pub fn packet_ack_pda(
-    client_id: &str,
-    sequence: u64,
-    ics26_program_id: &Pubkey,
-) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            PACKET_ACK_SEED,
-            client_id.as_bytes(),
-            &sequence.to_le_bytes(),
-        ],
-        ics26_program_id,
-    )
-}
-
-#[must_use]
-pub fn payload_chunk_pda(
-    payer: &Pubkey,
-    client_id: &str,
-    sequence: u64,
-    payload_index: u8,
-    chunk_index: u8,
-    ics26_program_id: &Pubkey,
-) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            PAYLOAD_CHUNK_SEED,
-            payer.as_ref(),
-            client_id.as_bytes(),
-            &sequence.to_le_bytes(),
-            &[payload_index],
-            &[chunk_index],
-        ],
-        ics26_program_id,
-    )
-}
-
-#[must_use]
-pub fn proof_chunk_pda(
-    payer: &Pubkey,
-    client_id: &str,
-    sequence: u64,
-    chunk_index: u8,
-    ics26_program_id: &Pubkey,
-) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            PROOF_CHUNK_SEED,
-            payer.as_ref(),
-            client_id.as_bytes(),
-            &sequence.to_le_bytes(),
-            &[chunk_index],
-        ],
-        ics26_program_id,
-    )
-}
-
-#[must_use]
-pub fn ics07_client_state_pda(ics07_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[ICS07_CLIENT_STATE_SEED], ics07_program_id)
-}
-
-#[must_use]
-pub fn consensus_state_pda(height: u64, ics07_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[CONSENSUS_STATE_SEED, &height.to_le_bytes()],
-        ics07_program_id,
-    )
-}
-
-#[must_use]
-pub fn ics07_app_state_pda(ics07_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[ICS07_APP_STATE_SEED], ics07_program_id)
-}
-
-#[must_use]
-pub fn header_chunk_pda(
-    submitter: &Pubkey,
-    height: u64,
-    chunk_index: u8,
-    ics07_program_id: &Pubkey,
-) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[
-            HEADER_CHUNK_SEED,
-            submitter.as_ref(),
-            &height.to_le_bytes(),
-            &[chunk_index],
-        ],
-        ics07_program_id,
-    )
-}
-
-#[must_use]
-pub fn sig_verify_pda(signature_hash: &[u8], ics07_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[SIG_VERIFY_SEED, signature_hash], ics07_program_id)
-}
-
-#[must_use]
-pub fn ibc_app_state_pda(app_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[APP_STATE_SEED], app_program_id)
-}
-
-#[must_use]
-pub fn access_manager_pda(access_manager_program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[ACCESS_MANAGER_SEED], access_manager_program_id)
+    #[must_use]
+    pub fn pda(program_id: &Pubkey) -> (Pubkey, u8) {
+        Pubkey::find_program_address(&[Self::SEED], program_id)
+    }
 }
 
 #[derive(BorshDeserialize, Debug, Clone)]
@@ -302,7 +303,7 @@ pub async fn resolve_ics07_program_id(
     client_id: &str,
     ics26_program_id: &Pubkey,
 ) -> eyre::Result<Pubkey> {
-    let (pda, _) = client_pda(client_id, ics26_program_id);
+    let (pda, _) = Ics26Router::client_pda(client_id, ics26_program_id);
     let client: OnChainClient = fetch_account(rpc, &pda)
         .await?
         .ok_or_else(|| eyre::eyre!("client PDA not found for client_id={client_id}"))?;
@@ -315,14 +316,14 @@ pub async fn resolve_app_program_id(
     ics26_program_id: &Pubkey,
 ) -> eyre::Result<Pubkey> {
     #[derive(BorshDeserialize)]
-    struct IbcApp {
+    struct IbcAppAccount {
         _version: u8,
         _port_id: String,
         app_program_id: Pubkey,
     }
 
-    let (pda, _) = ibc_app_pda(port, ics26_program_id);
-    let app: IbcApp = fetch_account(rpc, &pda)
+    let (pda, _) = Ics26Router::ibc_app_pda(port, ics26_program_id);
+    let app: IbcAppAccount = fetch_account(rpc, &pda)
         .await?
         .ok_or_else(|| eyre::eyre!("IbcApp PDA not found for port={port}"))?;
     Ok(app.app_program_id)
@@ -335,8 +336,8 @@ mod tests {
     #[test]
     fn router_state_pda_is_deterministic() {
         let program = Pubkey::new_unique();
-        let (a, bump_a) = router_state_pda(&program);
-        let (b, bump_b) = router_state_pda(&program);
+        let (a, bump_a) = Ics26Router::router_state_pda(&program);
+        let (b, bump_b) = Ics26Router::router_state_pda(&program);
         assert_eq!(a, b);
         assert_eq!(bump_a, bump_b);
     }
@@ -344,8 +345,8 @@ mod tests {
     #[test]
     fn packet_commitment_pda_varies_by_sequence() {
         let program = Pubkey::new_unique();
-        let (a, _) = packet_commitment_pda("07-tendermint-0", 1, &program);
-        let (b, _) = packet_commitment_pda("07-tendermint-0", 2, &program);
+        let (a, _) = Ics26Router::packet_commitment_pda("07-tendermint-0", 1, &program);
+        let (b, _) = Ics26Router::packet_commitment_pda("07-tendermint-0", 2, &program);
         assert_ne!(a, b);
     }
 
