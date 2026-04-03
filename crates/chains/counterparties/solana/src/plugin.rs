@@ -27,12 +27,11 @@ pub fn downcast_solana(chain: &AnyChain) -> eyre::Result<&SolanaCached> {
 }
 
 async fn resolve_height(c: &SolanaCached, height: Option<u64>) -> eyre::Result<SolanaHeight> {
-    match height {
-        Some(h) => Ok(SolanaHeight(h)),
-        None => {
-            let status = c.query_chain_status().await?;
-            Ok(*SolanaCached::chain_status_height(&status))
-        }
+    if let Some(h) = height {
+        Ok(SolanaHeight(h))
+    } else {
+        let status = c.query_chain_status().await?;
+        Ok(*SolanaCached::chain_status_height(&status))
     }
 }
 
