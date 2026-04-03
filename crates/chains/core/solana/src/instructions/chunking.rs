@@ -26,7 +26,6 @@ struct UploadPayloadChunkArgs {
 }
 
 #[must_use]
-#[allow(clippy::missing_panics_doc)]
 pub fn upload_payload_chunk(
     ics26_program_id: &Pubkey,
     payer: &Pubkey,
@@ -74,7 +73,6 @@ struct UploadProofChunkArgs {
 }
 
 #[must_use]
-#[allow(clippy::missing_panics_doc)]
 pub fn upload_proof_chunk(
     ics26_program_id: &Pubkey,
     payer: &Pubkey,
@@ -105,8 +103,6 @@ pub fn upload_proof_chunk(
     }
 }
 
-#[must_use]
-#[allow(clippy::missing_panics_doc)]
 pub fn chunk_payload(
     ics26_program_id: &Pubkey,
     payer: &Pubkey,
@@ -114,13 +110,14 @@ pub fn chunk_payload(
     sequence: u64,
     payload_index: u8,
     payload_data: &[u8],
-) -> (Vec<Instruction>, Vec<Pubkey>) {
+) -> eyre::Result<(Vec<Instruction>, Vec<Pubkey>)> {
     let chunks = chunk_data(payload_data);
     let mut instructions = Vec::with_capacity(chunks.len());
     let mut pdas = Vec::with_capacity(chunks.len());
 
     for (i, chunk) in chunks.into_iter().enumerate() {
-        let chunk_index = u8::try_from(i).expect("chunk index overflow");
+        let chunk_index =
+            u8::try_from(i).map_err(|_| eyre::eyre!("chunk index {i} exceeds u8::MAX"))?;
         let (pda, _) = Ics26Router::payload_chunk_pda(
             payer,
             client_id,
@@ -141,7 +138,7 @@ pub fn chunk_payload(
         ));
     }
 
-    (instructions, pdas)
+    Ok((instructions, pdas))
 }
 
 #[must_use]

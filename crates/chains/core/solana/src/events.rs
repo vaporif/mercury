@@ -37,13 +37,13 @@ pub struct RawWriteAckEvent {
     pub acknowledgement: Vec<u8>,
 }
 
-fn event_discriminator(event_name: &str) -> [u8; 8] {
+fn event_discriminator(event_name: &str) -> [u8; ANCHOR_DISCRIMINATOR_LEN] {
     anchor_discriminator("event", event_name)
 }
 
-static SEND_PACKET_DISC: LazyLock<[u8; 8]> =
+static SEND_PACKET_DISC: LazyLock<[u8; ANCHOR_DISCRIMINATOR_LEN]> =
     LazyLock::new(|| event_discriminator("SendPacketEvent"));
-static WRITE_ACK_DISC: LazyLock<[u8; 8]> =
+static WRITE_ACK_DISC: LazyLock<[u8; ANCHOR_DISCRIMINATOR_LEN]> =
     LazyLock::new(|| event_discriminator("WriteAcknowledgementEvent"));
 
 fn parse_log_line(line: &str) -> Option<SolanaEvent> {

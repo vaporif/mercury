@@ -15,7 +15,6 @@ struct UploadHeaderChunkArgs {
 }
 
 #[must_use]
-#[allow(clippy::missing_panics_doc)]
 pub fn upload_header_chunk(
     ics07_program_id: &Pubkey,
     payer: &Pubkey,

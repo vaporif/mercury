@@ -29,7 +29,6 @@ struct RegisterCounterpartyArgs {
 }
 
 #[must_use]
-#[allow(clippy::missing_panics_doc)]
 pub fn register_counterparty(
     ics26_program_id: &Pubkey,
     payer: &Pubkey,
@@ -71,56 +70,6 @@ pub struct MsgRecvPacket {
     pub proof_height_revision_height: u64,
 }
 
-#[must_use]
-#[allow(clippy::too_many_arguments, clippy::missing_panics_doc)]
-pub fn recv_packet(
-    ics26_program_id: &Pubkey,
-    payer: &Pubkey,
-    msg: &MsgRecvPacket,
-    dest_client_id: &str,
-    dest_port: &str,
-    sequence: u64,
-    ics07_program_id: &Pubkey,
-    consensus_height: u64,
-    access_manager_program_id: &Pubkey,
-    app_program_id: &Pubkey,
-) -> Instruction {
-    let data = accounts::encode_anchor_instruction("recv_packet", msg);
-
-    let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
-    let (access_manager, _) = AccessManager::pda(access_manager_program_id);
-    let (ibc_app, _) = Ics26Router::ibc_app_pda(dest_port, ics26_program_id);
-    let (packet_receipt, _) =
-        Ics26Router::packet_receipt_pda(dest_client_id, sequence, ics26_program_id);
-    let (packet_ack, _) = Ics26Router::packet_ack_pda(dest_client_id, sequence, ics26_program_id);
-    let (app_state, _) = IbcApp::state_pda(app_program_id);
-    let (client_pda, _) = Ics26Router::client_pda(dest_client_id, ics26_program_id);
-    let (client_state, _) = Ics07Tendermint::client_state_pda(ics07_program_id);
-    let (consensus_state, _) =
-        Ics07Tendermint::consensus_state_pda(consensus_height, ics07_program_id);
-
-    Instruction {
-        program_id: *ics26_program_id,
-        accounts: vec![
-            AccountMeta::new_readonly(router_state, false),
-            AccountMeta::new_readonly(access_manager, false),
-            AccountMeta::new_readonly(ibc_app, false),
-            AccountMeta::new(packet_receipt, false),
-            AccountMeta::new(packet_ack, false),
-            AccountMeta::new_readonly(*app_program_id, false),
-            AccountMeta::new(app_state, false),
-            AccountMeta::new(*payer, true),
-            AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-            AccountMeta::new_readonly(sysvar::instructions::ID, false),
-            AccountMeta::new_readonly(client_pda, false),
-            AccountMeta::new_readonly(*ics07_program_id, false),
-            AccountMeta::new_readonly(client_state, false),
-            AccountMeta::new_readonly(consensus_state, false),
-        ],
-        data,
-    }
-}
-
 #[derive(BorshSerialize)]
 pub struct MsgAckPacket {
     pub packet_bytes: Vec<u8>,
@@ -128,54 +77,6 @@ pub struct MsgAckPacket {
     pub proof_acked: Vec<u8>,
     pub proof_height_revision_number: u64,
     pub proof_height_revision_height: u64,
-}
-
-#[must_use]
-#[allow(clippy::too_many_arguments, clippy::missing_panics_doc)]
-pub fn ack_packet(
-    ics26_program_id: &Pubkey,
-    payer: &Pubkey,
-    msg: &MsgAckPacket,
-    source_client_id: &str,
-    source_port: &str,
-    sequence: u64,
-    ics07_program_id: &Pubkey,
-    consensus_height: u64,
-    access_manager_program_id: &Pubkey,
-    app_program_id: &Pubkey,
-) -> Instruction {
-    let data = accounts::encode_anchor_instruction("ack_packet", msg);
-
-    let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
-    let (access_manager, _) = AccessManager::pda(access_manager_program_id);
-    let (ibc_app, _) = Ics26Router::ibc_app_pda(source_port, ics26_program_id);
-    let (packet_commitment, _) =
-        Ics26Router::packet_commitment_pda(source_client_id, sequence, ics26_program_id);
-    let (app_state, _) = IbcApp::state_pda(app_program_id);
-    let (client_pda, _) = Ics26Router::client_pda(source_client_id, ics26_program_id);
-    let (client_state, _) = Ics07Tendermint::client_state_pda(ics07_program_id);
-    let (consensus_state, _) =
-        Ics07Tendermint::consensus_state_pda(consensus_height, ics07_program_id);
-
-    Instruction {
-        program_id: *ics26_program_id,
-        accounts: vec![
-            AccountMeta::new_readonly(router_state, false),
-            AccountMeta::new_readonly(access_manager, false),
-            AccountMeta::new_readonly(ibc_app, false),
-            AccountMeta::new(packet_commitment, false),
-            AccountMeta::new_readonly(*app_program_id, false),
-            AccountMeta::new(app_state, false),
-            AccountMeta::new(*payer, true),
-            AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-            AccountMeta::new_readonly(sysvar::instructions::ID, false),
-            AccountMeta::new_readonly(client_pda, false),
-            AccountMeta::new_readonly(*ics07_program_id, false),
-            AccountMeta::new_readonly(client_state, false),
-            AccountMeta::new_readonly(consensus_state, false),
-        ],
-        data,
-    }
 }
 
 #[derive(BorshSerialize)]
@@ -186,47 +87,128 @@ pub struct MsgTimeoutPacket {
     pub proof_height_revision_height: u64,
 }
 
-#[must_use]
-#[allow(clippy::too_many_arguments, clippy::missing_panics_doc)]
-pub fn timeout_packet(
-    ics26_program_id: &Pubkey,
-    payer: &Pubkey,
-    msg: &MsgTimeoutPacket,
-    source_client_id: &str,
-    source_port: &str,
-    sequence: u64,
-    ics07_program_id: &Pubkey,
-    consensus_height: u64,
-    access_manager_program_id: &Pubkey,
-    app_program_id: &Pubkey,
-) -> Instruction {
-    let data = accounts::encode_anchor_instruction("timeout_packet", msg);
+pub struct PacketParams<'a> {
+    pub ics26_program_id: &'a Pubkey,
+    pub payer: &'a Pubkey,
+    pub client_id: &'a str,
+    pub port: &'a str,
+    pub sequence: u64,
+    pub ics07_program_id: &'a Pubkey,
+    pub consensus_height: u64,
+    pub access_manager_program_id: &'a Pubkey,
+    pub app_program_id: &'a Pubkey,
+}
 
-    let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
-    let (access_manager, _) = AccessManager::pda(access_manager_program_id);
-    let (ibc_app, _) = Ics26Router::ibc_app_pda(source_port, ics26_program_id);
-    let (packet_commitment, _) =
-        Ics26Router::packet_commitment_pda(source_client_id, sequence, ics26_program_id);
-    let (app_state, _) = IbcApp::state_pda(app_program_id);
-    let (client_pda, _) = Ics26Router::client_pda(source_client_id, ics26_program_id);
-    let (client_state, _) = Ics07Tendermint::client_state_pda(ics07_program_id);
+#[must_use]
+pub fn recv_packet(params: &PacketParams<'_>, msg: &MsgRecvPacket) -> Instruction {
+    let data = accounts::encode_anchor_instruction("recv_packet", msg);
+
+    let (router_state, _) = Ics26Router::router_state_pda(params.ics26_program_id);
+    let (access_manager, _) = AccessManager::pda(params.access_manager_program_id);
+    let (ibc_app, _) = Ics26Router::ibc_app_pda(params.port, params.ics26_program_id);
+    let (packet_receipt, _) =
+        Ics26Router::packet_receipt_pda(params.client_id, params.sequence, params.ics26_program_id);
+    let (packet_ack, _) =
+        Ics26Router::packet_ack_pda(params.client_id, params.sequence, params.ics26_program_id);
+    let (app_state, _) = IbcApp::state_pda(params.app_program_id);
+    let (client_pda, _) = Ics26Router::client_pda(params.client_id, params.ics26_program_id);
+    let (client_state, _) = Ics07Tendermint::client_state_pda(params.ics07_program_id);
     let (consensus_state, _) =
-        Ics07Tendermint::consensus_state_pda(consensus_height, ics07_program_id);
+        Ics07Tendermint::consensus_state_pda(params.consensus_height, params.ics07_program_id);
 
     Instruction {
-        program_id: *ics26_program_id,
+        program_id: *params.ics26_program_id,
+        accounts: vec![
+            AccountMeta::new_readonly(router_state, false),
+            AccountMeta::new_readonly(access_manager, false),
+            AccountMeta::new_readonly(ibc_app, false),
+            AccountMeta::new(packet_receipt, false),
+            AccountMeta::new(packet_ack, false),
+            AccountMeta::new_readonly(*params.app_program_id, false),
+            AccountMeta::new(app_state, false),
+            AccountMeta::new(*params.payer, true),
+            AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+            AccountMeta::new_readonly(sysvar::instructions::ID, false),
+            AccountMeta::new_readonly(client_pda, false),
+            AccountMeta::new_readonly(*params.ics07_program_id, false),
+            AccountMeta::new_readonly(client_state, false),
+            AccountMeta::new_readonly(consensus_state, false),
+        ],
+        data,
+    }
+}
+
+#[must_use]
+pub fn ack_packet(params: &PacketParams<'_>, msg: &MsgAckPacket) -> Instruction {
+    let data = accounts::encode_anchor_instruction("ack_packet", msg);
+
+    let (router_state, _) = Ics26Router::router_state_pda(params.ics26_program_id);
+    let (access_manager, _) = AccessManager::pda(params.access_manager_program_id);
+    let (ibc_app, _) = Ics26Router::ibc_app_pda(params.port, params.ics26_program_id);
+    let (packet_commitment, _) = Ics26Router::packet_commitment_pda(
+        params.client_id,
+        params.sequence,
+        params.ics26_program_id,
+    );
+    let (app_state, _) = IbcApp::state_pda(params.app_program_id);
+    let (client_pda, _) = Ics26Router::client_pda(params.client_id, params.ics26_program_id);
+    let (client_state, _) = Ics07Tendermint::client_state_pda(params.ics07_program_id);
+    let (consensus_state, _) =
+        Ics07Tendermint::consensus_state_pda(params.consensus_height, params.ics07_program_id);
+
+    Instruction {
+        program_id: *params.ics26_program_id,
         accounts: vec![
             AccountMeta::new_readonly(router_state, false),
             AccountMeta::new_readonly(access_manager, false),
             AccountMeta::new_readonly(ibc_app, false),
             AccountMeta::new(packet_commitment, false),
-            AccountMeta::new_readonly(*app_program_id, false),
+            AccountMeta::new_readonly(*params.app_program_id, false),
             AccountMeta::new(app_state, false),
-            AccountMeta::new(*payer, true),
+            AccountMeta::new(*params.payer, true),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
             AccountMeta::new_readonly(sysvar::instructions::ID, false),
             AccountMeta::new_readonly(client_pda, false),
-            AccountMeta::new_readonly(*ics07_program_id, false),
+            AccountMeta::new_readonly(*params.ics07_program_id, false),
+            AccountMeta::new_readonly(client_state, false),
+            AccountMeta::new_readonly(consensus_state, false),
+        ],
+        data,
+    }
+}
+
+#[must_use]
+pub fn timeout_packet(params: &PacketParams<'_>, msg: &MsgTimeoutPacket) -> Instruction {
+    let data = accounts::encode_anchor_instruction("timeout_packet", msg);
+
+    let (router_state, _) = Ics26Router::router_state_pda(params.ics26_program_id);
+    let (access_manager, _) = AccessManager::pda(params.access_manager_program_id);
+    let (ibc_app, _) = Ics26Router::ibc_app_pda(params.port, params.ics26_program_id);
+    let (packet_commitment, _) = Ics26Router::packet_commitment_pda(
+        params.client_id,
+        params.sequence,
+        params.ics26_program_id,
+    );
+    let (app_state, _) = IbcApp::state_pda(params.app_program_id);
+    let (client_pda, _) = Ics26Router::client_pda(params.client_id, params.ics26_program_id);
+    let (client_state, _) = Ics07Tendermint::client_state_pda(params.ics07_program_id);
+    let (consensus_state, _) =
+        Ics07Tendermint::consensus_state_pda(params.consensus_height, params.ics07_program_id);
+
+    Instruction {
+        program_id: *params.ics26_program_id,
+        accounts: vec![
+            AccountMeta::new_readonly(router_state, false),
+            AccountMeta::new_readonly(access_manager, false),
+            AccountMeta::new_readonly(ibc_app, false),
+            AccountMeta::new(packet_commitment, false),
+            AccountMeta::new_readonly(*params.app_program_id, false),
+            AccountMeta::new(app_state, false),
+            AccountMeta::new(*params.payer, true),
+            AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+            AccountMeta::new_readonly(sysvar::instructions::ID, false),
+            AccountMeta::new_readonly(client_pda, false),
+            AccountMeta::new_readonly(*params.ics07_program_id, false),
             AccountMeta::new_readonly(client_state, false),
             AccountMeta::new_readonly(consensus_state, false),
         ],

@@ -6,20 +6,20 @@ use crate::rpc::SolanaRpcClient;
 pub const ANCHOR_DISCRIMINATOR_LEN: usize = 8;
 
 #[must_use]
-pub fn anchor_discriminator(prefix: &str, name: &str) -> [u8; 8] {
+pub fn anchor_discriminator(prefix: &str, name: &str) -> [u8; ANCHOR_DISCRIMINATOR_LEN] {
     let hash = solana_sdk::hash::hash(format!("{prefix}:{name}").as_bytes());
-    let mut disc = [0u8; 8];
-    disc.copy_from_slice(&hash.to_bytes()[..8]);
+    let mut disc = [0u8; ANCHOR_DISCRIMINATOR_LEN];
+    disc.copy_from_slice(&hash.to_bytes()[..ANCHOR_DISCRIMINATOR_LEN]);
     disc
 }
 
 #[must_use]
-pub fn anchor_account_discriminator(struct_name: &str) -> [u8; 8] {
+pub fn anchor_account_discriminator(struct_name: &str) -> [u8; ANCHOR_DISCRIMINATOR_LEN] {
     anchor_discriminator("account", struct_name)
 }
 
 #[must_use]
-pub fn anchor_instruction_discriminator(method_name: &str) -> [u8; 8] {
+pub fn anchor_instruction_discriminator(method_name: &str) -> [u8; ANCHOR_DISCRIMINATOR_LEN] {
     anchor_discriminator("global", method_name)
 }
 
