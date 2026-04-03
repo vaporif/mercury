@@ -107,7 +107,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Generate coverage
-        run: nix develop --command cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
+        run: nix develop --command cargo llvm-cov nextest --workspace --exclude e2e --exclude mock-wasm-eth-lc --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
