@@ -80,11 +80,7 @@ impl Ics26Router {
     }
 
     #[must_use]
-    pub fn packet_receipt_pda(
-        client_id: &str,
-        sequence: u64,
-        program_id: &Pubkey,
-    ) -> (Pubkey, u8) {
+    pub fn packet_receipt_pda(client_id: &str, sequence: u64, program_id: &Pubkey) -> (Pubkey, u8) {
         Pubkey::find_program_address(
             &[
                 Self::PACKET_RECEIPT_SEED,
@@ -96,11 +92,7 @@ impl Ics26Router {
     }
 
     #[must_use]
-    pub fn packet_ack_pda(
-        client_id: &str,
-        sequence: u64,
-        program_id: &Pubkey,
-    ) -> (Pubkey, u8) {
+    pub fn packet_ack_pda(client_id: &str, sequence: u64, program_id: &Pubkey) -> (Pubkey, u8) {
         Pubkey::find_program_address(
             &[
                 Self::PACKET_ACK_SEED,

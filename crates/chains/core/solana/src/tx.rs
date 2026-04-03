@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use solana_sdk::instruction::Instruction;
 use solana_sdk::signature::Signature;
-use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::signer::Signer;
+use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::transaction::Transaction;
 
 use crate::rpc::SolanaRpcClient;
@@ -35,12 +35,8 @@ pub async fn send_transactions_parallel(
         let rpc = rpc.clone();
         let kp = Arc::clone(keypair);
         let handle = tokio::spawn(async move {
-            let tx = Transaction::new_signed_with_payer(
-                &batch,
-                Some(&kp.pubkey()),
-                &[&kp],
-                blockhash,
-            );
+            let tx =
+                Transaction::new_signed_with_payer(&batch, Some(&kp.pubkey()), &[&kp], blockhash);
             rpc.send_and_confirm_transaction(&tx).await
         });
         handles.push(handle);

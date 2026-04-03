@@ -15,12 +15,12 @@ use mercury_chain_traits::types::{
 };
 use mercury_core::error::Result;
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::signer::Signer;
+use solana_sdk::signer::keypair::Keypair;
 
 use crate::accounts::{
-    self, deserialize_anchor_account, fetch_account, resolve_ics07_program_id, Ics07Tendermint,
-    Ics26Router, OnChainClientSequence, OnChainClientState, OnChainCommitment,
+    self, Ics07Tendermint, Ics26Router, OnChainClientSequence, OnChainClientState,
+    OnChainCommitment, deserialize_anchor_account, fetch_account, resolve_ics07_program_id,
 };
 use crate::config::SolanaChainConfig;
 use crate::events;
@@ -67,8 +67,7 @@ impl SolanaChain {
         client_id: &SolanaClientId,
         pda_fn: impl Fn(&str, u64, &Pubkey) -> (Pubkey, u8),
     ) -> Result<Vec<PacketSequence>> {
-        let (seq_pda, _) =
-            Ics26Router::client_sequence_pda(&client_id.0, &self.ics26_program_id);
+        let (seq_pda, _) = Ics26Router::client_sequence_pda(&client_id.0, &self.ics26_program_id);
         let seq: OnChainClientSequence = fetch_account(&self.rpc, &seq_pda)
             .await?
             .ok_or_else(|| eyre::eyre!("client sequence PDA not found for {client_id}"))?;
@@ -196,11 +195,10 @@ impl ClientQuery<Self> for SolanaChain {
         let ics07 =
             resolve_ics07_program_id(&self.rpc, &client_id.0, &self.ics26_program_id).await?;
         let (pda, _) = Ics07Tendermint::consensus_state_pda(consensus_height.0, &ics07);
-        let account = self
-            .rpc
-            .get_account(&pda)
-            .await?
-            .ok_or_else(|| eyre::eyre!("consensus state not found at height {consensus_height}"))?;
+        let account =
+            self.rpc.get_account(&pda).await?.ok_or_else(|| {
+                eyre::eyre!("consensus state not found at height {consensus_height}")
+            })?;
         Ok(SolanaConsensusState(account.data))
     }
 
@@ -320,9 +318,11 @@ impl PacketEvents for SolanaChain {
                     if meta.err.is_some() {
                         continue;
                     }
-                    if let solana_transaction_status::option_serializer::OptionSerializer::Some(logs) = meta.log_messages {
-                        let tx_events =
-                            events::extract_events_from_logs(&logs, &program_id_str);
+                    if let solana_transaction_status::option_serializer::OptionSerializer::Some(
+                        logs,
+                    ) = meta.log_messages
+                    {
+                        let tx_events = events::extract_events_from_logs(&logs, &program_id_str);
                         all_events.extend(tx_events);
                     }
                 }
@@ -445,10 +445,9 @@ impl ClientMessageBuilder<Self> for SolanaChain {
         counterparty_merkle_prefix: mercury_core::MerklePrefix,
     ) -> Result<SolanaMessage> {
         let (router_pda, _) = Ics26Router::router_state_pda(&self.ics26_program_id);
-        let router: accounts::OnChainRouterState =
-            fetch_account(&self.rpc, &router_pda)
-                .await?
-                .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
+        let router: accounts::OnChainRouterState = fetch_account(&self.rpc, &router_pda)
+            .await?
+            .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
 
         let ix = crate::instructions::register_counterparty(
             &self.ics26_program_id,
@@ -475,8 +474,12 @@ impl PacketMessageBuilder<Self> for SolanaChain {
         revision: u64,
     ) -> Result<SolanaMessage> {
         let dest_client_id = &packet.dest_client_id;
-        let dest_port = &packet.payloads.first()
-            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?.dest_port.0;
+        let dest_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .dest_port
+            .0;
         let sequence = packet.sequence.0;
 
         let ics07 =
@@ -522,8 +525,12 @@ impl PacketMessageBuilder<Self> for SolanaChain {
         revision: u64,
     ) -> Result<SolanaMessage> {
         let source_client_id = &packet.source_client_id;
-        let source_port = &packet.payloads.first()
-            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?.source_port.0;
+        let source_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .source_port
+            .0;
         let sequence = packet.sequence.0;
 
         let ics07 =
@@ -570,8 +577,12 @@ impl PacketMessageBuilder<Self> for SolanaChain {
         revision: u64,
     ) -> Result<SolanaMessage> {
         let source_client_id = &packet.source_client_id;
-        let source_port = &packet.payloads.first()
-            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?.source_port.0;
+        let source_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .source_port
+            .0;
         let sequence = packet.sequence.0;
 
         let ics07 =

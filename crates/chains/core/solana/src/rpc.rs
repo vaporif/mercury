@@ -124,10 +124,7 @@ impl SolanaRpcClient {
             .await
     }
 
-    pub async fn send_and_confirm_transaction(
-        &self,
-        tx: &Transaction,
-    ) -> eyre::Result<Signature> {
+    pub async fn send_and_confirm_transaction(&self, tx: &Transaction) -> eyre::Result<Signature> {
         let client = self.client.clone();
         let tx = tx.clone();
         self.guard

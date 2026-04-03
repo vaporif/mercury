@@ -12,7 +12,7 @@ use mercury_core::plugin::{
 };
 use mercury_core::registry::ChainRegistry;
 
-use mercury_solana::accounts::{deserialize_anchor_account, OnChainClientState};
+use mercury_solana::accounts::{OnChainClientState, deserialize_anchor_account};
 use mercury_solana::config::SolanaChainConfig;
 use mercury_solana::types::{SolanaClientId, SolanaHeight};
 
@@ -120,8 +120,8 @@ impl ChainPlugin for SolanaPlugin {
         let c = downcast_solana(chain)?;
         let cid = SolanaClientId(client_id.to_string());
         let h = resolve_height(c, height).await?;
-        let cs =
-            ClientQuery::<mercury_solana::chain::SolanaChain>::query_client_state(c, &cid, &h).await?;
+        let cs = ClientQuery::<mercury_solana::chain::SolanaChain>::query_client_state(c, &cid, &h)
+            .await?;
         let parsed: OnChainClientState = deserialize_anchor_account(&cs.0)?;
         Ok(ClientStateInfo {
             client_id: client_id.to_string(),

@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::signer::Signer;
+use solana_sdk::signer::keypair::Keypair;
 
 pub fn load_keypair(path: &Path) -> eyre::Result<Keypair> {
     let data = std::fs::read_to_string(path)

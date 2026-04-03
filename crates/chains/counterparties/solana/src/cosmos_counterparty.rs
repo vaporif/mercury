@@ -19,7 +19,7 @@ use mercury_cosmos::keys::{CosmosSigner, Secp256k1KeyPair};
 use mercury_cosmos::types::{CosmosPacket, MerkleProof, PacketAcknowledgement};
 
 use mercury_solana::accounts::{
-    self, fetch_account, resolve_ics07_program_id, Ics26Router, OnChainRouterState,
+    self, Ics26Router, OnChainRouterState, fetch_account, resolve_ics07_program_id,
 };
 use mercury_solana::chain::{SolanaChain, SolanaMisbehaviourEvidence};
 use mercury_solana::instructions;
@@ -49,8 +49,12 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
     ) -> Result<SolanaMessage> {
         let chain = &self.0;
         let dest_client_id = &packet.dest_client_id.0;
-        let dest_port = &packet.payloads.first()
-            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?.dest_port.0;
+        let dest_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .dest_port
+            .0;
         let sequence = packet.sequence.0;
 
         let ics07 =
@@ -95,13 +99,16 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
     ) -> Result<SolanaMessage> {
         let chain = &self.0;
         let source_client_id = &packet.source_client_id.0;
-        let source_port = &packet.payloads.first()
-            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?.source_port.0;
+        let source_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .source_port
+            .0;
         let sequence = packet.sequence.0;
 
         let ics07 =
-            resolve_ics07_program_id(&chain.rpc, source_client_id, &chain.ics26_program_id)
-                .await?;
+            resolve_ics07_program_id(&chain.rpc, source_client_id, &chain.ics26_program_id).await?;
         let access_mgr = resolve_access_manager(chain).await?;
         let app_program =
             accounts::resolve_app_program_id(&chain.rpc, source_port, &chain.ics26_program_id)
@@ -142,13 +149,16 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
     ) -> Result<SolanaMessage> {
         let chain = &self.0;
         let source_client_id = &packet.source_client_id;
-        let source_port = &packet.payloads.first()
-            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?.source_port.0;
+        let source_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .source_port
+            .0;
         let sequence = packet.sequence.0;
 
         let ics07 =
-            resolve_ics07_program_id(&chain.rpc, source_client_id, &chain.ics26_program_id)
-                .await?;
+            resolve_ics07_program_id(&chain.rpc, source_client_id, &chain.ics26_program_id).await?;
         let access_mgr = resolve_access_manager(chain).await?;
         let app_program =
             accounts::resolve_app_program_id(&chain.rpc, source_port, &chain.ics26_program_id)
@@ -189,7 +199,9 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         &self,
         _payload: CosmosCreateClientPayload,
     ) -> Result<SolanaMessage> {
-        eyre::bail!("create_client requires ICS07 Initialize instruction format — not yet implemented")
+        eyre::bail!(
+            "create_client requires ICS07 Initialize instruction format — not yet implemented"
+        )
     }
 
     async fn build_update_client_message(
@@ -197,7 +209,9 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         _client_id: &SolanaClientId,
         _payload: CosmosUpdateClientPayload,
     ) -> Result<UpdateClientOutput<SolanaMessage>> {
-        eyre::bail!("update_client requires Ed25519 sig extraction and header chunking — not yet implemented")
+        eyre::bail!(
+            "update_client requires Ed25519 sig extraction and header chunking — not yet implemented"
+        )
     }
 
     async fn build_register_counterparty_message(

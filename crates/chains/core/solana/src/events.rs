@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use borsh::BorshDeserialize;
 
-use crate::accounts::{anchor_discriminator, ANCHOR_DISCRIMINATOR_LEN};
+use crate::accounts::{ANCHOR_DISCRIMINATOR_LEN, anchor_discriminator};
 use crate::types::{
     SendPacketEvent, SolanaAcknowledgement, SolanaEvent, SolanaPacket, SolanaPayload, WriteAckEvent,
 };
@@ -138,9 +138,7 @@ pub fn extract_events_from_logs(logs: &[String], ics26_program_id: &str) -> Vec<
     for line in logs {
         if line.starts_with(&invoke_msg) {
             depth += 1;
-        } else if depth > 0
-            && (line.starts_with(&success_msg) || line.starts_with(&failed_msg))
-        {
+        } else if depth > 0 && (line.starts_with(&success_msg) || line.starts_with(&failed_msg)) {
             depth = depth.saturating_sub(1);
         } else if depth > 0
             && let Some(mut event) = parse_log_line(line)
