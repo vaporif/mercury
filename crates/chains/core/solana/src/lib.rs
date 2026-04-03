@@ -1,3 +1,9 @@
+pub mod accounts;
 pub mod chain;
 pub mod config;
+pub mod events;
+pub mod instructions;
+pub mod keys;
+pub mod rpc;
+pub mod tx;
 pub mod types;

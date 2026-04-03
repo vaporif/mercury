@@ -44,8 +44,7 @@ pub struct SolanaEvent {
 
 #[derive(Clone, Debug)]
 pub struct SolanaMessage {
-    pub program_id: String,
-    pub data: Vec<u8>,
+    pub instructions: Vec<solana_sdk::instruction::Instruction>,
 }
 
 #[derive(Clone, Debug)]
