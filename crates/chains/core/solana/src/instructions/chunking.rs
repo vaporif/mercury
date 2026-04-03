@@ -71,7 +71,6 @@ struct UploadProofChunkArgs {
     chunk_data: Vec<u8>,
 }
 
-#[must_use]
 pub fn upload_proof_chunk(
     ics26_program_id: &Pubkey,
     payer: &Pubkey,
