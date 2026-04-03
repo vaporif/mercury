@@ -1,5 +1,7 @@
 use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
 
+use crate::ibc_types;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SolanaHeight(pub u64);
 
@@ -115,4 +117,80 @@ pub struct SolanaCreateClientPayload {
 #[derive(Clone, Debug)]
 pub struct SolanaUpdateClientPayload {
     pub headers: Vec<Vec<u8>>,
+}
+
+impl SolanaPacket {
+    pub fn to_ibc_parts(&self) -> (ibc_types::Packet, Vec<ibc_types::PayloadMetadata>) {
+        let packet = ibc_types::Packet {
+            sequence: self.sequence.0,
+            source_client: self.source_client_id.clone(),
+            dest_client: self.dest_client_id.clone(),
+            timeout_timestamp: self.timeout_timestamp.0,
+            payloads: self.payloads.iter().cloned().map(Into::into).collect(),
+        };
+        let metas = self.payloads.iter().map(Into::into).collect();
+        (packet, metas)
+    }
+}
+
+impl From<SolanaPacket> for ibc_types::Packet {
+    fn from(p: SolanaPacket) -> Self {
+        Self {
+            sequence: p.sequence.0,
+            source_client: p.source_client_id,
+            dest_client: p.dest_client_id,
+            timeout_timestamp: p.timeout_timestamp.0,
+            payloads: p.payloads.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<SolanaPayload> for ibc_types::Payload {
+    fn from(p: SolanaPayload) -> Self {
+        Self {
+            source_port: p.source_port.0,
+            dest_port: p.dest_port.0,
+            version: p.version,
+            encoding: p.encoding,
+            value: p.data,
+        }
+    }
+}
+
+impl From<&SolanaPayload> for ibc_types::PayloadMetadata {
+    fn from(p: &SolanaPayload) -> Self {
+        Self {
+            source_port: p.source_port.0.clone(),
+            dest_port: p.dest_port.0.clone(),
+            version: p.version.clone(),
+            encoding: p.encoding.clone(),
+            total_chunks: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn solana_packet_to_ibc_packet() {
+        let packet = SolanaPacket {
+            source_client_id: "07-tendermint-0".into(),
+            dest_client_id: "07-tendermint-1".into(),
+            sequence: PacketSequence(1),
+            timeout_timestamp: TimeoutTimestamp(1_000_000),
+            payloads: vec![SolanaPayload {
+                source_port: Port("transfer".into()),
+                dest_port: Port("transfer".into()),
+                version: "ics20-1".into(),
+                encoding: "proto3".into(),
+                data: vec![1, 2, 3],
+            }],
+        };
+        let ibc: ibc_types::Packet = packet.into();
+        assert_eq!(ibc.sequence, 1);
+        assert_eq!(ibc.source_client, "07-tendermint-0");
+        assert_eq!(ibc.payloads[0].value, vec![1, 2, 3]);
+    }
 }

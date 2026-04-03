@@ -40,6 +40,7 @@ pub struct SolanaChain {
     pub rpc: SolanaRpcClient,
     pub keypair: Arc<Keypair>,
     pub ics26_program_id: Pubkey,
+    pub alt_cache: Option<solana_message::AddressLookupTableAccount>,
     label: mercury_core::ChainLabel,
 }
 
@@ -58,8 +59,23 @@ impl SolanaChain {
             rpc,
             keypair,
             ics26_program_id,
+            alt_cache: None,
             label,
         })
+    }
+
+    /// Load the configured ALT from on-chain and cache it.
+    /// Call this after construction before relaying.
+    pub async fn load_alt_cache(&mut self) -> Result<()> {
+        if let Some(ref alt_addr_str) = self.config.alt_address {
+            let alt_pubkey: Pubkey = alt_addr_str
+                .parse()
+                .map_err(|e| eyre::eyre!("invalid alt_address: {e}"))?;
+            let alt_account = crate::alt::lookup_alt(&self.rpc, &alt_pubkey).await?;
+            tracing::info!(%alt_pubkey, addresses = alt_account.addresses.len(), "loaded ALT cache");
+            self.alt_cache = Some(alt_account);
+        }
+        Ok(())
     }
 
     async fn scan_sequences(
@@ -379,9 +395,13 @@ impl PacketEvents for SolanaChain {
 #[async_trait]
 impl MessageSender for SolanaChain {
     async fn send_messages(&self, messages: Vec<SolanaMessage>) -> Result<TxReceipt> {
+        let alt_slice = self.alt_cache.as_ref().map(std::slice::from_ref);
         for msg in messages {
-            let sig = tx::send_transaction(&self.rpc, &self.keypair, msg.instructions).await?;
-            tracing::info!(%sig, "solana transaction confirmed");
+            let tx_groups = split_into_transaction_groups(msg.instructions);
+            for group in tx_groups {
+                let sig = tx::send_transaction(&self.rpc, &self.keypair, group, alt_slice).await?;
+                tracing::info!(%sig, "solana transaction confirmed");
+            }
         }
         Ok(TxReceipt {
             gas_used: None,
@@ -390,16 +410,47 @@ impl MessageSender for SolanaChain {
     }
 }
 
+const SET_COMPUTE_UNIT_LIMIT_DISCRIMINATOR: u8 = 2;
+
+/// A `SolanaMessage` may contain instructions for multiple transactions
+/// (e.g. chunk uploads + packet + cleanup). This splits them apart so each
+/// group can be sent as an independent transaction.
+fn split_into_transaction_groups(
+    instructions: Vec<solana_sdk::instruction::Instruction>,
+) -> Vec<Vec<solana_sdk::instruction::Instruction>> {
+    let compute_budget_program = solana_compute_budget_interface::ID;
+
+    let mut groups = Vec::new();
+    let mut current_group = Vec::new();
+
+    for ix in instructions {
+        let is_set_cu_limit = ix.program_id == compute_budget_program
+            && ix.data.first() == Some(&SET_COMPUTE_UNIT_LIMIT_DISCRIMINATOR);
+
+        if is_set_cu_limit && !current_group.is_empty() {
+            groups.push(std::mem::take(&mut current_group));
+        }
+        current_group.push(ix);
+    }
+
+    if !current_group.is_empty() {
+        groups.push(current_group);
+    }
+
+    groups
+}
+
 #[async_trait]
 impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
     type CreateClientPayload = SolanaCreateClientPayload;
     type UpdateClientPayload = SolanaUpdateClientPayload;
 
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
-        let _slot = self.rpc.get_slot().await?;
+        let slot = self.rpc.get_slot().await?;
+        let block_time = self.rpc.get_block_time(slot).await?;
         Ok(SolanaCreateClientPayload {
-            client_state: Vec::new(),
-            consensus_state: Vec::new(),
+            client_state: slot.to_le_bytes().to_vec(),
+            consensus_state: block_time.max(0).cast_unsigned().to_le_bytes().to_vec(),
         })
     }
 
@@ -412,8 +463,13 @@ impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
     where
         C: IbcTypes,
     {
+        let slot = self.rpc.get_slot().await?;
+        let block_time = self.rpc.get_block_time(slot).await?;
+        let mut header = Vec::with_capacity(16);
+        header.extend_from_slice(&slot.to_le_bytes());
+        header.extend_from_slice(&block_time.max(0).cast_unsigned().to_le_bytes());
         Ok(SolanaUpdateClientPayload {
-            headers: Vec::new(),
+            headers: vec![header],
         })
     }
 }
@@ -454,7 +510,7 @@ impl ClientMessageBuilder<Self> for SolanaChain {
             &self.keypair.pubkey(),
             &client_id.0,
             &counterparty_client_id.0,
-            &counterparty_merkle_prefix.0.concat(),
+            &counterparty_merkle_prefix.0,
             &router.access_manager,
         )?;
 
@@ -469,9 +525,9 @@ impl PacketMessageBuilder<Self> for SolanaChain {
     async fn build_receive_packet_message(
         &self,
         packet: &SolanaPacket,
-        proof: SolanaCommitmentProof,
+        _proof: SolanaCommitmentProof,
         proof_height: SolanaHeight,
-        revision: u64,
+        _revision: u64,
     ) -> Result<SolanaMessage> {
         let dest_client_id = &packet.dest_client_id;
         let dest_port = &packet
@@ -491,11 +547,15 @@ impl PacketMessageBuilder<Self> for SolanaChain {
         let app_program =
             accounts::resolve_app_program_id(&self.rpc, dest_port, &self.ics26_program_id).await?;
 
-        let msg = crate::instructions::MsgRecvPacket {
-            packet_bytes: proof.0.clone(), // TODO: serialize packet in on-chain format
-            proof_commitment: proof.0,
-            proof_height_revision_number: revision,
-            proof_height_revision_height: proof_height.0,
+        let (ibc_packet, payload_metas) = packet.to_ibc_parts();
+
+        let msg = crate::ibc_types::MsgRecvPacket {
+            packet: ibc_packet,
+            payloads: payload_metas,
+            proof: crate::ibc_types::ProofMetadata {
+                height: proof_height.0,
+                total_chunks: 0,
+            },
         };
 
         let params = crate::instructions::PacketParams {
@@ -520,9 +580,9 @@ impl PacketMessageBuilder<Self> for SolanaChain {
         &self,
         packet: &SolanaPacket,
         ack: &SolanaAcknowledgement,
-        proof: SolanaCommitmentProof,
+        _proof: SolanaCommitmentProof,
         proof_height: SolanaHeight,
-        revision: u64,
+        _revision: u64,
     ) -> Result<SolanaMessage> {
         let source_client_id = &packet.source_client_id;
         let source_port = &packet
@@ -543,12 +603,16 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             accounts::resolve_app_program_id(&self.rpc, source_port, &self.ics26_program_id)
                 .await?;
 
-        let msg = crate::instructions::MsgAckPacket {
-            packet_bytes: Vec::new(),
+        let (ibc_packet, payload_metas) = packet.to_ibc_parts();
+
+        let msg = crate::ibc_types::MsgAckPacket {
+            packet: ibc_packet,
+            payloads: payload_metas,
             acknowledgement: ack.0.clone(),
-            proof_acked: proof.0,
-            proof_height_revision_number: revision,
-            proof_height_revision_height: proof_height.0,
+            proof: crate::ibc_types::ProofMetadata {
+                height: proof_height.0,
+                total_chunks: 0,
+            },
         };
 
         let params = crate::instructions::PacketParams {
@@ -572,9 +636,9 @@ impl PacketMessageBuilder<Self> for SolanaChain {
     async fn build_timeout_packet_message(
         &self,
         packet: &SolanaPacket,
-        proof: SolanaCommitmentProof,
+        _proof: SolanaCommitmentProof,
         proof_height: SolanaHeight,
-        revision: u64,
+        _revision: u64,
     ) -> Result<SolanaMessage> {
         let source_client_id = &packet.source_client_id;
         let source_port = &packet
@@ -595,11 +659,15 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             accounts::resolve_app_program_id(&self.rpc, source_port, &self.ics26_program_id)
                 .await?;
 
-        let msg = crate::instructions::MsgTimeoutPacket {
-            packet_bytes: Vec::new(),
-            proof_unreceived: proof.0,
-            proof_height_revision_number: revision,
-            proof_height_revision_height: proof_height.0,
+        let (ibc_packet, payload_metas) = packet.to_ibc_parts();
+
+        let msg = crate::ibc_types::MsgTimeoutPacket {
+            packet: ibc_packet,
+            payloads: payload_metas,
+            proof: crate::ibc_types::ProofMetadata {
+                height: proof_height.0,
+                total_chunks: 0,
+            },
         };
 
         let params = crate::instructions::PacketParams {

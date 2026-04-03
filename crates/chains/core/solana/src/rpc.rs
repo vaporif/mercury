@@ -5,6 +5,7 @@ use solana_sdk::account::Account;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Signature;
 use solana_sdk::transaction::Transaction;
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionDetails, UiConfirmedBlock,
     UiTransactionEncoding,
@@ -133,6 +134,22 @@ impl SolanaRpcClient {
                     .send_and_confirm_transaction(&tx)
                     .await
                     .map_err(|e| eyre::eyre!("send_and_confirm_transaction failed: {e}"))
+            })
+            .await
+    }
+
+    pub async fn send_and_confirm_versioned_transaction(
+        &self,
+        tx: &VersionedTransaction,
+    ) -> eyre::Result<Signature> {
+        let client = self.client.clone();
+        let tx = tx.clone();
+        self.guard
+            .guarded(|| async move {
+                client
+                    .send_and_confirm_transaction(&tx)
+                    .await
+                    .map_err(|e| eyre::eyre!("send_and_confirm_versioned_transaction failed: {e}"))
             })
             .await
     }

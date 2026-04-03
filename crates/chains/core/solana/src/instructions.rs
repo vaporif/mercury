@@ -8,6 +8,7 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::sysvar;
 
 use crate::accounts::{self, AccessManager, IbcApp, Ics07Tendermint, Ics26Router};
+use crate::ibc_types;
 
 pub const COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 pub const COMPUTE_UNIT_PRICE: u64 = 1000;
@@ -25,7 +26,7 @@ pub fn with_compute_budget(ix: Instruction) -> Vec<Instruction> {
 struct RegisterCounterpartyArgs {
     client_id: String,
     counterparty_client_id: String,
-    merkle_prefix: Vec<u8>,
+    merkle_prefix: Vec<Vec<u8>>,
 }
 
 pub fn register_counterparty(
@@ -33,7 +34,7 @@ pub fn register_counterparty(
     payer: &Pubkey,
     client_id: &str,
     counterparty_client_id: &str,
-    merkle_prefix: &[u8],
+    merkle_prefix: &[Vec<u8>],
     access_manager_program_id: &Pubkey,
 ) -> eyre::Result<Instruction> {
     let args = RegisterCounterpartyArgs {
@@ -61,31 +62,6 @@ pub fn register_counterparty(
     })
 }
 
-#[derive(BorshSerialize)]
-pub struct MsgRecvPacket {
-    pub packet_bytes: Vec<u8>,
-    pub proof_commitment: Vec<u8>,
-    pub proof_height_revision_number: u64,
-    pub proof_height_revision_height: u64,
-}
-
-#[derive(BorshSerialize)]
-pub struct MsgAckPacket {
-    pub packet_bytes: Vec<u8>,
-    pub acknowledgement: Vec<u8>,
-    pub proof_acked: Vec<u8>,
-    pub proof_height_revision_number: u64,
-    pub proof_height_revision_height: u64,
-}
-
-#[derive(BorshSerialize)]
-pub struct MsgTimeoutPacket {
-    pub packet_bytes: Vec<u8>,
-    pub proof_unreceived: Vec<u8>,
-    pub proof_height_revision_number: u64,
-    pub proof_height_revision_height: u64,
-}
-
 pub struct PacketParams<'a> {
     pub ics26_program_id: &'a Pubkey,
     pub payer: &'a Pubkey,
@@ -98,7 +74,10 @@ pub struct PacketParams<'a> {
     pub app_program_id: &'a Pubkey,
 }
 
-pub fn recv_packet(params: &PacketParams<'_>, msg: &MsgRecvPacket) -> eyre::Result<Instruction> {
+pub fn recv_packet(
+    params: &PacketParams<'_>,
+    msg: &ibc_types::MsgRecvPacket,
+) -> eyre::Result<Instruction> {
     let data = accounts::encode_anchor_instruction("recv_packet", msg)?;
 
     let (router_state, _) = Ics26Router::router_state_pda(params.ics26_program_id);
@@ -136,7 +115,10 @@ pub fn recv_packet(params: &PacketParams<'_>, msg: &MsgRecvPacket) -> eyre::Resu
     })
 }
 
-pub fn ack_packet(params: &PacketParams<'_>, msg: &MsgAckPacket) -> eyre::Result<Instruction> {
+pub fn ack_packet(
+    params: &PacketParams<'_>,
+    msg: &ibc_types::MsgAckPacket,
+) -> eyre::Result<Instruction> {
     let data = accounts::encode_anchor_instruction("ack_packet", msg)?;
 
     let (router_state, _) = Ics26Router::router_state_pda(params.ics26_program_id);
@@ -176,7 +158,7 @@ pub fn ack_packet(params: &PacketParams<'_>, msg: &MsgAckPacket) -> eyre::Result
 
 pub fn timeout_packet(
     params: &PacketParams<'_>,
-    msg: &MsgTimeoutPacket,
+    msg: &ibc_types::MsgTimeoutPacket,
 ) -> eyre::Result<Instruction> {
     let data = accounts::encode_anchor_instruction("timeout_packet", msg)?;
 
