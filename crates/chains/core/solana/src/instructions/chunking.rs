@@ -169,6 +169,90 @@ pub fn chunk_proof(
     Ok((instructions, pdas))
 }
 
+pub fn cleanup_payload_chunks(
+    ics26_program_id: &Pubkey,
+    payer: &Pubkey,
+    client_id: &str,
+    sequence: u64,
+    payload_count: u8,
+    chunk_counts: &[u8],
+) -> eyre::Result<Vec<Instruction>> {
+    #[derive(BorshSerialize)]
+    struct CleanupPayloadChunksArgs {
+        client_id: String,
+        sequence: u64,
+    }
+
+    let args = CleanupPayloadChunksArgs {
+        client_id: client_id.to_string(),
+        sequence,
+    };
+    let data = accounts::encode_anchor_instruction("cleanup_payload_chunks", &args)?;
+
+    let mut account_metas = vec![
+        AccountMeta::new(*payer, true),
+        AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+    ];
+
+    for payload_idx in 0..payload_count {
+        let chunks = chunk_counts.get(payload_idx as usize).copied().unwrap_or(0);
+        for chunk_idx in 0..chunks {
+            let (pda, _) = Ics26Router::payload_chunk_pda(
+                payer,
+                client_id,
+                sequence,
+                payload_idx,
+                chunk_idx,
+                ics26_program_id,
+            );
+            account_metas.push(AccountMeta::new(pda, false));
+        }
+    }
+
+    Ok(vec![Instruction {
+        program_id: *ics26_program_id,
+        accounts: account_metas,
+        data,
+    }])
+}
+
+pub fn cleanup_proof_chunks(
+    ics26_program_id: &Pubkey,
+    payer: &Pubkey,
+    client_id: &str,
+    sequence: u64,
+    chunk_count: u8,
+) -> eyre::Result<Vec<Instruction>> {
+    #[derive(BorshSerialize)]
+    struct CleanupProofChunksArgs {
+        client_id: String,
+        sequence: u64,
+    }
+
+    let args = CleanupProofChunksArgs {
+        client_id: client_id.to_string(),
+        sequence,
+    };
+    let data = accounts::encode_anchor_instruction("cleanup_proof_chunks", &args)?;
+
+    let mut account_metas = vec![
+        AccountMeta::new(*payer, true),
+        AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+    ];
+
+    for chunk_idx in 0..chunk_count {
+        let (pda, _) =
+            Ics26Router::proof_chunk_pda(payer, client_id, sequence, chunk_idx, ics26_program_id);
+        account_metas.push(AccountMeta::new(pda, false));
+    }
+
+    Ok(vec![Instruction {
+        program_id: *ics26_program_id,
+        accounts: account_metas,
+        data,
+    }])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

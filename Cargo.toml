@@ -82,12 +82,15 @@ ibc-proto = { git = "https://github.com/cosmos/ibc-proto-rs", branch = "main", d
 ibc-client-tendermint = { version = "0.57", default-features = false }
 ibc-core-commitment-types = { version = "0.57", default-features = false }
 
-solana-client                   = { version = "3" }
-solana-sdk                      = { version = "3" }
-solana-commitment-config        = { version = "3" }
-solana-transaction-status       = { version = "3" }
-solana-system-interface         = { version = "3" }
-solana-compute-budget-interface = { version = "3" }
+solana-client                         = { version = "3" }
+solana-sdk                            = { version = "3" }
+solana-commitment-config              = { version = "3" }
+solana-transaction-status             = { version = "3" }
+solana-system-interface               = { version = "3" }
+solana-compute-budget-interface       = { version = "3" }
+solana-address-lookup-table-interface = { version = "3" }
+solana-message                        = { version = "3" }
+solana-transaction                    = { version = "3" }
 bincode                   = { version = "3" }
 anchor-lang               = { version = "0.32.1" }
 anchor-client             = { version = "0.32.1" }

@@ -16,6 +16,14 @@ pub struct SolanaChainConfig {
     pub rpc_timeout_secs: u64,
     #[serde(default = "mercury_core::rpc_guard::default_rate_limit")]
     pub rpc_rate_limit: u64,
+    #[serde(default)]
+    pub alt_address: Option<String>,
+    #[serde(default = "default_skip_pre_verify_threshold")]
+    pub skip_pre_verify_threshold: Option<usize>,
+}
+
+const fn default_skip_pre_verify_threshold() -> Option<usize> {
+    Some(50)
 }
 
 const fn default_block_time() -> Duration {
@@ -38,6 +46,10 @@ impl SolanaChainConfig {
             mercury_core::validate::require_ws_url("ws_addr", ws)?;
         }
         eyre::ensure!(!self.program_id.is_empty(), "program_id must not be empty");
+        if let Some(ref alt) = self.alt_address {
+            alt.parse::<solana_sdk::pubkey::Pubkey>()
+                .map_err(|e| eyre::eyre!("invalid alt_address: {e}"))?;
+        }
         eyre::ensure!(
             self.keypair_path.exists(),
             "keypair_path does not exist: {}",

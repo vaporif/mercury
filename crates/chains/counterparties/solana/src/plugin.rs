@@ -60,7 +60,7 @@ impl ChainPlugin for SolanaPlugin {
         _config_dir: &Path,
     ) -> eyre::Result<AnyChain> {
         let cfg = table_to_solana_config(raw_config)?;
-        let chain = SolanaAdapter::new(cfg)?;
+        let chain = SolanaAdapter::new_and_init(cfg).await?;
         Ok(Arc::new(CachedChain::new(chain)) as AnyChain)
     }
 

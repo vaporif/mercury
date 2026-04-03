@@ -1,7 +1,9 @@
 pub mod accounts;
+pub mod alt;
 pub mod chain;
 pub mod config;
 pub mod events;
+pub mod ibc_types;
 pub mod instructions;
 pub mod keys;
 pub mod rpc;
