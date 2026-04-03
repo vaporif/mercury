@@ -71,18 +71,18 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
             proof_height_revision_height: proof_height.value(),
         };
 
-        let ix = instructions::recv_packet(
-            &chain.ics26_program_id,
-            &chain.keypair.pubkey(),
-            &msg,
-            dest_client_id,
-            dest_port,
+        let params = instructions::PacketParams {
+            ics26_program_id: &chain.ics26_program_id,
+            payer: &chain.keypair.pubkey(),
+            client_id: dest_client_id,
+            port: dest_port,
             sequence,
-            &ics07,
-            proof_height.value(),
-            &access_mgr,
-            &app_program,
-        );
+            ics07_program_id: &ics07,
+            consensus_height: proof_height.value(),
+            access_manager_program_id: &access_mgr,
+            app_program_id: &app_program,
+        };
+        let ix = instructions::recv_packet(&params, &msg)?;
 
         Ok(SolanaMessage {
             instructions: instructions::with_compute_budget(ix),
@@ -122,18 +122,18 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
             proof_height_revision_height: proof_height.value(),
         };
 
-        let ix = instructions::ack_packet(
-            &chain.ics26_program_id,
-            &chain.keypair.pubkey(),
-            &msg,
-            source_client_id,
-            source_port,
+        let params = instructions::PacketParams {
+            ics26_program_id: &chain.ics26_program_id,
+            payer: &chain.keypair.pubkey(),
+            client_id: source_client_id,
+            port: source_port,
             sequence,
-            &ics07,
-            proof_height.value(),
-            &access_mgr,
-            &app_program,
-        );
+            ics07_program_id: &ics07,
+            consensus_height: proof_height.value(),
+            access_manager_program_id: &access_mgr,
+            app_program_id: &app_program,
+        };
+        let ix = instructions::ack_packet(&params, &msg)?;
 
         Ok(SolanaMessage {
             instructions: instructions::with_compute_budget(ix),
@@ -171,18 +171,18 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
             proof_height_revision_height: proof_height.value(),
         };
 
-        let ix = instructions::timeout_packet(
-            &chain.ics26_program_id,
-            &chain.keypair.pubkey(),
-            &msg,
-            source_client_id,
-            source_port,
+        let params = instructions::PacketParams {
+            ics26_program_id: &chain.ics26_program_id,
+            payer: &chain.keypair.pubkey(),
+            client_id: source_client_id,
+            port: source_port,
             sequence,
-            &ics07,
-            proof_height.value(),
-            &access_mgr,
-            &app_program,
-        );
+            ics07_program_id: &ics07,
+            consensus_height: proof_height.value(),
+            access_manager_program_id: &access_mgr,
+            app_program_id: &app_program,
+        };
+        let ix = instructions::timeout_packet(&params, &msg)?;
 
         Ok(SolanaMessage {
             instructions: instructions::with_compute_budget(ix),
@@ -230,7 +230,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
             &counterparty_client_id.to_string(),
             &counterparty_merkle_prefix.0.concat(),
             &access_mgr,
-        );
+        )?;
 
         Ok(SolanaMessage {
             instructions: vec![ix],

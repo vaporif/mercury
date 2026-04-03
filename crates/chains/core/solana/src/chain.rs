@@ -456,7 +456,7 @@ impl ClientMessageBuilder<Self> for SolanaChain {
             &counterparty_client_id.0,
             &counterparty_merkle_prefix.0.concat(),
             &router.access_manager,
-        );
+        )?;
 
         Ok(SolanaMessage {
             instructions: vec![ix],
@@ -498,18 +498,18 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             proof_height_revision_height: proof_height.0,
         };
 
-        let ix = crate::instructions::recv_packet(
-            &self.ics26_program_id,
-            &self.keypair.pubkey(),
-            &msg,
-            dest_client_id,
-            dest_port,
+        let params = crate::instructions::PacketParams {
+            ics26_program_id: &self.ics26_program_id,
+            payer: &self.keypair.pubkey(),
+            client_id: dest_client_id,
+            port: dest_port,
             sequence,
-            &ics07,
-            proof_height.0,
-            &router.access_manager,
-            &app_program,
-        );
+            ics07_program_id: &ics07,
+            consensus_height: proof_height.0,
+            access_manager_program_id: &router.access_manager,
+            app_program_id: &app_program,
+        };
+        let ix = crate::instructions::recv_packet(&params, &msg)?;
 
         Ok(SolanaMessage {
             instructions: crate::instructions::with_compute_budget(ix),
@@ -551,18 +551,18 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             proof_height_revision_height: proof_height.0,
         };
 
-        let ix = crate::instructions::ack_packet(
-            &self.ics26_program_id,
-            &self.keypair.pubkey(),
-            &msg,
-            source_client_id,
-            source_port,
+        let params = crate::instructions::PacketParams {
+            ics26_program_id: &self.ics26_program_id,
+            payer: &self.keypair.pubkey(),
+            client_id: source_client_id,
+            port: source_port,
             sequence,
-            &ics07,
-            proof_height.0,
-            &router.access_manager,
-            &app_program,
-        );
+            ics07_program_id: &ics07,
+            consensus_height: proof_height.0,
+            access_manager_program_id: &router.access_manager,
+            app_program_id: &app_program,
+        };
+        let ix = crate::instructions::ack_packet(&params, &msg)?;
 
         Ok(SolanaMessage {
             instructions: crate::instructions::with_compute_budget(ix),
@@ -602,18 +602,18 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             proof_height_revision_height: proof_height.0,
         };
 
-        let ix = crate::instructions::timeout_packet(
-            &self.ics26_program_id,
-            &self.keypair.pubkey(),
-            &msg,
-            source_client_id,
-            source_port,
+        let params = crate::instructions::PacketParams {
+            ics26_program_id: &self.ics26_program_id,
+            payer: &self.keypair.pubkey(),
+            client_id: source_client_id,
+            port: source_port,
             sequence,
-            &ics07,
-            proof_height.0,
-            &router.access_manager,
-            &app_program,
-        );
+            ics07_program_id: &ics07,
+            consensus_height: proof_height.0,
+            access_manager_program_id: &router.access_manager,
+            app_program_id: &app_program,
+        };
+        let ix = crate::instructions::timeout_packet(&params, &msg)?;
 
         Ok(SolanaMessage {
             instructions: crate::instructions::with_compute_budget(ix),
