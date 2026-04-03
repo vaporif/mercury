@@ -28,7 +28,6 @@ struct RegisterCounterpartyArgs {
     merkle_prefix: Vec<u8>,
 }
 
-#[must_use]
 pub fn register_counterparty(
     ics26_program_id: &Pubkey,
     payer: &Pubkey,
@@ -36,19 +35,19 @@ pub fn register_counterparty(
     counterparty_client_id: &str,
     merkle_prefix: &[u8],
     access_manager_program_id: &Pubkey,
-) -> Instruction {
+) -> eyre::Result<Instruction> {
     let args = RegisterCounterpartyArgs {
         client_id: client_id.to_string(),
         counterparty_client_id: counterparty_client_id.to_string(),
         merkle_prefix: merkle_prefix.to_vec(),
     };
-    let data = accounts::encode_anchor_instruction("register_counterparty", &args);
+    let data = accounts::encode_anchor_instruction("register_counterparty", &args)?;
 
     let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
     let (client_pda, _) = Ics26Router::client_pda(client_id, ics26_program_id);
     let (access_manager, _) = AccessManager::pda(access_manager_program_id);
 
-    Instruction {
+    Ok(Instruction {
         program_id: *ics26_program_id,
         accounts: vec![
             AccountMeta::new_readonly(router_state, false),
@@ -59,7 +58,7 @@ pub fn register_counterparty(
             AccountMeta::new_readonly(sysvar::instructions::ID, false),
         ],
         data,
-    }
+    })
 }
 
 #[derive(BorshSerialize)]
@@ -99,9 +98,8 @@ pub struct PacketParams<'a> {
     pub app_program_id: &'a Pubkey,
 }
 
-#[must_use]
-pub fn recv_packet(params: &PacketParams<'_>, msg: &MsgRecvPacket) -> Instruction {
-    let data = accounts::encode_anchor_instruction("recv_packet", msg);
+pub fn recv_packet(params: &PacketParams<'_>, msg: &MsgRecvPacket) -> eyre::Result<Instruction> {
+    let data = accounts::encode_anchor_instruction("recv_packet", msg)?;
 
     let (router_state, _) = Ics26Router::router_state_pda(params.ics26_program_id);
     let (access_manager, _) = AccessManager::pda(params.access_manager_program_id);
@@ -116,7 +114,7 @@ pub fn recv_packet(params: &PacketParams<'_>, msg: &MsgRecvPacket) -> Instructio
     let (consensus_state, _) =
         Ics07Tendermint::consensus_state_pda(params.consensus_height, params.ics07_program_id);
 
-    Instruction {
+    Ok(Instruction {
         program_id: *params.ics26_program_id,
         accounts: vec![
             AccountMeta::new_readonly(router_state, false),
@@ -135,12 +133,11 @@ pub fn recv_packet(params: &PacketParams<'_>, msg: &MsgRecvPacket) -> Instructio
             AccountMeta::new_readonly(consensus_state, false),
         ],
         data,
-    }
+    })
 }
 
-#[must_use]
-pub fn ack_packet(params: &PacketParams<'_>, msg: &MsgAckPacket) -> Instruction {
-    let data = accounts::encode_anchor_instruction("ack_packet", msg);
+pub fn ack_packet(params: &PacketParams<'_>, msg: &MsgAckPacket) -> eyre::Result<Instruction> {
+    let data = accounts::encode_anchor_instruction("ack_packet", msg)?;
 
     let (router_state, _) = Ics26Router::router_state_pda(params.ics26_program_id);
     let (access_manager, _) = AccessManager::pda(params.access_manager_program_id);
@@ -156,7 +153,7 @@ pub fn ack_packet(params: &PacketParams<'_>, msg: &MsgAckPacket) -> Instruction 
     let (consensus_state, _) =
         Ics07Tendermint::consensus_state_pda(params.consensus_height, params.ics07_program_id);
 
-    Instruction {
+    Ok(Instruction {
         program_id: *params.ics26_program_id,
         accounts: vec![
             AccountMeta::new_readonly(router_state, false),
@@ -174,12 +171,14 @@ pub fn ack_packet(params: &PacketParams<'_>, msg: &MsgAckPacket) -> Instruction 
             AccountMeta::new_readonly(consensus_state, false),
         ],
         data,
-    }
+    })
 }
 
-#[must_use]
-pub fn timeout_packet(params: &PacketParams<'_>, msg: &MsgTimeoutPacket) -> Instruction {
-    let data = accounts::encode_anchor_instruction("timeout_packet", msg);
+pub fn timeout_packet(
+    params: &PacketParams<'_>,
+    msg: &MsgTimeoutPacket,
+) -> eyre::Result<Instruction> {
+    let data = accounts::encode_anchor_instruction("timeout_packet", msg)?;
 
     let (router_state, _) = Ics26Router::router_state_pda(params.ics26_program_id);
     let (access_manager, _) = AccessManager::pda(params.access_manager_program_id);
@@ -195,7 +194,7 @@ pub fn timeout_packet(params: &PacketParams<'_>, msg: &MsgTimeoutPacket) -> Inst
     let (consensus_state, _) =
         Ics07Tendermint::consensus_state_pda(params.consensus_height, params.ics07_program_id);
 
-    Instruction {
+    Ok(Instruction {
         program_id: *params.ics26_program_id,
         accounts: vec![
             AccountMeta::new_readonly(router_state, false),
@@ -213,5 +212,5 @@ pub fn timeout_packet(params: &PacketParams<'_>, msg: &MsgTimeoutPacket) -> Inst
             AccountMeta::new_readonly(consensus_state, false),
         ],
         data,
-    }
+    })
 }

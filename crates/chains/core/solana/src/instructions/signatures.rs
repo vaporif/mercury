@@ -14,25 +14,24 @@ struct UploadHeaderChunkArgs {
     chunk_data: Vec<u8>,
 }
 
-#[must_use]
 pub fn upload_header_chunk(
     ics07_program_id: &Pubkey,
     payer: &Pubkey,
     target_height: u64,
     chunk_index: u8,
     chunk_data: Vec<u8>,
-) -> Instruction {
+) -> eyre::Result<Instruction> {
     let args = UploadHeaderChunkArgs {
         target_height,
         chunk_index,
         chunk_data,
     };
-    let data = accounts::encode_anchor_instruction("upload_header_chunk", &args);
+    let data = accounts::encode_anchor_instruction("upload_header_chunk", &args)?;
 
     let (header_chunk_pda, _) =
         Ics07Tendermint::header_chunk_pda(payer, target_height, chunk_index, ics07_program_id);
 
-    Instruction {
+    Ok(Instruction {
         program_id: *ics07_program_id,
         accounts: vec![
             AccountMeta::new(header_chunk_pda, false),
@@ -40,7 +39,7 @@ pub fn upload_header_chunk(
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
         ],
         data,
-    }
+    })
 }
 
 #[must_use]

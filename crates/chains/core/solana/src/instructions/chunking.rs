@@ -25,7 +25,6 @@ struct UploadPayloadChunkArgs {
     chunk_data: Vec<u8>,
 }
 
-#[must_use]
 pub fn upload_payload_chunk(
     ics26_program_id: &Pubkey,
     payer: &Pubkey,
@@ -34,7 +33,7 @@ pub fn upload_payload_chunk(
     payload_index: u8,
     chunk_index: u8,
     chunk_data: Vec<u8>,
-) -> Instruction {
+) -> eyre::Result<Instruction> {
     let args = UploadPayloadChunkArgs {
         client_id: client_id.to_string(),
         sequence,
@@ -42,7 +41,7 @@ pub fn upload_payload_chunk(
         chunk_index,
         chunk_data,
     };
-    let data = accounts::encode_anchor_instruction("upload_payload_chunk", &args);
+    let data = accounts::encode_anchor_instruction("upload_payload_chunk", &args)?;
 
     let (payload_chunk, _) = Ics26Router::payload_chunk_pda(
         payer,
@@ -53,7 +52,7 @@ pub fn upload_payload_chunk(
         ics26_program_id,
     );
 
-    Instruction {
+    Ok(Instruction {
         program_id: *ics26_program_id,
         accounts: vec![
             AccountMeta::new(payload_chunk, false),
@@ -61,7 +60,7 @@ pub fn upload_payload_chunk(
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
         ],
         data,
-    }
+    })
 }
 
 #[derive(BorshSerialize)]
@@ -80,19 +79,19 @@ pub fn upload_proof_chunk(
     sequence: u64,
     chunk_index: u8,
     chunk_data: Vec<u8>,
-) -> Instruction {
+) -> eyre::Result<Instruction> {
     let args = UploadProofChunkArgs {
         client_id: client_id.to_string(),
         sequence,
         chunk_index,
         chunk_data,
     };
-    let data = accounts::encode_anchor_instruction("upload_proof_chunk", &args);
+    let data = accounts::encode_anchor_instruction("upload_proof_chunk", &args)?;
 
     let (proof_chunk, _) =
         Ics26Router::proof_chunk_pda(payer, client_id, sequence, chunk_index, ics26_program_id);
 
-    Instruction {
+    Ok(Instruction {
         program_id: *ics26_program_id,
         accounts: vec![
             AccountMeta::new(proof_chunk, false),
@@ -100,7 +99,7 @@ pub fn upload_proof_chunk(
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
         ],
         data,
-    }
+    })
 }
 
 pub fn chunk_payload(
@@ -135,7 +134,7 @@ pub fn chunk_payload(
             payload_index,
             chunk_index,
             chunk,
-        ));
+        )?);
     }
 
     Ok((instructions, pdas))
@@ -165,7 +164,7 @@ pub fn chunk_proof(
             sequence,
             chunk_index,
             chunk,
-        ));
+        )?);
     }
 
     Ok((instructions, pdas))
