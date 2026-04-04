@@ -105,12 +105,12 @@ jobs:
         id: solana-build-cache
         with:
           path: ~/.local/share/solana/install
-          key: solana-cli-2.2.1-anchor-0.32.1
+          key: solana-cli-2.3.13-anchor-0.32.1
 
       - name: Install Solana + Anchor CLI
         if: steps.solana-build-cache.outputs.cache-hit != 'true'
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v2.2.1/install)"
+          sh -c "$(curl -sSfL https://release.anza.xyz/v2.3.13/install)"
           cargo install --git https://github.com/coral-xyz/anchor --tag v0.32.1 anchor-cli
 
       - name: Add Solana to PATH
