@@ -220,6 +220,7 @@
             pkgs.cargo-nextest
             pkgs.cargo-deny
             pkgs.cargo-llvm-cov
+            pkgs.protobuf
             pkgs.foundry
             pkgs.bun
             pkgs.binaryen

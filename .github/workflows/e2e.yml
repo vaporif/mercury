@@ -107,6 +107,8 @@ jobs:
           anchor_version: ${{ env.ANCHOR_VERSION }}
           solana_version: ${{ env.SOLANA_VERSION }}
 
+      - uses: arduino/setup-protoc@v3
+
       - name: Build Solana programs
         run: anchor build
         working-directory: external/solidity-ibc-eureka/programs/solana
