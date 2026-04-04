@@ -115,9 +115,7 @@ impl ChainPlugin for SolanaPlugin {
             use mercury_cosmos::keys::Secp256k1KeyPair;
 
             let c = downcast_solana(chain)?;
-            if let Some(cosmos_payload) =
-                payload.downcast_ref::<CosmosCreateClientPayload>()
-            {
+            if let Some(cosmos_payload) = payload.downcast_ref::<CosmosCreateClientPayload>() {
                 let msg = ClientMessageBuilder::<
                     mercury_cosmos::chain::CosmosChain<Secp256k1KeyPair>,
                 >::build_create_client_message(c, cosmos_payload.clone())
