@@ -84,21 +84,35 @@ struct ChunkedPacketOutput {
     cleanup_message: Option<SolanaMessage>,
 }
 
-fn build_chunked_packet_message(
-    ics26_program_id: &solana_sdk::pubkey::Pubkey,
-    payer: &solana_sdk::pubkey::Pubkey,
-    client_id: &str,
+struct ChunkedPacketParams<'a> {
+    ics26_program_id: &'a solana_sdk::pubkey::Pubkey,
+    payer: &'a solana_sdk::pubkey::Pubkey,
+    client_id: &'a str,
     sequence: u64,
-    ibc_packet: &mercury_solana::ibc_types::Packet,
-    payload_metas: &mut Vec<mercury_solana::ibc_types::PayloadMetadata>,
-    proof_bytes: &[u8],
+    ibc_packet: &'a mercury_solana::ibc_types::Packet,
+    payload_metas: &'a mut [mercury_solana::ibc_types::PayloadMetadata],
+    proof_bytes: &'a [u8],
     proof_height: u64,
+}
+
+fn build_chunked_packet_message(
+    params: ChunkedPacketParams<'_>,
     build_packet_ix: impl FnOnce(
         &mercury_solana::ibc_types::Packet,
         &[mercury_solana::ibc_types::PayloadMetadata],
         mercury_solana::ibc_types::ProofMetadata,
     ) -> eyre::Result<SolanaMessage>,
 ) -> eyre::Result<ChunkedPacketOutput> {
+    let ChunkedPacketParams {
+        ics26_program_id,
+        payer,
+        client_id,
+        sequence,
+        ibc_packet,
+        payload_metas,
+        proof_bytes,
+        proof_height,
+    } = params;
     let mut chunk_messages = Vec::new();
     let mut payload_chunk_counts: Vec<u8> = Vec::new();
 
@@ -251,14 +265,16 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
         let height_val = proof_height.value();
 
         let output = build_chunked_packet_message(
-            &chain.ics26_program_id,
-            &payer,
-            dest_client_id,
-            sequence,
-            &ibc_packet,
-            &mut payload_metas,
-            proof_bytes,
-            height_val,
+            ChunkedPacketParams {
+                ics26_program_id: &chain.ics26_program_id,
+                payer: &payer,
+                client_id: dest_client_id,
+                sequence,
+                ibc_packet: &ibc_packet,
+                payload_metas: &mut payload_metas,
+                proof_bytes,
+                proof_height: height_val,
+            },
             |pkt, metas, proof_meta| {
                 let msg = mercury_solana::ibc_types::MsgRecvPacket {
                     packet: pkt.clone(),
@@ -318,14 +334,16 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
         let ack_bytes = ack.0.clone();
 
         let output = build_chunked_packet_message(
-            &chain.ics26_program_id,
-            &payer,
-            source_client_id,
-            sequence,
-            &ibc_packet,
-            &mut payload_metas,
-            proof_bytes,
-            height_val,
+            ChunkedPacketParams {
+                ics26_program_id: &chain.ics26_program_id,
+                payer: &payer,
+                client_id: source_client_id,
+                sequence,
+                ibc_packet: &ibc_packet,
+                payload_metas: &mut payload_metas,
+                proof_bytes,
+                proof_height: height_val,
+            },
             |pkt, metas, proof_meta| {
                 let msg = mercury_solana::ibc_types::MsgAckPacket {
                     packet: pkt.clone(),
@@ -384,14 +402,16 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
         let height_val = proof_height.value();
 
         let output = build_chunked_packet_message(
-            &chain.ics26_program_id,
-            &payer,
-            source_client_id,
-            sequence,
-            &ibc_packet,
-            &mut payload_metas,
-            proof_bytes,
-            height_val,
+            ChunkedPacketParams {
+                ics26_program_id: &chain.ics26_program_id,
+                payer: &payer,
+                client_id: source_client_id,
+                sequence,
+                ibc_packet: &ibc_packet,
+                payload_metas: &mut payload_metas,
+                proof_bytes,
+                proof_height: height_val,
+            },
             |pkt, metas, proof_meta| {
                 let msg = mercury_solana::ibc_types::MsgTimeoutPacket {
                     packet: pkt.clone(),
@@ -543,9 +563,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         // Threshold is checked against the full commit (not the minimal set)
         // so devnet (few validators) verifies inline while mainnet pre-verifies.
         let all_signatures = signatures::extract_signatures_from_header(&header);
-        let skip_threshold = chain.config.skip_pre_verify_threshold;
-        let use_pre_verify =
-            skip_threshold.map_or(true, |threshold| all_signatures.len() > threshold);
+        let use_pre_verify = all_signatures.len() > chain.config.skip_pre_verify_threshold();
         let selected_sigs = signatures::select_minimal_signatures(&header, &all_signatures);
 
         let header_any: ibc_proto::google::protobuf::Any = header.into();
@@ -558,7 +576,8 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
             .map_err(|_| eyre::eyre!("header chunk count exceeds u8::MAX"))?;
         let mut header_chunk_pdas = Vec::with_capacity(header_chunks.len());
         for (i, chunk) in header_chunks.into_iter().enumerate() {
-            let chunk_idx = i as u8; // safe: chunk_count fits in u8
+            let chunk_idx = u8::try_from(i)
+                .map_err(|_| eyre::eyre!("header chunk index {i} exceeds u8::MAX"))?;
             let ix =
                 signatures::upload_header_chunk(&ics07, &payer, target_height, chunk_idx, chunk)?;
             messages.push(SolanaMessage {
