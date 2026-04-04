@@ -100,26 +100,10 @@ jobs:
           cp target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm.gz \
             e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
 
-      - name: Cache Solana + Anchor CLI
-        uses: actions/cache@v5
-        id: solana-build-cache
+      - uses: solana-developers/github-actions/setup-all@v0.2.7
         with:
-          path: |
-            ~/.local/share/solana/install
-            ~/.cargo/bin/anchor
-          key: solana-cli-2.3.13-anchor-0.32.1
-
-      - name: Install libudev (needed by Anchor CLI)
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev
-
-      - name: Install Solana + Anchor CLI
-        if: steps.solana-build-cache.outputs.cache-hit != 'true'
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v2.3.13/install)"
-          cargo install --git https://github.com/coral-xyz/anchor --tag v0.32.1 anchor-cli
-
-      - name: Add Solana to PATH
-        run: echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          anchor_version: "0.32.1"
+          solana_version: "2.3.13"
 
       - name: Build Solana programs
         run: anchor build
