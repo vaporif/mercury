@@ -7,6 +7,7 @@ use tracing::info;
 pub mod anvil;
 pub mod cosmos_docker;
 pub mod kurtosis;
+pub mod solana;
 pub mod traits;
 pub mod wasm_lc;
 

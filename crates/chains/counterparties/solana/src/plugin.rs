@@ -104,10 +104,30 @@ impl ChainPlugin for SolanaPlugin {
 
     async fn create_client(
         &self,
-        _chain: &AnyChain,
-        _payload: Box<dyn Any + Send + Sync>,
+        chain: &AnyChain,
+        payload: Box<dyn Any + Send + Sync>,
     ) -> eyre::Result<String> {
-        eyre::bail!("create_client not yet implemented for Solana plugin")
+        #[cfg(feature = "cosmos")]
+        {
+            use mercury_chain_traits::builders::ClientMessageBuilder;
+            use mercury_chain_traits::types::MessageSender;
+            use mercury_cosmos::builders::CosmosCreateClientPayload;
+            use mercury_cosmos::keys::Secp256k1KeyPair;
+
+            let c = downcast_solana(chain)?;
+            if let Some(cosmos_payload) = payload.downcast_ref::<CosmosCreateClientPayload>() {
+                let msg = ClientMessageBuilder::<
+                    mercury_cosmos::chain::CosmosChain<Secp256k1KeyPair>,
+                >::build_create_client_message(c, cosmos_payload.clone())
+                .await?;
+
+                c.send_messages(vec![msg]).await?;
+                return Ok("07-tendermint-0".to_string());
+            }
+        }
+
+        let _ = (chain, payload);
+        eyre::bail!("unsupported payload type for Solana create_client")
     }
 
     async fn query_client_state_info(

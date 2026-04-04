@@ -447,12 +447,93 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
 
     async fn build_create_client_message(
         &self,
-        _payload: CosmosCreateClientPayload,
+        payload: CosmosCreateClientPayload,
     ) -> Result<SolanaMessage> {
-        eyre::bail!(
-            "create_client for Cosmos->Solana requires ICS07 program ID to be known — \
-             the E2E harness calls add_client on ICS26 first, then initialize on ICS07"
-        )
+        use ibc_client_tendermint::types::ClientState as TmClientState;
+        use ibc_client_tendermint::types::ConsensusState as TmConsensusState;
+
+        let chain = &self.0;
+        let ics07_program_id = chain
+            .ics07_program_id
+            .ok_or_else(|| eyre::eyre!("ics07_program_id not configured"))?;
+
+        let access_mgr = resolve_access_manager(chain).await?;
+        let payer = chain.keypair.pubkey();
+
+        let tm_client_state: TmClientState = payload
+            .client_state
+            .try_into()
+            .map_err(|e| eyre::eyre!("failed to decode client state: {e}"))?;
+        let tm_consensus_state: TmConsensusState = payload
+            .consensus_state
+            .try_into()
+            .map_err(|e| eyre::eyre!("failed to decode consensus state: {e}"))?;
+
+        let client_state = mercury_solana::ibc_types::ClientState {
+            chain_id: tm_client_state.chain_id.to_string(),
+            trust_level_numerator: tm_client_state.trust_level.numerator(),
+            trust_level_denominator: tm_client_state.trust_level.denominator(),
+            trusting_period: tm_client_state.trusting_period.as_secs(),
+            unbonding_period: tm_client_state.unbonding_period.as_secs(),
+            max_clock_drift: tm_client_state.max_clock_drift.as_secs(),
+            frozen_height: mercury_solana::ibc_types::IbcHeight {
+                revision_number: 0,
+                revision_height: 0,
+            },
+            latest_height: mercury_solana::ibc_types::IbcHeight {
+                revision_number: tm_client_state.latest_height.revision_number(),
+                revision_height: tm_client_state.latest_height.revision_height(),
+            },
+        };
+
+        let root_bytes: [u8; 32] = tm_consensus_state
+            .root
+            .as_bytes()
+            .try_into()
+            .map_err(|_| eyre::eyre!("consensus state root is not 32 bytes"))?;
+        let next_val_hash: [u8; 32] = tm_consensus_state
+            .next_validators_hash
+            .as_bytes()
+            .try_into()
+            .map_err(|_| eyre::eyre!("next_validators_hash is not 32 bytes"))?;
+
+        let consensus_state = mercury_solana::ibc_types::ConsensusState {
+            timestamp: tm_consensus_state
+                .timestamp
+                .unix_timestamp()
+                .cast_unsigned(),
+            root: root_bytes,
+            next_validators_hash: next_val_hash,
+        };
+
+        let client_id = "07-tendermint-0";
+
+        let counterparty_info = mercury_solana::ibc_types::CounterpartyInfo {
+            client_id: String::new(),
+            merkle_prefix: vec![b"ibc".to_vec()],
+        };
+
+        let add_client_ix = mercury_solana::instructions::client::add_client(
+            &chain.ics26_program_id,
+            &payer,
+            client_id,
+            counterparty_info,
+            &ics07_program_id,
+            &access_mgr,
+        )?;
+
+        let init_ix = mercury_solana::instructions::client::initialize_ics07(
+            &ics07_program_id,
+            &payer,
+            &client_state,
+            &consensus_state,
+            &access_mgr,
+        )?;
+
+        let mut instructions = mercury_solana::instructions::with_compute_budget(add_client_ix);
+        instructions.extend(mercury_solana::instructions::with_compute_budget(init_ix));
+
+        Ok(SolanaMessage { instructions })
     }
 
     async fn build_update_client_message(
@@ -565,25 +646,14 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
 
     async fn build_register_counterparty_message(
         &self,
-        client_id: &SolanaClientId,
-        counterparty_client_id: &<CosmosChain<S> as ChainTypes>::ClientId,
-        counterparty_merkle_prefix: mercury_core::MerklePrefix,
+        _client_id: &SolanaClientId,
+        _counterparty_client_id: &<CosmosChain<S> as ChainTypes>::ClientId,
+        _counterparty_merkle_prefix: mercury_core::MerklePrefix,
     ) -> Result<SolanaMessage> {
-        let chain = &self.0;
-        let access_mgr = resolve_access_manager(chain).await?;
-
-        let ix = instructions::register_counterparty(
-            &chain.ics26_program_id,
-            &chain.keypair.pubkey(),
-            &client_id.0,
-            &counterparty_client_id.to_string(),
-            &counterparty_merkle_prefix.0,
-            &access_mgr,
-        )?;
-
-        Ok(SolanaMessage {
-            instructions: vec![ix],
-        })
+        eyre::bail!(
+            "register_counterparty is not a separate step on Solana — \
+             counterparty info is set during add_client"
+        )
     }
 }
 
