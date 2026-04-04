@@ -9,6 +9,8 @@ pub struct SolanaChainConfig {
     #[serde(default)]
     pub ws_addr: Option<String>,
     pub program_id: String,
+    #[serde(default)]
+    pub ics07_program_id: Option<String>,
     pub keypair_path: PathBuf,
     #[serde(default = "default_block_time")]
     pub block_time: Duration,

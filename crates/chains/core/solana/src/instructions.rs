@@ -1,7 +1,7 @@
 pub mod chunking;
+pub mod client;
 pub mod signatures;
 
-use borsh::BorshSerialize;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
@@ -20,46 +20,6 @@ pub fn with_compute_budget(ix: Instruction) -> Vec<Instruction> {
         ComputeBudgetInstruction::set_compute_unit_price(COMPUTE_UNIT_PRICE),
         ix,
     ]
-}
-
-#[derive(BorshSerialize)]
-struct RegisterCounterpartyArgs {
-    client_id: String,
-    counterparty_client_id: String,
-    merkle_prefix: Vec<Vec<u8>>,
-}
-
-pub fn register_counterparty(
-    ics26_program_id: &Pubkey,
-    payer: &Pubkey,
-    client_id: &str,
-    counterparty_client_id: &str,
-    merkle_prefix: &[Vec<u8>],
-    access_manager_program_id: &Pubkey,
-) -> eyre::Result<Instruction> {
-    let args = RegisterCounterpartyArgs {
-        client_id: client_id.to_string(),
-        counterparty_client_id: counterparty_client_id.to_string(),
-        merkle_prefix: merkle_prefix.to_vec(),
-    };
-    let data = accounts::encode_anchor_instruction("register_counterparty", &args)?;
-
-    let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
-    let (client_pda, _) = Ics26Router::client_pda(client_id, ics26_program_id);
-    let (access_manager, _) = AccessManager::pda(access_manager_program_id);
-
-    Ok(Instruction {
-        program_id: *ics26_program_id,
-        accounts: vec![
-            AccountMeta::new_readonly(router_state, false),
-            AccountMeta::new(client_pda, false),
-            AccountMeta::new(*payer, true),
-            AccountMeta::new_readonly(access_manager, false),
-            AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-            AccountMeta::new_readonly(sysvar::instructions::ID, false),
-        ],
-        data,
-    })
 }
 
 pub struct PacketParams<'a> {

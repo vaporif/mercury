@@ -40,6 +40,7 @@ pub struct SolanaChain {
     pub rpc: SolanaRpcClient,
     pub keypair: Arc<Keypair>,
     pub ics26_program_id: Pubkey,
+    pub ics07_program_id: Option<Pubkey>,
     pub alt_cache: Option<solana_message::AddressLookupTableAccount>,
     label: mercury_core::ChainLabel,
 }
@@ -53,12 +54,19 @@ impl SolanaChain {
             .program_id
             .parse()
             .map_err(|e| eyre::eyre!("invalid program_id: {e}"))?;
+        let ics07_program_id = config
+            .ics07_program_id
+            .as_ref()
+            .map(|id| id.parse::<Pubkey>())
+            .transpose()
+            .map_err(|e| eyre::eyre!("invalid ics07_program_id: {e}"))?;
         let label = mercury_core::ChainLabel::new("solana");
         Ok(Self {
             config,
             rpc,
             keypair,
             ics26_program_id,
+            ics07_program_id,
             alt_cache: None,
             label,
         })
@@ -496,27 +504,14 @@ impl ClientMessageBuilder<Self> for SolanaChain {
 
     async fn build_register_counterparty_message(
         &self,
-        client_id: &SolanaClientId,
-        counterparty_client_id: &SolanaClientId,
-        counterparty_merkle_prefix: mercury_core::MerklePrefix,
+        _client_id: &SolanaClientId,
+        _counterparty_client_id: &SolanaClientId,
+        _counterparty_merkle_prefix: mercury_core::MerklePrefix,
     ) -> Result<SolanaMessage> {
-        let (router_pda, _) = Ics26Router::router_state_pda(&self.ics26_program_id);
-        let router: accounts::OnChainRouterState = fetch_account(&self.rpc, &router_pda)
-            .await?
-            .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
-
-        let ix = crate::instructions::register_counterparty(
-            &self.ics26_program_id,
-            &self.keypair.pubkey(),
-            &client_id.0,
-            &counterparty_client_id.0,
-            &counterparty_merkle_prefix.0,
-            &router.access_manager,
-        )?;
-
-        Ok(SolanaMessage {
-            instructions: vec![ix],
-        })
+        eyre::bail!(
+            "register_counterparty is not a separate step on Solana — \
+             counterparty info is set during add_client"
+        )
     }
 }
 

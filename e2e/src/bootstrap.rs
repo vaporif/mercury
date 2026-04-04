@@ -9,6 +9,7 @@ pub mod cosmos_docker;
 pub mod kurtosis;
 pub mod traits;
 pub mod wasm_lc;
+pub mod solana;
 
 static BUN_INSTALL: Once = Once::new();
 

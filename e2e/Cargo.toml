@@ -46,3 +46,10 @@ flate2 = "1"
 base64 = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 tempfile = "3"
+mercury-solana = { workspace = true }
+mercury-solana-counterparties = { workspace = true }
+solana-sdk = { workspace = true }
+solana-client = { workspace = true }
+solana-commitment-config = { workspace = true }
+solana-system-interface = { workspace = true }
+borsh = { workspace = true }

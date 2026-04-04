@@ -88,6 +88,12 @@ pub struct ConsensusState {
     pub next_validators_hash: [u8; 32],
 }
 
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+pub struct CounterpartyInfo {
+    pub client_id: String,
+    pub merkle_prefix: Vec<Vec<u8>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
