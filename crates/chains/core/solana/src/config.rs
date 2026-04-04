@@ -18,12 +18,18 @@ pub struct SolanaChainConfig {
     pub rpc_rate_limit: u64,
     #[serde(default)]
     pub alt_address: Option<String>,
-    #[serde(default = "default_skip_pre_verify_threshold")]
+    #[serde(default)]
     pub skip_pre_verify_threshold: Option<usize>,
 }
 
-const fn default_skip_pre_verify_threshold() -> Option<usize> {
-    Some(50)
+const DEFAULT_SKIP_PRE_VERIFY_THRESHOLD: usize = 50;
+
+impl SolanaChainConfig {
+    #[must_use]
+    pub fn skip_pre_verify_threshold(&self) -> usize {
+        self.skip_pre_verify_threshold
+            .unwrap_or(DEFAULT_SKIP_PRE_VERIFY_THRESHOLD)
+    }
 }
 
 const fn default_block_time() -> Duration {

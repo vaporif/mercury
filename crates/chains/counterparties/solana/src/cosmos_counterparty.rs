@@ -465,9 +465,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         // Threshold is checked against the full commit (not the minimal set)
         // so devnet (few validators) verifies inline while mainnet pre-verifies.
         let all_signatures = signatures::extract_signatures_from_header(&header);
-        let skip_threshold = chain.config.skip_pre_verify_threshold;
-        let use_pre_verify =
-            skip_threshold.map_or(true, |threshold| all_signatures.len() > threshold);
+        let use_pre_verify = all_signatures.len() > chain.config.skip_pre_verify_threshold();
         let selected_sigs = signatures::select_minimal_signatures(&header, &all_signatures);
 
         let header_any: ibc_proto::google::protobuf::Any = header.into();
