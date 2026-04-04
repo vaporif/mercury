@@ -138,21 +138,22 @@ pub fn pre_verify_signature(
     })
 }
 
-/// Build an Ed25519 precompile instruction for signature verification.
-/// Layout: count(2) | pad(2) | offsets(14) | sig(64) | pubkey(32) | msg(N)
+/// # Panics
+/// If the message length exceeds `u16::MAX`.
+#[must_use]
 pub fn build_ed25519_instruction(sig: &crate::ibc_types::SignatureData) -> Instruction {
     let num_signatures: u16 = 1;
-    let header_size: usize = 2 + 2 + 14; // count + padding + 7 offset pairs
-    let signature_offset = header_size as u16;
+    let header_size: usize = 2 + 2 + 14;
+    let signature_offset = u16::try_from(header_size).expect("header_size fits in u16");
     let pubkey_offset = signature_offset + 64;
     let message_offset = pubkey_offset + 32;
-    let message_size = sig.msg.len() as u16;
+    let message_size = u16::try_from(sig.msg.len()).expect("message length fits in u16");
 
     let current_ix: u16 = 0xFFFF;
 
     let mut data = Vec::with_capacity(header_size + 64 + 32 + sig.msg.len());
     data.extend_from_slice(&num_signatures.to_le_bytes());
-    data.extend_from_slice(&0u16.to_le_bytes()); // padding
+    data.extend_from_slice(&0u16.to_le_bytes());
     data.extend_from_slice(&signature_offset.to_le_bytes());
     data.extend_from_slice(&current_ix.to_le_bytes());
     data.extend_from_slice(&pubkey_offset.to_le_bytes());
@@ -171,7 +172,7 @@ pub fn build_ed25519_instruction(sig: &crate::ibc_types::SignatureData) -> Instr
     }
 }
 
-/// Build a pre-verify signature transaction: Ed25519 verify + on-chain record.
+/// Ed25519 verify + on-chain record.
 pub fn pre_verify_signature_instructions(
     ics07_program_id: &Pubkey,
     payer: &Pubkey,
@@ -194,8 +195,11 @@ pub fn pre_verify_signature_instructions(
     ])
 }
 
-/// Extract signature data from a Tendermint header commit.
-/// Returns signatures sorted by voting power (descending) for minimal selection.
+/// Sorted by voting power descending.
+///
+/// # Panics
+/// If a validator index exceeds `u32::MAX`.
+#[must_use]
 #[cfg(feature = "cosmos")]
 pub fn extract_signatures_from_header(
     header: &ibc_client_tendermint::types::Header,
@@ -238,8 +242,10 @@ pub fn extract_signatures_from_header(
 
         let pubkey_bytes: [u8; 32] = pk.as_bytes().try_into().unwrap_or([0u8; 32]);
 
-        let validator_index = tendermint::vote::ValidatorIndex::try_from(idx as u32)
-            .expect("validator index overflow");
+        let validator_index = tendermint::vote::ValidatorIndex::try_from(
+            u32::try_from(idx).expect("validator index fits in u32"),
+        )
+        .expect("validator index overflow");
         let vote = Vote {
             vote_type: tendermint::vote::Type::Precommit,
             height: commit.height,
@@ -256,7 +262,7 @@ pub fn extract_signatures_from_header(
 
         let sig_bytes_arr: [u8; 64] = signature_bytes.as_bytes().try_into().unwrap_or([0u8; 64]);
 
-        let signature_hash: [u8; 32] = Sha256::digest(&sig_bytes_arr).into();
+        let signature_hash: [u8; 32] = Sha256::digest(sig_bytes_arr).into();
 
         sig_data.push((
             validator.power.value(),
@@ -273,7 +279,8 @@ pub fn extract_signatures_from_header(
     sig_data.into_iter().map(|(_, s)| s).collect()
 }
 
-/// Select minimal set of signatures to meet 2/3 voting power threshold.
+/// Picks enough signatures to exceed 2/3 voting power.
+#[must_use]
 #[cfg(feature = "cosmos")]
 pub fn select_minimal_signatures(
     header: &ibc_client_tendermint::types::Header,
@@ -311,7 +318,7 @@ pub fn select_minimal_signatures(
     selected
 }
 
-/// Build a cleanup instruction to close header chunk PDAs and reclaim rent.
+/// Close header chunk PDAs and reclaim rent.
 pub fn cleanup_header_chunks(
     ics07_program_id: &Pubkey,
     payer: &Pubkey,
@@ -347,7 +354,7 @@ pub fn cleanup_header_chunks(
     }])
 }
 
-/// Build a cleanup instruction to close sig verify PDAs and reclaim rent.
+/// Close sig verify PDAs and reclaim rent.
 pub fn cleanup_sig_verify_pdas(
     ics07_program_id: &Pubkey,
     payer: &Pubkey,
