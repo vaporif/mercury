@@ -100,6 +100,32 @@ jobs:
           cp target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm.gz \
             e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
 
+      - name: Cache Solana + Anchor CLI
+        uses: actions/cache@v5
+        id: solana-build-cache
+        with:
+          path: ~/.local/share/solana/install
+          key: solana-cli-2.2.1-anchor-0.32.1
+
+      - name: Install Solana + Anchor CLI
+        if: steps.solana-build-cache.outputs.cache-hit != 'true'
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v2.2.1/install)"
+          cargo install --git https://github.com/coral-xyz/anchor --tag v0.32.1 anchor-cli
+
+      - name: Add Solana to PATH
+        run: echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Build Solana programs
+        run: anchor build
+        working-directory: external/solidity-ibc-eureka/programs/solana
+
+      - name: Prepare Solana program fixtures
+        run: |
+          mkdir -p solana-programs
+          cp external/solidity-ibc-eureka/programs/solana/target/deploy/*.so solana-programs/
+          cp external/solidity-ibc-eureka/solana-keypairs/localnet/*-keypair.json solana-programs/
+
       - name: Build relayer binary
         run: cargo build -p mercury-cli --release
 
@@ -125,6 +151,11 @@ jobs:
         with:
           name: mock-wasm-eth-lc
           path: e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: solana-programs
+          path: solana-programs/
 
       - name: Generate matrix
         id: matrix
@@ -164,6 +195,16 @@ jobs:
       - uses: ./.github/actions/kurtosis-setup
         if: contains(toJSON(matrix.setup), '"kurtosis"')
 
+      - uses: ./.github/actions/solana-setup
+        if: contains(toJSON(matrix.setup), '"solana"')
+
+      - name: Download Solana programs
+        if: contains(toJSON(matrix.setup), '"solana"')
+        uses: actions/download-artifact@v8
+        with:
+          name: solana-programs
+          path: solana-programs
+
       - name: Download SP1 ELFs
         if: contains(toJSON(matrix.setup), '"ethereum"')
         uses: actions/download-artifact@v8
@@ -192,6 +233,7 @@ jobs:
           NEXTEST_PROFILE: ci
           MERCURY_RELAYER_BIN: ${{ github.workspace }}/mercury-relayer
           SP1_ELF_DIR: ${{ github.workspace }}/sp1-elfs
+          SOLANA_PROGRAMS_DIR: ${{ github.workspace }}/solana-programs
         run: |
           cargo nextest run \
             --archive-file mercury-e2e.tar.zst \

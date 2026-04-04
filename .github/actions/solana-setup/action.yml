@@ -1,0 +1,22 @@
+name: Solana Setup
+description: Install Solana CLI for E2E tests (provides solana-test-validator)
+
+runs:
+  using: composite
+  steps:
+    - name: Cache Solana CLI
+      uses: actions/cache@v5
+      id: solana-cache
+      with:
+        path: ~/.local/share/solana/install
+        key: solana-cli-2.2.1
+
+    - name: Install Solana CLI
+      if: steps.solana-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sh -c "$(curl -sSfL https://release.anza.xyz/v2.2.1/install)"
+
+    - name: Add Solana to PATH
+      shell: bash
+      run: echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"

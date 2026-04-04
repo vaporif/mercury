@@ -186,11 +186,35 @@ impl ChainPlugin for SolanaPlugin {
 
     async fn update_client(
         &self,
-        _chain: &AnyChain,
-        _client_id: &str,
-        _payload: Box<dyn Any + Send + Sync>,
+        chain: &AnyChain,
+        client_id: &str,
+        payload: Box<dyn Any + Send + Sync>,
     ) -> eyre::Result<()> {
-        eyre::bail!("update_client not yet implemented for Solana plugin")
+        #[cfg(feature = "cosmos")]
+        {
+            use mercury_chain_traits::builders::ClientMessageBuilder;
+            use mercury_chain_traits::types::MessageSender;
+            use mercury_cosmos::builders::CosmosUpdateClientPayload;
+            use mercury_cosmos::keys::Secp256k1KeyPair;
+
+            let c = downcast_solana(chain)?;
+            let parsed_id = SolanaClientId(client_id.to_string());
+
+            if let Some(cosmos_payload) = payload.downcast_ref::<CosmosUpdateClientPayload>() {
+                let output = ClientMessageBuilder::<
+                    mercury_cosmos::chain::CosmosChain<Secp256k1KeyPair>,
+                >::build_update_client_message(
+                    c, &parsed_id, cosmos_payload.clone()
+                )
+                .await?;
+
+                c.send_messages(output.messages).await?;
+                return Ok(());
+            }
+        }
+
+        let _ = (chain, client_id, payload);
+        eyre::bail!("unsupported payload type for Solana update_client")
     }
 }
 
