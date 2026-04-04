@@ -498,7 +498,10 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
             .map_err(|_| eyre::eyre!("next_validators_hash is not 32 bytes"))?;
 
         let consensus_state = mercury_solana::ibc_types::ConsensusState {
-            timestamp: tm_consensus_state.timestamp.unix_timestamp().cast_unsigned(),
+            timestamp: tm_consensus_state
+                .timestamp
+                .unix_timestamp()
+                .cast_unsigned(),
             root: root_bytes,
             next_validators_hash: next_val_hash,
         };
