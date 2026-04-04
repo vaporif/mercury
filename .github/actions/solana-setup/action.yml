@@ -1,15 +1,9 @@
 name: Solana Setup
 description: Install Solana CLI for E2E tests (provides solana-test-validator)
 
-inputs:
-  solana_version:
-    description: "Solana CLI version"
-    required: false
-    default: "2.3.13"
-
 runs:
   using: composite
   steps:
     - uses: solana-developers/github-actions/setup-all@v0.2.7
       with:
-        solana_version: ${{ inputs.solana_version }}
+        solana_version: ${{ env.SOLANA_VERSION }}

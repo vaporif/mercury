@@ -24,6 +24,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  SOLANA_VERSION: "2.3.13"
+  ANCHOR_VERSION: "0.32.1"
 
 jobs:
   build-and-generate:
@@ -102,8 +104,8 @@ jobs:
 
       - uses: solana-developers/github-actions/setup-all@v0.2.7
         with:
-          anchor_version: "0.32.1"
-          solana_version: "2.3.13"
+          anchor_version: ${{ env.ANCHOR_VERSION }}
+          solana_version: ${{ env.SOLANA_VERSION }}
 
       - name: Build Solana programs
         run: anchor build
