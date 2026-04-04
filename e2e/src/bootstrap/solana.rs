@@ -42,10 +42,10 @@ impl SolanaBootstrap {
     pub fn start(fixtures_dir: &Path) -> Result<Self> {
         let ledger_dir = tempfile::tempdir().wrap_err("failed to create ledger dir")?;
 
-        let ics26_id = Self::read_program_id(fixtures_dir.join("ics26_router-keypair.json"))?;
-        let ics07_id = Self::read_program_id(fixtures_dir.join("ics07_tendermint-keypair.json"))?;
-        let am_id = Self::read_program_id(fixtures_dir.join("access_manager-keypair.json"))?;
-        let app_id = Self::read_program_id(fixtures_dir.join("ibc_app_test-keypair.json"))?;
+        let ics26_id = Self::read_program_id(&fixtures_dir.join("ics26_router-keypair.json"))?;
+        let ics07_id = Self::read_program_id(&fixtures_dir.join("ics07_tendermint-keypair.json"))?;
+        let am_id = Self::read_program_id(&fixtures_dir.join("access_manager-keypair.json"))?;
+        let app_id = Self::read_program_id(&fixtures_dir.join("ibc_app_test-keypair.json"))?;
 
         let mut cmd = Command::new("solana-test-validator");
         cmd.arg("--reset")
@@ -89,8 +89,8 @@ impl SolanaBootstrap {
         Ok(bootstrap)
     }
 
-    fn read_program_id(keypair_path: std::path::PathBuf) -> Result<Pubkey> {
-        let bytes = std::fs::read(&keypair_path)
+    fn read_program_id(keypair_path: &Path) -> Result<Pubkey> {
+        let bytes = std::fs::read(keypair_path)
             .wrap_err_with(|| format!("failed to read keypair: {}", keypair_path.display()))?;
         let raw: Vec<u8> = serde_json::from_slice(&bytes)?;
         let kp =
@@ -145,6 +145,14 @@ impl SolanaBootstrap {
     }
 
     fn initialize_programs(&self) -> Result<()> {
+        const ID_CUSTOMIZER_ROLE: u64 = 6;
+
+        #[derive(BorshSerialize)]
+        struct GrantRoleArgs {
+            role_id: u64,
+            account: Pubkey,
+        }
+
         let payer = self.keypair.pubkey();
         let ids = &self.program_ids;
 
@@ -175,13 +183,7 @@ impl SolanaBootstrap {
             data: router_init_data,
         })?;
 
-        // Grant ID_CUSTOMIZER_ROLE (6) to test keypair
-        const ID_CUSTOMIZER_ROLE: u64 = 6;
-        #[derive(BorshSerialize)]
-        struct GrantRoleArgs {
-            role_id: u64,
-            account: Pubkey,
-        }
+        // Grant ID_CUSTOMIZER_ROLE to test keypair
         let grant_data = accounts::encode_anchor_instruction(
             "grant_role",
             &GrantRoleArgs {
