@@ -142,7 +142,6 @@ impl ChainPlugin for EthereumPlugin {
             );
         }
 
-        #[cfg(feature = "cosmos-sp1")]
         if let Some(cosmos_payload) =
             payload.downcast_ref::<mercury_cosmos::builders::CosmosCreateClientPayload>()
         {
@@ -238,7 +237,6 @@ impl ChainPlugin for EthereumPlugin {
         let c = downcast_eth(chain)?;
         let parsed_id = EvmClientId(client_id.to_string());
 
-        #[cfg(feature = "cosmos-sp1")]
         if let Some(cosmos_payload) =
             payload.downcast_ref::<mercury_cosmos::builders::CosmosUpdateClientPayload>()
         {

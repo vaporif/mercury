@@ -23,7 +23,7 @@ mercury-cosmos-counterparties = { workspace = true, features = ["ethereum-beacon
 mercury-ethereum-counterparties = { workspace = true, features = ["cosmos-sp1"] }
 mercury-cosmos-cosmos-relay = { workspace = true }
 mercury-cosmos-ethereum-relay = { workspace = true }
-mercury-solana-counterparties = { workspace = true, features = ["cosmos"] }
+mercury-solana-counterparties = { workspace = true }
 mercury-cosmos-solana-relay = { workspace = true }
 mercury-telemetry = { workspace = true }
 

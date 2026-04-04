@@ -107,26 +107,22 @@ impl ChainPlugin for SolanaPlugin {
         chain: &AnyChain,
         payload: Box<dyn Any + Send + Sync>,
     ) -> eyre::Result<String> {
-        #[cfg(feature = "cosmos")]
-        {
-            use mercury_chain_traits::builders::ClientMessageBuilder;
-            use mercury_chain_traits::types::MessageSender;
-            use mercury_cosmos::builders::CosmosCreateClientPayload;
-            use mercury_cosmos::keys::Secp256k1KeyPair;
+        use mercury_chain_traits::builders::ClientMessageBuilder;
+        use mercury_chain_traits::types::MessageSender;
+        use mercury_cosmos::builders::CosmosCreateClientPayload;
+        use mercury_cosmos::keys::Secp256k1KeyPair;
 
-            let c = downcast_solana(chain)?;
-            if let Some(cosmos_payload) = payload.downcast_ref::<CosmosCreateClientPayload>() {
-                let msg = ClientMessageBuilder::<
-                    mercury_cosmos::chain::CosmosChain<Secp256k1KeyPair>,
-                >::build_create_client_message(c, cosmos_payload.clone())
-                .await?;
+        let c = downcast_solana(chain)?;
+        if let Some(cosmos_payload) = payload.downcast_ref::<CosmosCreateClientPayload>() {
+            let msg = ClientMessageBuilder::<
+                mercury_cosmos::chain::CosmosChain<Secp256k1KeyPair>,
+            >::build_create_client_message(c, cosmos_payload.clone())
+            .await?;
 
-                c.send_messages(vec![msg]).await?;
-                return Ok("07-tendermint-0".to_string());
-            }
+            c.send_messages(vec![msg]).await?;
+            return Ok("07-tendermint-0".to_string());
         }
 
-        let _ = (chain, payload);
         eyre::bail!("unsupported payload type for Solana create_client")
     }
 
@@ -190,30 +186,24 @@ impl ChainPlugin for SolanaPlugin {
         client_id: &str,
         payload: Box<dyn Any + Send + Sync>,
     ) -> eyre::Result<()> {
-        #[cfg(feature = "cosmos")]
-        {
-            use mercury_chain_traits::builders::ClientMessageBuilder;
-            use mercury_chain_traits::types::MessageSender;
-            use mercury_cosmos::builders::CosmosUpdateClientPayload;
-            use mercury_cosmos::keys::Secp256k1KeyPair;
+        use mercury_chain_traits::builders::ClientMessageBuilder;
+        use mercury_chain_traits::types::MessageSender;
+        use mercury_cosmos::builders::CosmosUpdateClientPayload;
+        use mercury_cosmos::keys::Secp256k1KeyPair;
 
-            let c = downcast_solana(chain)?;
-            let parsed_id = SolanaClientId(client_id.to_string());
+        let c = downcast_solana(chain)?;
+        let parsed_id = SolanaClientId(client_id.to_string());
 
-            if let Some(cosmos_payload) = payload.downcast_ref::<CosmosUpdateClientPayload>() {
-                let output = ClientMessageBuilder::<
-                    mercury_cosmos::chain::CosmosChain<Secp256k1KeyPair>,
-                >::build_update_client_message(
-                    c, &parsed_id, cosmos_payload.clone()
-                )
-                .await?;
+        if let Some(cosmos_payload) = payload.downcast_ref::<CosmosUpdateClientPayload>() {
+            let output = ClientMessageBuilder::<
+                mercury_cosmos::chain::CosmosChain<Secp256k1KeyPair>,
+            >::build_update_client_message(c, &parsed_id, cosmos_payload.clone())
+            .await?;
 
-                c.send_messages(output.messages).await?;
-                return Ok(());
-            }
+            c.send_messages(output.messages).await?;
+            return Ok(());
         }
 
-        let _ = (chain, client_id, payload);
         eyre::bail!("unsupported payload type for Solana update_client")
     }
 }
