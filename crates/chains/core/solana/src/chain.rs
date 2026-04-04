@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -13,8 +14,18 @@ use mercury_chain_traits::types::{
     ChainTypes, IbcTypes, MessageSender, PacketSequence, Port, TimeoutTimestamp, TxReceipt,
 };
 use mercury_core::error::Result;
+use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signer::Signer;
+use solana_sdk::signer::keypair::Keypair;
 
+use crate::accounts::{
+    self, Ics07Tendermint, Ics26Router, OnChainClientSequence, OnChainClientState,
+    OnChainCommitment, deserialize_anchor_account, fetch_account, resolve_ics07_program_id,
+};
 use crate::config::SolanaChainConfig;
+use crate::events;
+use crate::rpc::SolanaRpcClient;
+use crate::tx;
 use crate::types::{
     SendPacketEvent, SolanaAcknowledgement, SolanaChainId, SolanaChainStatus, SolanaClientId,
     SolanaClientState, SolanaCommitmentProof, SolanaConsensusState, SolanaCreateClientPayload,
@@ -26,13 +37,65 @@ use crate::types::{
 #[derive(Clone, Debug)]
 pub struct SolanaChain {
     pub config: SolanaChainConfig,
+    pub rpc: SolanaRpcClient,
+    pub keypair: Arc<Keypair>,
+    pub ics26_program_id: Pubkey,
+    pub alt_cache: Option<solana_message::AddressLookupTableAccount>,
     label: mercury_core::ChainLabel,
 }
 
 impl SolanaChain {
     pub fn new(config: SolanaChainConfig) -> Result<Self> {
+        config.validate()?;
+        let rpc = SolanaRpcClient::new(&config);
+        let keypair = Arc::new(crate::keys::load_keypair(&config.keypair_path)?);
+        let ics26_program_id: Pubkey = config
+            .program_id
+            .parse()
+            .map_err(|e| eyre::eyre!("invalid program_id: {e}"))?;
         let label = mercury_core::ChainLabel::new("solana");
-        Ok(Self { config, label })
+        Ok(Self {
+            config,
+            rpc,
+            keypair,
+            ics26_program_id,
+            alt_cache: None,
+            label,
+        })
+    }
+
+    /// Load the configured ALT from on-chain and cache it.
+    /// Call this after construction before relaying.
+    pub async fn load_alt_cache(&mut self) -> Result<()> {
+        if let Some(ref alt_addr_str) = self.config.alt_address {
+            let alt_pubkey: Pubkey = alt_addr_str
+                .parse()
+                .map_err(|e| eyre::eyre!("invalid alt_address: {e}"))?;
+            let alt_account = crate::alt::lookup_alt(&self.rpc, &alt_pubkey).await?;
+            tracing::info!(%alt_pubkey, addresses = alt_account.addresses.len(), "loaded ALT cache");
+            self.alt_cache = Some(alt_account);
+        }
+        Ok(())
+    }
+
+    async fn scan_sequences(
+        &self,
+        client_id: &SolanaClientId,
+        pda_fn: impl Fn(&str, u64, &Pubkey) -> (Pubkey, u8),
+    ) -> Result<Vec<PacketSequence>> {
+        let (seq_pda, _) = Ics26Router::client_sequence_pda(&client_id.0, &self.ics26_program_id);
+        let seq: OnChainClientSequence = fetch_account(&self.rpc, &seq_pda)
+            .await?
+            .ok_or_else(|| eyre::eyre!("client sequence PDA not found for {client_id}"))?;
+
+        let mut sequences = Vec::new();
+        for s in 1..seq.next_sequence_send {
+            let (pda, _) = pda_fn(&client_id.0, s, &self.ics26_program_id);
+            if self.rpc.get_account(&pda).await?.is_some() {
+                sequences.push(PacketSequence(s));
+            }
+        }
+        Ok(sequences)
     }
 }
 
@@ -112,7 +175,12 @@ impl IbcTypes for SolanaChain {
 #[async_trait]
 impl ChainStatusQuery for SolanaChain {
     async fn query_chain_status(&self) -> Result<Self::ChainStatus> {
-        todo!("query Solana slot and block time via RPC")
+        let slot = self.rpc.get_slot().await?;
+        let block_time = self.rpc.get_block_time(slot).await?;
+        Ok(SolanaChainStatus {
+            height: SolanaHeight(slot),
+            timestamp: SolanaTimestamp(block_time.max(0).cast_unsigned()),
+        })
     }
 }
 
@@ -120,27 +188,45 @@ impl ChainStatusQuery for SolanaChain {
 impl ClientQuery<Self> for SolanaChain {
     async fn query_client_state(
         &self,
-        _client_id: &Self::ClientId,
+        client_id: &Self::ClientId,
         _height: &Self::Height,
     ) -> Result<Self::ClientState> {
-        todo!("query IBC client state from Solana program account")
+        let ics07 =
+            resolve_ics07_program_id(&self.rpc, &client_id.0, &self.ics26_program_id).await?;
+        let (pda, _) = Ics07Tendermint::client_state_pda(&ics07);
+        let account = self
+            .rpc
+            .get_account(&pda)
+            .await?
+            .ok_or_else(|| eyre::eyre!("client state PDA not found for {client_id}"))?;
+        Ok(SolanaClientState(account.data))
     }
 
     async fn query_consensus_state(
         &self,
-        _client_id: &Self::ClientId,
-        _consensus_height: &Self::Height,
+        client_id: &Self::ClientId,
+        consensus_height: &Self::Height,
         _query_height: &Self::Height,
     ) -> Result<Self::ConsensusState> {
-        todo!("query IBC consensus state from Solana program account")
+        let ics07 =
+            resolve_ics07_program_id(&self.rpc, &client_id.0, &self.ics26_program_id).await?;
+        let (pda, _) = Ics07Tendermint::consensus_state_pda(consensus_height.0, &ics07);
+        let account =
+            self.rpc.get_account(&pda).await?.ok_or_else(|| {
+                eyre::eyre!("consensus state not found at height {consensus_height}")
+            })?;
+        Ok(SolanaConsensusState(account.data))
     }
 
-    fn trusting_period(_client_state: &Self::ClientState) -> Option<Duration> {
-        todo!("extract trusting period from Solana client state")
+    fn trusting_period(client_state: &Self::ClientState) -> Option<Duration> {
+        let cs: OnChainClientState = deserialize_anchor_account(&client_state.0).ok()?;
+        Some(Duration::from_secs(cs.trusting_period))
     }
 
-    fn client_latest_height(_client_state: &Self::ClientState) -> Self::Height {
-        todo!("extract latest height from Solana client state")
+    fn client_latest_height(client_state: &Self::ClientState) -> Self::Height {
+        let cs: OnChainClientState =
+            deserialize_anchor_account(&client_state.0).expect("invalid client state data");
+        SolanaHeight(cs.latest_height.revision_height)
     }
 }
 
@@ -148,45 +234,69 @@ impl ClientQuery<Self> for SolanaChain {
 impl PacketStateQuery for SolanaChain {
     async fn query_packet_commitment(
         &self,
-        _client_id: &Self::ClientId,
-        _sequence: PacketSequence,
+        client_id: &Self::ClientId,
+        sequence: PacketSequence,
         _height: &Self::Height,
     ) -> Result<(Option<SolanaPacketCommitment>, SolanaCommitmentProof)> {
-        todo!("query packet commitment from Solana program account with proof")
+        let (pda, _) =
+            Ics26Router::packet_commitment_pda(&client_id.0, sequence.0, &self.ics26_program_id);
+        let commitment: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
+        let proof = SolanaCommitmentProof(Vec::new());
+        Ok((
+            commitment.map(|c| SolanaPacketCommitment(c.value.to_vec())),
+            proof,
+        ))
     }
 
     async fn query_packet_receipt(
         &self,
-        _client_id: &Self::ClientId,
-        _sequence: PacketSequence,
+        client_id: &Self::ClientId,
+        sequence: PacketSequence,
         _height: &Self::Height,
     ) -> Result<(Option<SolanaPacketReceipt>, SolanaCommitmentProof)> {
-        todo!("query packet receipt from Solana program account with proof")
+        let (pda, _) =
+            Ics26Router::packet_receipt_pda(&client_id.0, sequence.0, &self.ics26_program_id);
+        let exists = self.rpc.get_account(&pda).await?.is_some();
+        let proof = SolanaCommitmentProof(Vec::new());
+        Ok((exists.then_some(SolanaPacketReceipt), proof))
     }
 
     async fn query_packet_acknowledgement(
         &self,
-        _client_id: &Self::ClientId,
-        _sequence: PacketSequence,
+        client_id: &Self::ClientId,
+        sequence: PacketSequence,
         _height: &Self::Height,
     ) -> Result<(Option<SolanaAcknowledgement>, SolanaCommitmentProof)> {
-        todo!("query packet acknowledgement from Solana program account with proof")
+        let (pda, _) =
+            Ics26Router::packet_ack_pda(&client_id.0, sequence.0, &self.ics26_program_id);
+        let commitment: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
+        let proof = SolanaCommitmentProof(Vec::new());
+        Ok((
+            commitment.map(|c| SolanaAcknowledgement(c.value.to_vec())),
+            proof,
+        ))
     }
 
     async fn query_commitment_sequences(
         &self,
-        _client_id: &Self::ClientId,
+        client_id: &Self::ClientId,
         _height: &Self::Height,
     ) -> Result<Vec<PacketSequence>> {
-        todo!("scan Solana program accounts for outstanding packet commitments")
+        self.scan_sequences(client_id, |cid, seq, prog| {
+            Ics26Router::packet_commitment_pda(cid, seq, prog)
+        })
+        .await
     }
 
     async fn query_ack_sequences(
         &self,
-        _client_id: &Self::ClientId,
+        client_id: &Self::ClientId,
         _height: &Self::Height,
     ) -> Result<Vec<PacketSequence>> {
-        todo!("scan Solana program accounts for outstanding ack sequences")
+        self.scan_sequences(client_id, |cid, seq, prog| {
+            Ics26Router::packet_ack_pda(cid, seq, prog)
+        })
+        .await
     }
 }
 
@@ -195,12 +305,12 @@ impl PacketEvents for SolanaChain {
     type SendPacketEvent = SendPacketEvent;
     type WriteAckEvent = WriteAckEvent;
 
-    fn try_extract_send_packet_event(_event: &SolanaEvent) -> Option<SendPacketEvent> {
-        todo!("parse SendPacket from Solana program log event")
+    fn try_extract_send_packet_event(event: &SolanaEvent) -> Option<SendPacketEvent> {
+        events::try_decode_send_packet(event)
     }
 
-    fn try_extract_write_ack_event(_event: &SolanaEvent) -> Option<WriteAckEvent> {
-        todo!("parse WriteAck from Solana program log event")
+    fn try_extract_write_ack_event(event: &SolanaEvent) -> Option<WriteAckEvent> {
+        events::try_decode_write_ack(event)
     }
 
     fn packet_from_send_event(event: &SendPacketEvent) -> &SolanaPacket {
@@ -213,32 +323,121 @@ impl PacketEvents for SolanaChain {
         (&event.packet, &event.ack)
     }
 
-    async fn query_block_events(&self, _height: &SolanaHeight) -> Result<Vec<SolanaEvent>> {
-        todo!("query Solana block for IBC program events at given slot")
+    async fn query_block_events(&self, height: &SolanaHeight) -> Result<Vec<SolanaEvent>> {
+        let block = self.rpc.get_block(height.0).await?;
+        let program_id_str = self.ics26_program_id.to_string();
+        let mut all_events = Vec::new();
+
+        if let Some(txs) = block.transactions {
+            for tx in txs {
+                if let Some(meta) = tx.meta {
+                    if meta.err.is_some() {
+                        continue;
+                    }
+                    if let solana_transaction_status::option_serializer::OptionSerializer::Some(
+                        logs,
+                    ) = meta.log_messages
+                    {
+                        let tx_events = events::extract_events_from_logs(&logs, &program_id_str);
+                        all_events.extend(tx_events);
+                    }
+                }
+            }
+        }
+        Ok(all_events)
     }
 
     async fn query_send_packet_event(
         &self,
-        _client_id: &SolanaClientId,
-        _sequence: PacketSequence,
+        client_id: &SolanaClientId,
+        sequence: PacketSequence,
     ) -> Result<Option<SendPacketEvent>> {
-        todo!("search Solana transaction history for specific send_packet event")
+        let current_slot = self.rpc.get_slot().await?;
+        let start_slot = current_slot.saturating_sub(100);
+        for slot in (start_slot..=current_slot).rev() {
+            if let Ok(block_events) = self.query_block_events(&SolanaHeight(slot)).await {
+                for event in &block_events {
+                    if let Some(send_event) = events::try_decode_send_packet(event)
+                        && send_event.packet.source_client_id == client_id.0
+                        && send_event.packet.sequence == sequence
+                    {
+                        return Ok(Some(send_event));
+                    }
+                }
+            }
+        }
+        Ok(None)
     }
 
     async fn query_write_ack_event(
         &self,
-        _client_id: &SolanaClientId,
-        _sequence: PacketSequence,
+        client_id: &SolanaClientId,
+        sequence: PacketSequence,
     ) -> Result<Option<WriteAckEvent>> {
-        todo!("search Solana transaction history for specific write_ack event")
+        let current_slot = self.rpc.get_slot().await?;
+        let start_slot = current_slot.saturating_sub(100);
+        for slot in (start_slot..=current_slot).rev() {
+            if let Ok(block_events) = self.query_block_events(&SolanaHeight(slot)).await {
+                for event in &block_events {
+                    if let Some(ack_event) = events::try_decode_write_ack(event)
+                        && ack_event.packet.dest_client_id == client_id.0
+                        && ack_event.packet.sequence == sequence
+                    {
+                        return Ok(Some(ack_event));
+                    }
+                }
+            }
+        }
+        Ok(None)
     }
 }
 
 #[async_trait]
 impl MessageSender for SolanaChain {
-    async fn send_messages(&self, _messages: Vec<SolanaMessage>) -> Result<TxReceipt> {
-        todo!("build, sign, and submit Solana transactions")
+    async fn send_messages(&self, messages: Vec<SolanaMessage>) -> Result<TxReceipt> {
+        let alt_slice = self.alt_cache.as_ref().map(std::slice::from_ref);
+        for msg in messages {
+            let tx_groups = split_into_transaction_groups(msg.instructions);
+            for group in tx_groups {
+                let sig = tx::send_transaction(&self.rpc, &self.keypair, group, alt_slice).await?;
+                tracing::info!(%sig, "solana transaction confirmed");
+            }
+        }
+        Ok(TxReceipt {
+            gas_used: None,
+            confirmed_at: std::time::Instant::now(),
+        })
     }
+}
+
+const SET_COMPUTE_UNIT_LIMIT_DISCRIMINATOR: u8 = 2;
+
+/// A `SolanaMessage` may contain instructions for multiple transactions
+/// (e.g. chunk uploads + packet + cleanup). This splits them apart so each
+/// group can be sent as an independent transaction.
+fn split_into_transaction_groups(
+    instructions: Vec<solana_sdk::instruction::Instruction>,
+) -> Vec<Vec<solana_sdk::instruction::Instruction>> {
+    let compute_budget_program = solana_compute_budget_interface::ID;
+
+    let mut groups = Vec::new();
+    let mut current_group = Vec::new();
+
+    for ix in instructions {
+        let is_set_cu_limit = ix.program_id == compute_budget_program
+            && ix.data.first() == Some(&SET_COMPUTE_UNIT_LIMIT_DISCRIMINATOR);
+
+        if is_set_cu_limit && !current_group.is_empty() {
+            groups.push(std::mem::take(&mut current_group));
+        }
+        current_group.push(ix);
+    }
+
+    if !current_group.is_empty() {
+        groups.push(current_group);
+    }
+
+    groups
 }
 
 #[async_trait]
@@ -247,7 +446,12 @@ impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
     type UpdateClientPayload = SolanaUpdateClientPayload;
 
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
-        todo!("build Solana light client create payload")
+        let slot = self.rpc.get_slot().await?;
+        let block_time = self.rpc.get_block_time(slot).await?;
+        Ok(SolanaCreateClientPayload {
+            client_state: slot.to_le_bytes().to_vec(),
+            consensus_state: block_time.max(0).cast_unsigned().to_le_bytes().to_vec(),
+        })
     }
 
     async fn build_update_client_payload(
@@ -259,7 +463,14 @@ impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
     where
         C: IbcTypes,
     {
-        todo!("build Solana light client update payload with validator proofs")
+        let slot = self.rpc.get_slot().await?;
+        let block_time = self.rpc.get_block_time(slot).await?;
+        let mut header = Vec::with_capacity(16);
+        header.extend_from_slice(&slot.to_le_bytes());
+        header.extend_from_slice(&block_time.max(0).cast_unsigned().to_le_bytes());
+        Ok(SolanaUpdateClientPayload {
+            headers: vec![header],
+        })
     }
 }
 
@@ -272,7 +483,7 @@ impl ClientMessageBuilder<Self> for SolanaChain {
         &self,
         _payload: SolanaCreateClientPayload,
     ) -> Result<SolanaMessage> {
-        todo!("encode IBC create_client instruction for Solana program")
+        eyre::bail!("create_client not yet implemented for Solana-to-Solana")
     }
 
     async fn build_update_client_message(
@@ -280,16 +491,32 @@ impl ClientMessageBuilder<Self> for SolanaChain {
         _client_id: &SolanaClientId,
         _payload: SolanaUpdateClientPayload,
     ) -> Result<UpdateClientOutput<SolanaMessage>> {
-        todo!("encode IBC update_client instruction for Solana program")
+        eyre::bail!("update_client not yet implemented for Solana-to-Solana")
     }
 
     async fn build_register_counterparty_message(
         &self,
-        _client_id: &SolanaClientId,
-        _counterparty_client_id: &SolanaClientId,
-        _counterparty_merkle_prefix: mercury_core::MerklePrefix,
+        client_id: &SolanaClientId,
+        counterparty_client_id: &SolanaClientId,
+        counterparty_merkle_prefix: mercury_core::MerklePrefix,
     ) -> Result<SolanaMessage> {
-        todo!("encode IBC register_counterparty instruction for Solana program")
+        let (router_pda, _) = Ics26Router::router_state_pda(&self.ics26_program_id);
+        let router: accounts::OnChainRouterState = fetch_account(&self.rpc, &router_pda)
+            .await?
+            .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
+
+        let ix = crate::instructions::register_counterparty(
+            &self.ics26_program_id,
+            &self.keypair.pubkey(),
+            &client_id.0,
+            &counterparty_client_id.0,
+            &counterparty_merkle_prefix.0,
+            &router.access_manager,
+        )?;
+
+        Ok(SolanaMessage {
+            instructions: vec![ix],
+        })
     }
 }
 
@@ -297,33 +524,168 @@ impl ClientMessageBuilder<Self> for SolanaChain {
 impl PacketMessageBuilder<Self> for SolanaChain {
     async fn build_receive_packet_message(
         &self,
-        _packet: &SolanaPacket,
+        packet: &SolanaPacket,
         _proof: SolanaCommitmentProof,
-        _proof_height: SolanaHeight,
+        proof_height: SolanaHeight,
         _revision: u64,
     ) -> Result<SolanaMessage> {
-        todo!("encode IBC recv_packet instruction for Solana program")
+        let dest_client_id = &packet.dest_client_id;
+        let dest_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .dest_port
+            .0;
+        let sequence = packet.sequence.0;
+
+        let ics07 =
+            resolve_ics07_program_id(&self.rpc, dest_client_id, &self.ics26_program_id).await?;
+        let (router_pda, _) = Ics26Router::router_state_pda(&self.ics26_program_id);
+        let router: accounts::OnChainRouterState = fetch_account(&self.rpc, &router_pda)
+            .await?
+            .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
+        let app_program =
+            accounts::resolve_app_program_id(&self.rpc, dest_port, &self.ics26_program_id).await?;
+
+        let (ibc_packet, payload_metas) = packet.to_ibc_parts();
+
+        let msg = crate::ibc_types::MsgRecvPacket {
+            packet: ibc_packet,
+            payloads: payload_metas,
+            proof: crate::ibc_types::ProofMetadata {
+                height: proof_height.0,
+                total_chunks: 0,
+            },
+        };
+
+        let params = crate::instructions::PacketParams {
+            ics26_program_id: &self.ics26_program_id,
+            payer: &self.keypair.pubkey(),
+            client_id: dest_client_id,
+            port: dest_port,
+            sequence,
+            ics07_program_id: &ics07,
+            consensus_height: proof_height.0,
+            access_manager_program_id: &router.access_manager,
+            app_program_id: &app_program,
+        };
+        let ix = crate::instructions::recv_packet(&params, &msg)?;
+
+        Ok(SolanaMessage {
+            instructions: crate::instructions::with_compute_budget(ix),
+        })
     }
 
     async fn build_ack_packet_message(
         &self,
-        _packet: &SolanaPacket,
-        _ack: &SolanaAcknowledgement,
+        packet: &SolanaPacket,
+        ack: &SolanaAcknowledgement,
         _proof: SolanaCommitmentProof,
-        _proof_height: SolanaHeight,
+        proof_height: SolanaHeight,
         _revision: u64,
     ) -> Result<SolanaMessage> {
-        todo!("encode IBC ack_packet instruction for Solana program")
+        let source_client_id = &packet.source_client_id;
+        let source_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .source_port
+            .0;
+        let sequence = packet.sequence.0;
+
+        let ics07 =
+            resolve_ics07_program_id(&self.rpc, source_client_id, &self.ics26_program_id).await?;
+        let (router_pda, _) = Ics26Router::router_state_pda(&self.ics26_program_id);
+        let router: accounts::OnChainRouterState = fetch_account(&self.rpc, &router_pda)
+            .await?
+            .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
+        let app_program =
+            accounts::resolve_app_program_id(&self.rpc, source_port, &self.ics26_program_id)
+                .await?;
+
+        let (ibc_packet, payload_metas) = packet.to_ibc_parts();
+
+        let msg = crate::ibc_types::MsgAckPacket {
+            packet: ibc_packet,
+            payloads: payload_metas,
+            acknowledgement: ack.0.clone(),
+            proof: crate::ibc_types::ProofMetadata {
+                height: proof_height.0,
+                total_chunks: 0,
+            },
+        };
+
+        let params = crate::instructions::PacketParams {
+            ics26_program_id: &self.ics26_program_id,
+            payer: &self.keypair.pubkey(),
+            client_id: source_client_id,
+            port: source_port,
+            sequence,
+            ics07_program_id: &ics07,
+            consensus_height: proof_height.0,
+            access_manager_program_id: &router.access_manager,
+            app_program_id: &app_program,
+        };
+        let ix = crate::instructions::ack_packet(&params, &msg)?;
+
+        Ok(SolanaMessage {
+            instructions: crate::instructions::with_compute_budget(ix),
+        })
     }
 
     async fn build_timeout_packet_message(
         &self,
-        _packet: &SolanaPacket,
+        packet: &SolanaPacket,
         _proof: SolanaCommitmentProof,
-        _proof_height: SolanaHeight,
+        proof_height: SolanaHeight,
         _revision: u64,
     ) -> Result<SolanaMessage> {
-        todo!("encode IBC timeout_packet instruction for Solana program")
+        let source_client_id = &packet.source_client_id;
+        let source_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .source_port
+            .0;
+        let sequence = packet.sequence.0;
+
+        let ics07 =
+            resolve_ics07_program_id(&self.rpc, source_client_id, &self.ics26_program_id).await?;
+        let (router_pda, _) = Ics26Router::router_state_pda(&self.ics26_program_id);
+        let router: accounts::OnChainRouterState = fetch_account(&self.rpc, &router_pda)
+            .await?
+            .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
+        let app_program =
+            accounts::resolve_app_program_id(&self.rpc, source_port, &self.ics26_program_id)
+                .await?;
+
+        let (ibc_packet, payload_metas) = packet.to_ibc_parts();
+
+        let msg = crate::ibc_types::MsgTimeoutPacket {
+            packet: ibc_packet,
+            payloads: payload_metas,
+            proof: crate::ibc_types::ProofMetadata {
+                height: proof_height.0,
+                total_chunks: 0,
+            },
+        };
+
+        let params = crate::instructions::PacketParams {
+            ics26_program_id: &self.ics26_program_id,
+            payer: &self.keypair.pubkey(),
+            client_id: source_client_id,
+            port: source_port,
+            sequence,
+            ics07_program_id: &ics07,
+            consensus_height: proof_height.0,
+            access_manager_program_id: &router.access_manager,
+            app_program_id: &app_program,
+        };
+        let ix = crate::instructions::timeout_packet(&params, &msg)?;
+
+        Ok(SolanaMessage {
+            instructions: crate::instructions::with_compute_budget(ix),
+        })
     }
 }
 
@@ -342,7 +704,8 @@ impl MisbehaviourDetector<Self> for SolanaChain {
         _update_header: &Self::UpdateHeader,
         _client_state: &Self::CounterpartyClientState,
     ) -> Result<Option<Self::MisbehaviourEvidence>> {
-        todo!("check Solana headers for misbehaviour")
+        tracing::debug!("misbehaviour detection not yet implemented for Solana");
+        Ok(None)
     }
 }
 
@@ -355,7 +718,7 @@ impl MisbehaviourMessageBuilder<Self> for SolanaChain {
         _client_id: &SolanaClientId,
         _evidence: SolanaMisbehaviourEvidence,
     ) -> Result<SolanaMessage> {
-        todo!("build Solana misbehaviour submission message")
+        eyre::bail!("misbehaviour submission not yet implemented for Solana")
     }
 }
 
@@ -367,7 +730,8 @@ impl MisbehaviourQuery<Self> for SolanaChain {
         &self,
         _client_id: &SolanaClientId,
     ) -> Result<Vec<SolanaHeight>> {
-        todo!("query consensus state heights from Solana program")
+        tracing::debug!("consensus state height scan not yet implemented for Solana");
+        Ok(Vec::new())
     }
 
     async fn query_update_client_header(
@@ -375,6 +739,6 @@ impl MisbehaviourQuery<Self> for SolanaChain {
         _client_id: &SolanaClientId,
         _consensus_height: &SolanaHeight,
     ) -> Result<Option<Vec<u8>>> {
-        todo!("query update client header from Solana transaction history")
+        Ok(None)
     }
 }

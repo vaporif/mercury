@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use tendermint::block::Height as TmHeight;
 
@@ -8,6 +10,7 @@ use mercury_chain_traits::builders::{
 use mercury_chain_traits::queries::{ClientQuery, MisbehaviourQuery};
 use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::Result;
+use solana_sdk::signer::Signer;
 
 use mercury_cosmos::builders::{CosmosCreateClientPayload, CosmosUpdateClientPayload};
 use mercury_cosmos::chain::CosmosChain;
@@ -15,7 +18,12 @@ use mercury_cosmos::client_types::CosmosClientState;
 use mercury_cosmos::keys::{CosmosSigner, Secp256k1KeyPair};
 use mercury_cosmos::types::{CosmosPacket, MerkleProof, PacketAcknowledgement};
 
-use mercury_solana::chain::SolanaMisbehaviourEvidence;
+use mercury_solana::accounts::{
+    self, Ics26Router, OnChainRouterState, fetch_account, resolve_ics07_program_id,
+};
+use mercury_solana::chain::{SolanaChain, SolanaMisbehaviourEvidence};
+use mercury_solana::instructions;
+use mercury_solana::instructions::chunking;
 use mercury_solana::types::{
     SolanaClientId, SolanaClientState, SolanaConsensusState, SolanaHeight, SolanaMessage,
     SolanaPacket,
@@ -23,37 +31,392 @@ use mercury_solana::types::{
 
 use crate::wrapper::SolanaAdapter;
 
+fn cosmos_packet_to_ibc_parts(
+    packet: &CosmosPacket,
+) -> (
+    mercury_solana::ibc_types::Packet,
+    Vec<mercury_solana::ibc_types::PayloadMetadata>,
+) {
+    let ibc_packet = mercury_solana::ibc_types::Packet {
+        sequence: packet.sequence.0,
+        source_client: packet.source_client_id.0.clone(),
+        dest_client: packet.dest_client_id.0.clone(),
+        timeout_timestamp: packet.timeout_timestamp.0,
+        payloads: packet
+            .payloads
+            .iter()
+            .map(|p| mercury_solana::ibc_types::Payload {
+                source_port: p.source_port.0.clone(),
+                dest_port: p.dest_port.0.clone(),
+                version: p.version.clone(),
+                encoding: p.encoding.clone(),
+                value: p.data.clone(),
+            })
+            .collect(),
+    };
+    let metas = packet
+        .payloads
+        .iter()
+        .map(|p| mercury_solana::ibc_types::PayloadMetadata {
+            source_port: p.source_port.0.clone(),
+            dest_port: p.dest_port.0.clone(),
+            version: p.version.clone(),
+            encoding: p.encoding.clone(),
+            total_chunks: 0,
+        })
+        .collect();
+    (ibc_packet, metas)
+}
+
+async fn resolve_access_manager(chain: &SolanaChain) -> Result<solana_sdk::pubkey::Pubkey> {
+    let (router_pda, _) = Ics26Router::router_state_pda(&chain.ics26_program_id);
+    let router: OnChainRouterState = fetch_account(&chain.rpc, &router_pda)
+        .await?
+        .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
+    Ok(router.access_manager)
+}
+
+/// Build chunked packet message: uploads payload/proof chunks, then sends final packet tx.
+/// Returns (chunk upload messages, final packet message, cleanup message).
+struct ChunkedPacketOutput {
+    chunk_messages: Vec<SolanaMessage>,
+    packet_message: SolanaMessage,
+    cleanup_message: Option<SolanaMessage>,
+}
+
+fn build_chunked_packet_message(
+    ics26_program_id: &solana_sdk::pubkey::Pubkey,
+    payer: &solana_sdk::pubkey::Pubkey,
+    client_id: &str,
+    sequence: u64,
+    ibc_packet: &mercury_solana::ibc_types::Packet,
+    payload_metas: &mut Vec<mercury_solana::ibc_types::PayloadMetadata>,
+    proof_bytes: &[u8],
+    proof_height: u64,
+    build_packet_ix: impl FnOnce(
+        &mercury_solana::ibc_types::Packet,
+        &[mercury_solana::ibc_types::PayloadMetadata],
+        mercury_solana::ibc_types::ProofMetadata,
+    ) -> eyre::Result<SolanaMessage>,
+) -> eyre::Result<ChunkedPacketOutput> {
+    let mut chunk_messages = Vec::new();
+    let mut payload_chunk_counts: Vec<u8> = Vec::new();
+
+    for (payload_idx, payload) in ibc_packet.payloads.iter().enumerate() {
+        let p_idx = u8::try_from(payload_idx)
+            .map_err(|_| eyre::eyre!("payload index {payload_idx} exceeds u8::MAX"))?;
+
+        if chunking::needs_chunking(&payload.value) {
+            let (ixs, _pdas) = chunking::chunk_payload(
+                ics26_program_id,
+                payer,
+                client_id,
+                sequence,
+                p_idx,
+                &payload.value,
+            )?;
+            let chunk_count = u8::try_from(ixs.len())
+                .map_err(|_| eyre::eyre!("payload chunk count exceeds u8::MAX"))?;
+            payload_metas[payload_idx].total_chunks = chunk_count;
+            payload_chunk_counts.push(chunk_count);
+            for ix in ixs {
+                chunk_messages.push(SolanaMessage {
+                    instructions: instructions::with_compute_budget(ix),
+                });
+            }
+        } else {
+            payload_chunk_counts.push(0);
+        }
+    }
+
+    let mut proof_chunk_count: u8 = 0;
+    if chunking::needs_chunking(proof_bytes) {
+        let (ixs, _pdas) =
+            chunking::chunk_proof(ics26_program_id, payer, client_id, sequence, proof_bytes)?;
+        proof_chunk_count = u8::try_from(ixs.len())
+            .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
+        for ix in ixs {
+            chunk_messages.push(SolanaMessage {
+                instructions: instructions::with_compute_budget(ix),
+            });
+        }
+    }
+
+    let proof_meta = mercury_solana::ibc_types::ProofMetadata {
+        height: proof_height,
+        total_chunks: proof_chunk_count,
+    };
+
+    let packet_message = build_packet_ix(ibc_packet, payload_metas, proof_meta)?;
+
+    let has_chunks = !chunk_messages.is_empty();
+    let cleanup_message = if has_chunks {
+        let mut cleanup_ixs = Vec::new();
+        let has_payload_chunks = payload_chunk_counts.iter().any(|&c| c > 0);
+        if has_payload_chunks {
+            let payload_count = u8::try_from(payload_chunk_counts.len())
+                .map_err(|_| eyre::eyre!("payload count exceeds u8::MAX"))?;
+            cleanup_ixs.extend(chunking::cleanup_payload_chunks(
+                ics26_program_id,
+                payer,
+                client_id,
+                sequence,
+                payload_count,
+                &payload_chunk_counts,
+            )?);
+        }
+        if proof_chunk_count > 0 {
+            cleanup_ixs.extend(chunking::cleanup_proof_chunks(
+                ics26_program_id,
+                payer,
+                client_id,
+                sequence,
+                proof_chunk_count,
+            )?);
+        }
+        wrap_cleanup_message(cleanup_ixs)
+    } else {
+        None
+    };
+
+    Ok(ChunkedPacketOutput {
+        chunk_messages,
+        packet_message,
+        cleanup_message,
+    })
+}
+
+/// Wrap cleanup instructions with a compute budget prefix.
+fn wrap_cleanup_message(
+    mut ixs: Vec<solana_sdk::instruction::Instruction>,
+) -> Option<SolanaMessage> {
+    if ixs.is_empty() {
+        return None;
+    }
+    let first = ixs.remove(0);
+    let mut wrapped = instructions::with_compute_budget(first);
+    wrapped.extend(ixs);
+    Some(SolanaMessage {
+        instructions: wrapped,
+    })
+}
+
+/// Flatten chunked output into a single `SolanaMessage` whose instructions
+/// will be split into separate transactions by `send_messages`.
+fn flatten_chunked_output(output: ChunkedPacketOutput) -> SolanaMessage {
+    if output.chunk_messages.is_empty() {
+        return output.packet_message;
+    }
+    let all_instructions: Vec<_> = output
+        .chunk_messages
+        .into_iter()
+        .chain(std::iter::once(output.packet_message))
+        .chain(output.cleanup_message)
+        .flat_map(|m| m.instructions)
+        .collect();
+    SolanaMessage {
+        instructions: all_instructions,
+    }
+}
+
 #[async_trait]
 impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
     async fn build_receive_packet_message(
         &self,
-        _packet: &CosmosPacket,
-        _proof: MerkleProof,
-        _proof_height: TmHeight,
+        packet: &CosmosPacket,
+        proof: MerkleProof,
+        proof_height: TmHeight,
         _revision: u64,
     ) -> Result<SolanaMessage> {
-        todo!("build Solana recv_packet instruction with Cosmos Merkle proof")
+        let chain = &self.0;
+        let dest_client_id = &packet.dest_client_id.0;
+        let dest_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .dest_port
+            .0;
+        let sequence = packet.sequence.0;
+        let payer = chain.keypair.pubkey();
+
+        let ics07 =
+            resolve_ics07_program_id(&chain.rpc, dest_client_id, &chain.ics26_program_id).await?;
+        let access_mgr = resolve_access_manager(chain).await?;
+        let app_program =
+            accounts::resolve_app_program_id(&chain.rpc, dest_port, &chain.ics26_program_id)
+                .await?;
+
+        let (ibc_packet, mut payload_metas) = cosmos_packet_to_ibc_parts(packet);
+        let proof_bytes = &proof.proof_bytes;
+        let height_val = proof_height.value();
+
+        let output = build_chunked_packet_message(
+            &chain.ics26_program_id,
+            &payer,
+            dest_client_id,
+            sequence,
+            &ibc_packet,
+            &mut payload_metas,
+            proof_bytes,
+            height_val,
+            |pkt, metas, proof_meta| {
+                let msg = mercury_solana::ibc_types::MsgRecvPacket {
+                    packet: pkt.clone(),
+                    payloads: metas.to_vec(),
+                    proof: proof_meta,
+                };
+                let params = instructions::PacketParams {
+                    ics26_program_id: &chain.ics26_program_id,
+                    payer: &payer,
+                    client_id: dest_client_id,
+                    port: dest_port,
+                    sequence,
+                    ics07_program_id: &ics07,
+                    consensus_height: height_val,
+                    access_manager_program_id: &access_mgr,
+                    app_program_id: &app_program,
+                };
+                let ix = instructions::recv_packet(&params, &msg)?;
+                Ok(SolanaMessage {
+                    instructions: instructions::with_compute_budget(ix),
+                })
+            },
+        )?;
+
+        Ok(flatten_chunked_output(output))
     }
 
     async fn build_ack_packet_message(
         &self,
-        _packet: &CosmosPacket,
-        _ack: &PacketAcknowledgement,
-        _proof: MerkleProof,
-        _proof_height: TmHeight,
+        packet: &CosmosPacket,
+        ack: &PacketAcknowledgement,
+        proof: MerkleProof,
+        proof_height: TmHeight,
         _revision: u64,
     ) -> Result<SolanaMessage> {
-        todo!("build Solana ack_packet instruction with Cosmos Merkle proof")
+        let chain = &self.0;
+        let source_client_id = &packet.source_client_id.0;
+        let source_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .source_port
+            .0;
+        let sequence = packet.sequence.0;
+        let payer = chain.keypair.pubkey();
+
+        let ics07 =
+            resolve_ics07_program_id(&chain.rpc, source_client_id, &chain.ics26_program_id).await?;
+        let access_mgr = resolve_access_manager(chain).await?;
+        let app_program =
+            accounts::resolve_app_program_id(&chain.rpc, source_port, &chain.ics26_program_id)
+                .await?;
+
+        let (ibc_packet, mut payload_metas) = cosmos_packet_to_ibc_parts(packet);
+        let proof_bytes = &proof.proof_bytes;
+        let height_val = proof_height.value();
+        let ack_bytes = ack.0.clone();
+
+        let output = build_chunked_packet_message(
+            &chain.ics26_program_id,
+            &payer,
+            source_client_id,
+            sequence,
+            &ibc_packet,
+            &mut payload_metas,
+            proof_bytes,
+            height_val,
+            |pkt, metas, proof_meta| {
+                let msg = mercury_solana::ibc_types::MsgAckPacket {
+                    packet: pkt.clone(),
+                    payloads: metas.to_vec(),
+                    acknowledgement: ack_bytes.clone(),
+                    proof: proof_meta,
+                };
+                let params = instructions::PacketParams {
+                    ics26_program_id: &chain.ics26_program_id,
+                    payer: &payer,
+                    client_id: source_client_id,
+                    port: source_port,
+                    sequence,
+                    ics07_program_id: &ics07,
+                    consensus_height: height_val,
+                    access_manager_program_id: &access_mgr,
+                    app_program_id: &app_program,
+                };
+                let ix = instructions::ack_packet(&params, &msg)?;
+                Ok(SolanaMessage {
+                    instructions: instructions::with_compute_budget(ix),
+                })
+            },
+        )?;
+
+        Ok(flatten_chunked_output(output))
     }
 
     async fn build_timeout_packet_message(
         &self,
-        _packet: &SolanaPacket,
-        _proof: MerkleProof,
-        _proof_height: TmHeight,
+        packet: &SolanaPacket,
+        proof: MerkleProof,
+        proof_height: TmHeight,
         _revision: u64,
     ) -> Result<SolanaMessage> {
-        todo!("build Solana timeout_packet instruction with Cosmos receipt proof")
+        let chain = &self.0;
+        let source_client_id = &packet.source_client_id;
+        let source_port = &packet
+            .payloads
+            .first()
+            .ok_or_else(|| eyre::eyre!("packet has no payloads"))?
+            .source_port
+            .0;
+        let sequence = packet.sequence.0;
+        let payer = chain.keypair.pubkey();
+
+        let ics07 =
+            resolve_ics07_program_id(&chain.rpc, source_client_id, &chain.ics26_program_id).await?;
+        let access_mgr = resolve_access_manager(chain).await?;
+        let app_program =
+            accounts::resolve_app_program_id(&chain.rpc, source_port, &chain.ics26_program_id)
+                .await?;
+
+        let (ibc_packet, mut payload_metas) = packet.to_ibc_parts();
+        let proof_bytes = &proof.proof_bytes;
+        let height_val = proof_height.value();
+
+        let output = build_chunked_packet_message(
+            &chain.ics26_program_id,
+            &payer,
+            source_client_id,
+            sequence,
+            &ibc_packet,
+            &mut payload_metas,
+            proof_bytes,
+            height_val,
+            |pkt, metas, proof_meta| {
+                let msg = mercury_solana::ibc_types::MsgTimeoutPacket {
+                    packet: pkt.clone(),
+                    payloads: metas.to_vec(),
+                    proof: proof_meta,
+                };
+                let params = instructions::PacketParams {
+                    ics26_program_id: &chain.ics26_program_id,
+                    payer: &payer,
+                    client_id: source_client_id,
+                    port: source_port,
+                    sequence,
+                    ics07_program_id: &ics07,
+                    consensus_height: height_val,
+                    access_manager_program_id: &access_mgr,
+                    app_program_id: &app_program,
+                };
+                let ix = instructions::timeout_packet(&params, &msg)?;
+                Ok(SolanaMessage {
+                    instructions: instructions::with_compute_budget(ix),
+                })
+            },
+        )?;
+
+        Ok(flatten_chunked_output(output))
     }
 }
 
@@ -66,24 +429,142 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         &self,
         _payload: CosmosCreateClientPayload,
     ) -> Result<SolanaMessage> {
-        todo!("build Solana create_client instruction for Cosmos light client")
+        eyre::bail!(
+            "create_client for Cosmos->Solana requires ICS07 program ID to be known — \
+             the E2E harness calls add_client on ICS26 first, then initialize on ICS07"
+        )
     }
 
     async fn build_update_client_message(
         &self,
-        _client_id: &SolanaClientId,
-        _payload: CosmosUpdateClientPayload,
+        client_id: &SolanaClientId,
+        payload: CosmosUpdateClientPayload,
     ) -> Result<UpdateClientOutput<SolanaMessage>> {
-        todo!("build Solana update_client instruction for Cosmos light client")
+        use mercury_solana::accounts::{Ics07Tendermint, resolve_ics07_program_id};
+        use mercury_solana::instructions::chunking;
+        use mercury_solana::instructions::signatures;
+
+        let chain = &self.0;
+        let payer = chain.keypair.pubkey();
+        let ics07 =
+            resolve_ics07_program_id(&chain.rpc, &client_id.0, &chain.ics26_program_id).await?;
+        let access_mgr = resolve_access_manager(chain).await?;
+
+        let header_any = payload
+            .headers
+            .first()
+            .ok_or_else(|| eyre::eyre!("update_client payload has no headers"))?;
+        let header: ibc_client_tendermint::types::Header = header_any
+            .clone()
+            .try_into()
+            .map_err(|e| eyre::eyre!("failed to decode tendermint header: {e}"))?;
+
+        let target_height = header.height().revision_height();
+        let trusted_height = header.trusted_height.revision_height();
+
+        // Threshold is checked against the full commit (not the minimal set)
+        // so devnet (few validators) verifies inline while mainnet pre-verifies.
+        let all_signatures = signatures::extract_signatures_from_header(&header);
+        let skip_threshold = chain.config.skip_pre_verify_threshold;
+        let use_pre_verify =
+            skip_threshold.map_or(true, |threshold| all_signatures.len() > threshold);
+        let selected_sigs = signatures::select_minimal_signatures(&header, &all_signatures);
+
+        let header_any: ibc_proto::google::protobuf::Any = header.into();
+        let header_bytes = header_any.value;
+
+        let mut messages = Vec::new();
+
+        let header_chunks = chunking::chunk_data(&header_bytes);
+        let chunk_count = u8::try_from(header_chunks.len())
+            .map_err(|_| eyre::eyre!("header chunk count exceeds u8::MAX"))?;
+        let mut header_chunk_pdas = Vec::with_capacity(header_chunks.len());
+        for (i, chunk) in header_chunks.into_iter().enumerate() {
+            let chunk_idx = i as u8; // safe: chunk_count fits in u8
+            let ix =
+                signatures::upload_header_chunk(&ics07, &payer, target_height, chunk_idx, chunk)?;
+            messages.push(SolanaMessage {
+                instructions: instructions::with_compute_budget(ix),
+            });
+            let (pda, _) =
+                Ics07Tendermint::header_chunk_pda(&payer, target_height, chunk_idx, &ics07);
+            header_chunk_pdas.push(pda);
+        }
+
+        let sig_verify_pdas = if use_pre_verify {
+            let mut pdas = Vec::with_capacity(selected_sigs.len());
+            for sig in &selected_sigs {
+                let ixs = signatures::pre_verify_signature_instructions(
+                    &ics07,
+                    &payer,
+                    sig,
+                    &access_mgr,
+                )?;
+                messages.push(SolanaMessage { instructions: ixs });
+
+                let (pda, _) = Ics07Tendermint::sig_verify_pda(&sig.signature_hash, &ics07);
+                pdas.push(pda);
+            }
+            pdas
+        } else {
+            Vec::new()
+        };
+
+        let assemble_ixs = signatures::assemble_and_update_client(
+            &ics07,
+            &payer,
+            trusted_height,
+            target_height,
+            &header_chunk_pdas,
+            &sig_verify_pdas,
+            &access_mgr,
+        )?;
+
+        messages.push(SolanaMessage {
+            instructions: assemble_ixs,
+        });
+
+        let cleanup_ixs =
+            signatures::cleanup_header_chunks(&ics07, &payer, target_height, chunk_count)?;
+        if let Some(msg) = wrap_cleanup_message(cleanup_ixs) {
+            messages.push(msg);
+        }
+
+        if !sig_verify_pdas.is_empty() {
+            let sig_cleanup_ixs =
+                signatures::cleanup_sig_verify_pdas(&ics07, &payer, &sig_verify_pdas)?;
+            if let Some(msg) = wrap_cleanup_message(sig_cleanup_ixs) {
+                messages.push(msg);
+            }
+        }
+
+        Ok(UpdateClientOutput {
+            messages,
+            membership_proof: None,
+        })
     }
 
     async fn build_register_counterparty_message(
         &self,
-        _client_id: &SolanaClientId,
-        _counterparty_client_id: &<CosmosChain<S> as ChainTypes>::ClientId,
-        _counterparty_merkle_prefix: mercury_core::MerklePrefix,
+        client_id: &SolanaClientId,
+        counterparty_client_id: &<CosmosChain<S> as ChainTypes>::ClientId,
+        counterparty_merkle_prefix: mercury_core::MerklePrefix,
     ) -> Result<SolanaMessage> {
-        todo!("build Solana register_counterparty instruction")
+        let chain = &self.0;
+        let access_mgr = resolve_access_manager(chain).await?;
+
+        let ix = instructions::register_counterparty(
+            &chain.ics26_program_id,
+            &chain.keypair.pubkey(),
+            &client_id.0,
+            &counterparty_client_id.to_string(),
+            &counterparty_merkle_prefix.0,
+            &access_mgr,
+        )?;
+
+        Ok(SolanaMessage {
+            instructions: vec![ix],
+        })
     }
 }
 
@@ -91,27 +572,36 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
 impl<S: CosmosSigner> ClientQuery<CosmosChain<S>> for SolanaAdapter {
     async fn query_client_state(
         &self,
-        _client_id: &SolanaClientId,
-        _height: &SolanaHeight,
+        client_id: &SolanaClientId,
+        height: &SolanaHeight,
     ) -> Result<SolanaClientState> {
-        todo!("query Cosmos light client state from Solana program account")
+        <SolanaChain as ClientQuery<SolanaChain>>::query_client_state(&self.0, client_id, height)
+            .await
     }
 
     async fn query_consensus_state(
         &self,
-        _client_id: &SolanaClientId,
-        _consensus_height: &TmHeight,
-        _query_height: &SolanaHeight,
+        client_id: &SolanaClientId,
+        consensus_height: &TmHeight,
+        query_height: &SolanaHeight,
     ) -> Result<SolanaConsensusState> {
-        todo!("query Cosmos consensus state from Solana program account")
+        let solana_height = SolanaHeight(consensus_height.value());
+        <SolanaChain as ClientQuery<SolanaChain>>::query_consensus_state(
+            &self.0,
+            client_id,
+            &solana_height,
+            query_height,
+        )
+        .await
     }
 
-    fn trusting_period(_client_state: &SolanaClientState) -> Option<std::time::Duration> {
-        todo!("extract trusting period from Cosmos client state on Solana")
+    fn trusting_period(client_state: &SolanaClientState) -> Option<Duration> {
+        <SolanaChain as ClientQuery<SolanaChain>>::trusting_period(client_state)
     }
 
-    fn client_latest_height(_client_state: &SolanaClientState) -> TmHeight {
-        todo!("extract latest Cosmos height from client state on Solana")
+    fn client_latest_height(client_state: &SolanaClientState) -> TmHeight {
+        let h = <SolanaChain as ClientQuery<SolanaChain>>::client_latest_height(client_state);
+        TmHeight::try_from(h.0).expect("height conversion")
     }
 }
 
@@ -127,7 +617,8 @@ impl<S: CosmosSigner> MisbehaviourDetector<CosmosChain<S>> for SolanaAdapter {
         _update_header: &Self::UpdateHeader,
         _client_state: &Self::CounterpartyClientState,
     ) -> Result<Option<Self::MisbehaviourEvidence>> {
-        todo!("check Cosmos headers for misbehaviour from Solana perspective")
+        tracing::debug!("misbehaviour detection not yet implemented for Cosmos-on-Solana");
+        Ok(None)
     }
 }
 
@@ -139,7 +630,7 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for SolanaAdapter {
         &self,
         _client_id: &SolanaClientId,
     ) -> Result<Vec<TmHeight>> {
-        todo!("query Cosmos consensus state heights from Solana program")
+        Ok(Vec::new())
     }
 
     async fn query_update_client_header(
@@ -147,7 +638,7 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for SolanaAdapter {
         _client_id: &SolanaClientId,
         _consensus_height: &TmHeight,
     ) -> Result<Option<ibc_client_tendermint::types::Header>> {
-        todo!("query update client header from Solana transaction history")
+        Ok(None)
     }
 }
 
@@ -160,6 +651,6 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for SolanaAdapt
         _client_id: &SolanaClientId,
         _evidence: mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence,
     ) -> Result<SolanaMessage> {
-        todo!("build Solana misbehaviour submission instruction")
+        eyre::bail!("misbehaviour submission not yet implemented for Cosmos-on-Solana")
     }
 }
