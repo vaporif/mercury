@@ -165,6 +165,7 @@ impl SolanaBootstrap {
                 AccountMeta::new(am_pda, false),
                 AccountMeta::new(payer, true),
                 AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+                AccountMeta::new_readonly(sysvar::instructions::ID, false),
             ],
             data: am_init_data,
         })?;
