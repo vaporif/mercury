@@ -1,11 +1,14 @@
 use super::*;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires Docker and solana-test-validator"]
 async fn cosmos_to_solana_transfer() -> Result<()> {
     init_tracing();
 
-    let fixtures_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/solana");
+    let fixtures_dir = std::path::PathBuf::from(
+        std::env::var("SOLANA_PROGRAMS_DIR")
+            .map_err(|_| eyre::eyre!("SOLANA_PROGRAMS_DIR env var must be set"))?,
+    );
     let _solana = mercury_e2e::bootstrap::solana::SolanaBootstrap::start(&fixtures_dir)?;
 
     tracing::info!("solana validator running");

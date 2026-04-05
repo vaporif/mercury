@@ -45,7 +45,7 @@ impl SolanaBootstrap {
         let ics26_id = Self::read_program_id(&fixtures_dir.join("ics26_router-keypair.json"))?;
         let ics07_id = Self::read_program_id(&fixtures_dir.join("ics07_tendermint-keypair.json"))?;
         let am_id = Self::read_program_id(&fixtures_dir.join("access_manager-keypair.json"))?;
-        let app_id = Self::read_program_id(&fixtures_dir.join("ibc_app_test-keypair.json"))?;
+        let app_id = Self::read_program_id(&fixtures_dir.join("test_ibc_app-keypair.json"))?;
 
         let mut cmd = Command::new("solana-test-validator");
         cmd.arg("--reset")
@@ -59,7 +59,7 @@ impl SolanaBootstrap {
             .args(["--bpf-program", &am_id.to_string()])
             .arg(fixtures_dir.join("access_manager.so"))
             .args(["--bpf-program", &app_id.to_string()])
-            .arg(fixtures_dir.join("ibc_app_test.so"));
+            .arg(fixtures_dir.join("test_ibc_app.so"));
 
         let process = cmd
             .spawn()
@@ -165,6 +165,7 @@ impl SolanaBootstrap {
                 AccountMeta::new(am_pda, false),
                 AccountMeta::new(payer, true),
                 AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+                AccountMeta::new_readonly(sysvar::instructions::ID, false),
             ],
             data: am_init_data,
         })?;

@@ -15,6 +15,7 @@ mercury-chain-traits = { workspace = true }
 mercury-chain-cache = { workspace = true }
 mercury-ethereum = { workspace = true }
 mercury-relay = { workspace = true }
+mercury-cosmos = { workspace = true }
 
 async-trait = { workspace = true }
 eyre = { workspace = true }
@@ -24,12 +25,11 @@ tracing = { workspace = true }
 toml = { workspace = true }
 serde = { workspace = true }
 tokio-util = { workspace = true }
+tendermint = { workspace = true }
+ibc = { workspace = true }
 
-# Cross-chain (optional)
-mercury-cosmos = { workspace = true, optional = true }
+# Cross-chain cosmos counterparties (optional, pulls in beacon chain support)
 mercury-cosmos-counterparties = { workspace = true, optional = true, features = ["ethereum-beacon"] }
-tendermint = { workspace = true, optional = true }
-ibc = { workspace = true, optional = true }
 
 # SP1 prover (optional, heavy deps)
 sp1-ics07-tendermint-prover = { workspace = true, optional = true }
@@ -46,10 +46,7 @@ ibc-client-tendermint = { workspace = true, optional = true }
 [features]
 cosmos-sp1 = [
     "sp1",
-    "dep:mercury-cosmos",
     "dep:mercury-cosmos-counterparties",
-    "dep:tendermint",
-    "dep:ibc",
 ]
 sp1 = [
     "mercury-ethereum/sp1",

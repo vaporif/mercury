@@ -14,7 +14,7 @@ mercury-core = { workspace = true }
 mercury-chain-cache = { workspace = true }
 mercury-relay = { workspace = true }
 mercury-cosmos-counterparties = { workspace = true, features = ["solana"] }
-mercury-solana-counterparties = { workspace = true, features = ["cosmos"] }
+mercury-solana-counterparties = { workspace = true }
 
 async-trait = { workspace = true }
 eyre = { workspace = true }

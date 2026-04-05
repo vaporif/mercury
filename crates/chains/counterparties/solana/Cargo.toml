@@ -15,6 +15,7 @@ mercury-chain-traits = { workspace = true }
 mercury-chain-cache = { workspace = true }
 mercury-solana = { workspace = true, features = ["cosmos"] }
 mercury-relay = { workspace = true }
+mercury-cosmos = { workspace = true }
 
 async-trait = { workspace = true }
 eyre = { workspace = true }
@@ -24,21 +25,8 @@ serde = { workspace = true }
 tokio-util = { workspace = true }
 solana-sdk = { workspace = true }
 borsh = { workspace = true }
-
-# Cross-chain (optional)
-mercury-cosmos = { workspace = true, optional = true }
-ibc = { workspace = true, optional = true }
-ibc-client-tendermint = { workspace = true, optional = true }
-ibc-proto = { workspace = true, optional = true }
-prost = { workspace = true, optional = true }
-tendermint = { workspace = true, optional = true }
-
-[features]
-cosmos = [
-    "dep:mercury-cosmos",
-    "dep:ibc",
-    "dep:ibc-client-tendermint",
-    "dep:ibc-proto",
-    "dep:prost",
-    "dep:tendermint",
-]
+ibc = { workspace = true }
+ibc-client-tendermint = { workspace = true }
+ibc-proto = { workspace = true }
+prost = { workspace = true }
+tendermint = { workspace = true }
