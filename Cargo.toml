@@ -83,34 +83,34 @@ ibc-client-tendermint = { version = "0.57", default-features = false }
 ibc-core-commitment-types = { version = "0.57", default-features = false }
 
 solana-client                         = { version = "3" }
-solana-sdk                            = { version = "3" }
+solana-sdk                            = { version = "4" }
 solana-commitment-config              = { version = "3" }
 solana-transaction-status             = { version = "3" }
 solana-system-interface               = { version = "3" }
 solana-compute-budget-interface       = { version = "3" }
 solana-address-lookup-table-interface = { version = "3" }
-solana-message                        = { version = "3" }
-solana-transaction                    = { version = "3" }
+solana-message                        = { version = "4" }
+solana-transaction                    = { version = "4" }
 bincode                   = { version = "3" }
 anchor-lang               = { version = "0.32.1" }
 anchor-client             = { version = "0.32.1" }
 borsh                     = "1"
 
-prost = "0.13"
-prost-types = "0.13"
+prost = "0.14"
+prost-types = "0.14"
 # TODO: upgrade to tonic 0.14 once ibc-proto/cosmos-sdk-proto support it
-tonic = { version = "0.13", features = [
+tonic = { version = "0.14", features = [
   "tls-native-roots",
   "channel",
   "transport",
 ] }
 secp256k1 = { version = "0.31", features = ["serde"] }
-sha2 = "0.10"
-ripemd = "0.1"
+sha2 = "0.11"
+ripemd = "0.2"
 bech32 = "0.11"
 hex = "0.4"
 globset = "0.4"
-toml = "0.8"
+toml = "1.1"
 zeroize = "1"
 url = "2"
 alloy = { version = "1", default-features = false, features = [
@@ -139,8 +139,8 @@ ethereum-apis = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "
 ethereum-light-client = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
 sp1-ics07-tendermint-prover = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
 ibc-proto-eureka = { package = "ibc-proto", version = "0.51", default-features = false }
-sp1-sdk = { version = "5.0", default-features = false, features = ["network"] }
-sp1-prover = { version = "5.0", default-features = false }
+sp1-sdk = { version = "6.0", default-features = false, features = ["network"] }
+sp1-prover = { version = "6.0", default-features = false }
 ibc-eureka-solidity-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee", features = ["rpc"] }
 governor = "0.10.4"
 opentelemetry = { version = "0.31", features = ["metrics"] }
