@@ -30,7 +30,6 @@ env:
 jobs:
   build-and-generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
