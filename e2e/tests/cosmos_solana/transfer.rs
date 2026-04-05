@@ -1,6 +1,6 @@
 use super::*;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires Docker and solana-test-validator"]
 async fn cosmos_to_solana_transfer() -> Result<()> {
     init_tracing();
