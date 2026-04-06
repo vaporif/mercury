@@ -627,6 +627,7 @@ fn make_cosmos_config(
         mock_proofs,
         rpc_timeout_secs: mercury_core::rpc_guard::RpcConfig::DEFAULT_TIMEOUT_SECS,
         rpc_rate_limit: mercury_core::rpc_guard::RpcConfig::DEFAULT_RATE_LIMIT,
+        merkle_prefix: mercury_core::MerklePrefix::ibc_default(),
     }
 }
 

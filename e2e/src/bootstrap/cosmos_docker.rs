@@ -416,3 +416,75 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
     );
     store_wasm_light_client(handle, &mock_path).await
 }
+
+/// Create an `08-wasm` light client on Cosmos pointing at a previously-stored
+/// dummy wasm checksum. Returns the newly-created client ID (e.g. `08-wasm-0`).
+///
+/// This client is never updated or queried after creation. Its only purpose is
+/// to make `MsgSendPacket.source_client` validate on the Cosmos side so the
+/// full ICS20 send path executes (bank debit, commitment write, event emission).
+#[allow(clippy::future_not_send)]
+pub async fn create_dummy_wasm_client(
+    handle: &CosmosDockerHandle,
+    wasm_checksum: &str,
+) -> Result<String> {
+    let chain_id = handle.chain_id();
+
+    let client_state_json = serde_json::json!({
+        "@type": "/ibc.lightclients.wasm.v1.ClientState",
+        "data": "",
+        "checksum": wasm_checksum,
+        "latest_height": { "revision_number": "0", "revision_height": "1" }
+    });
+    let consensus_state_json = serde_json::json!({
+        "@type": "/ibc.lightclients.wasm.v1.ConsensusState",
+        "data": ""
+    });
+
+    // Write JSON files inside the container via printf to avoid shell escaping
+    let cs_str = serde_json::to_string(&client_state_json)?;
+    let cons_str = serde_json::to_string(&consensus_state_json)?;
+
+    handle
+        .exec_cmd(&format!(
+            "sh -c \"printf '%s' '{cs_str}' > /tmp/wasm_client_state.json\""
+        ))
+        .await?;
+    handle
+        .exec_cmd(&format!(
+            "sh -c \"printf '%s' '{cons_str}' > /tmp/wasm_consensus_state.json\""
+        ))
+        .await?;
+
+    handle
+        .exec_cmd(&format!(
+            "simd tx ibc-client create \
+             /tmp/wasm_client_state.json /tmp/wasm_consensus_state.json \
+             --from relayer --keyring-backend test --home /root/.simapp \
+             --chain-id {chain_id} --fees 0stake -y --output json"
+        ))
+        .await
+        .wrap_err("creating dummy wasm client")?;
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let states_json = handle
+        .exec_cmd("simd query ibc client states --output json --home /root/.simapp")
+        .await?;
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&states_json).wrap_err("parsing client states JSON")?;
+    let client_states = parsed
+        .get("client_states")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| eyre::eyre!("no client_states in response: {states_json}"))?;
+
+    let last_wasm_id = client_states
+        .iter()
+        .filter_map(|cs| cs.get("client_id").and_then(|v| v.as_str()))
+        .rfind(|id| id.starts_with("08-wasm-"))
+        .ok_or_else(|| eyre::eyre!("no 08-wasm client found after create"))?;
+
+    info!(client_id = %last_wasm_id, "created dummy wasm client on Cosmos");
+    Ok(last_wasm_id.to_string())
+}

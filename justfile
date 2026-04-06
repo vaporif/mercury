@@ -25,6 +25,25 @@ test:
 e2e:
     cargo nextest run -p mercury-e2e --run-ignored all
 
+# Build Solana programs from the eureka submodule into target/solana-fixtures/
+build-solana-fixtures:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SRC=external/solidity-ibc-eureka/programs/solana
+    OUT=target/solana-fixtures
+    mkdir -p "$OUT"
+    (cd "$SRC" && anchor build)
+    for prog in ics26_router ics07_tendermint access_manager test_ibc_app; do
+        cp "$SRC/target/deploy/${prog}.so" "$OUT/${prog}.so"
+        cp "$SRC/target/deploy/${prog}-keypair.json" "$OUT/${prog}-keypair.json"
+    done
+    echo "Solana fixtures staged at $OUT"
+
+# Run the cosmos-solana e2e test end-to-end
+e2e-cosmos-solana: build-solana-fixtures
+    SOLANA_PROGRAMS_DIR=$(pwd)/target/solana-fixtures \
+        cargo test -p mercury-e2e --test cosmos_solana -- --ignored --nocapture
+
 # Format everything
 fmt-fix:
     cargo fmt --all

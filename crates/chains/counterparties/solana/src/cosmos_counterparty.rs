@@ -506,17 +506,30 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
             next_validators_hash: next_val_hash,
         };
 
-        let client_id = "07-tendermint-0";
+        let client_id: String = payload
+            .solana_client_id
+            .unwrap_or_else(|| "07-tendermint-0".to_string());
+
+        let counterparty_client_id = payload.counterparty_client_id.ok_or_else(|| {
+            eyre::eyre!(
+                "CosmosCreateClientPayload.counterparty_client_id is required \
+                 when creating a client on Solana"
+            )
+        })?;
+
+        let counterparty_merkle_prefix = payload
+            .counterparty_merkle_prefix
+            .unwrap_or_else(mercury_core::MerklePrefix::ibc_default);
 
         let counterparty_info = mercury_solana::ibc_types::CounterpartyInfo {
-            client_id: String::new(),
-            merkle_prefix: vec![b"ibc".to_vec()],
+            client_id: counterparty_client_id,
+            merkle_prefix: counterparty_merkle_prefix.0,
         };
 
         let add_client_ix = mercury_solana::instructions::client::add_client(
             &chain.ics26_program_id,
             &payer,
-            client_id,
+            &client_id,
             counterparty_info,
             &ics07_program_id,
             &access_mgr,
@@ -741,5 +754,16 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for SolanaAdapt
         _evidence: mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence,
     ) -> Result<SolanaMessage> {
         eyre::bail!("misbehaviour submission not yet implemented for Cosmos-on-Solana")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mercury_cosmos::builders::CosmosCreateClientPayload;
+
+    #[test]
+    fn payload_without_counterparty_client_id_is_none_by_default() {
+        let p = CosmosCreateClientPayload::default();
+        assert!(p.counterparty_client_id.is_none());
     }
 }

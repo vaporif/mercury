@@ -86,6 +86,26 @@ impl MerklePrefix {
     }
 }
 
+impl serde::Serialize for MerklePrefix {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = s.serialize_seq(Some(self.0.len()))?;
+        for seg in &self.0 {
+            let as_str = std::str::from_utf8(seg)
+                .map_err(|e| serde::ser::Error::custom(format!("non-utf8 segment: {e}")))?;
+            seq.serialize_element(as_str)?;
+        }
+        seq.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for MerklePrefix {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let segments: Vec<String> = Vec::deserialize(d)?;
+        Ok(Self(segments.into_iter().map(String::into_bytes).collect()))
+    }
+}
+
 /// A single membership proof entry: IBC merkle path segments, stored value, and proof bytes.
 #[derive(Clone, Debug)]
 pub struct MembershipProofEntry {
@@ -111,5 +131,30 @@ impl MembershipProofs {
 
     pub fn push(&mut self, entry: MembershipProofEntry) {
         self.0.push(entry);
+    }
+}
+
+#[cfg(test)]
+mod merkle_prefix_serde_tests {
+    use super::MerklePrefix;
+
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct TomlWrapper {
+        prefix: MerklePrefix,
+    }
+
+    #[test]
+    fn ibc_default_round_trips_through_toml() {
+        let p = MerklePrefix::ibc_default();
+        let toml_str = toml::to_string(&TomlWrapper { prefix: p.clone() }).unwrap();
+        let parsed: TomlWrapper = toml::from_str(&toml_str).unwrap();
+        assert_eq!(parsed.prefix, p);
+    }
+
+    #[test]
+    fn ibc_default_deserialises_from_string_list() {
+        let toml_str = r#"prefix = ["ibc", ""]"#;
+        let parsed: TomlWrapper = toml::from_str(toml_str).unwrap();
+        assert_eq!(parsed.prefix, MerklePrefix::ibc_default());
     }
 }

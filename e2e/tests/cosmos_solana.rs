@@ -1,6 +1,7 @@
 use std::sync::Once;
 
-use eyre::Result;
+#[path = "cosmos_solana/bootstrap.rs"]
+mod bootstrap;
 
 #[path = "cosmos_solana/transfer.rs"]
 mod transfer;
