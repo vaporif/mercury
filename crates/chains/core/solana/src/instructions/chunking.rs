@@ -5,7 +5,6 @@ use solana_sdk::pubkey::Pubkey;
 use crate::accounts::{self, Ics26Router};
 
 pub const CHUNK_DATA_SIZE: usize = 900;
-pub const HEADER_CHUNK_DATA_SIZE: usize = 750;
 
 #[must_use]
 pub fn chunk_data(data: &[u8]) -> Vec<Vec<u8>> {

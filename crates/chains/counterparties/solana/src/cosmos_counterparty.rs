@@ -585,10 +585,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
 
         let mut messages = Vec::new();
 
-        let header_chunks: Vec<Vec<u8>> = header_bytes
-            .chunks(chunking::HEADER_CHUNK_DATA_SIZE)
-            .map(<[u8]>::to_vec)
-            .collect();
+        let header_chunks = chunking::chunk_data(&header_bytes);
         let chunk_count = u8::try_from(header_chunks.len())
             .map_err(|_| eyre::eyre!("header chunk count exceeds u8::MAX"))?;
         let mut header_chunk_pdas = Vec::with_capacity(header_chunks.len());
@@ -604,7 +601,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
                 &access_mgr,
             )?;
             messages.push(SolanaMessage {
-                instructions: instructions::with_compute_budget(ix),
+                instructions: vec![ix],
             });
             let (pda, _) =
                 Ics07Tendermint::header_chunk_pda(&payer, target_height, chunk_idx, &ics07);
