@@ -140,12 +140,16 @@ async fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapt
     let rpc = mercury_solana::rpc::SolanaRpcClient::new(&base_config);
     let payer = bootstrap.keypair.pubkey();
 
-    let recent_slot = rpc
-        .get_slot_with_commitment(solana_commitment_config::CommitmentConfig::processed())
-        .await?;
+    let recent_slot = rpc.get_slot().await?;
     info!(recent_slot, "creating ALT");
     let (create_ix, alt_address) = alt::create_alt(&payer, recent_slot);
-    mercury_solana::tx::send_transaction(&rpc, &bootstrap.keypair, vec![create_ix], None).await?;
+    mercury_solana::tx::send_transaction_skip_preflight(
+        &rpc,
+        &bootstrap.keypair,
+        vec![create_ix],
+        None,
+    )
+    .await?;
     info!(%alt_address, "ALT created");
 
     let (client_state_pda, _) = Ics07Tendermint::client_state_pda(&bootstrap.program_ids.ics07);
@@ -163,7 +167,13 @@ async fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapt
     ];
     let extend_ixs = alt::extend_alt(&alt_address, &payer, &addresses);
     info!(num_addresses = addresses.len(), %alt_address, "extending ALT");
-    mercury_solana::tx::send_transaction(&rpc, &bootstrap.keypair, extend_ixs, None).await?;
+    mercury_solana::tx::send_transaction_skip_preflight(
+        &rpc,
+        &bootstrap.keypair,
+        extend_ixs,
+        None,
+    )
+    .await?;
     info!(%alt_address, "ALT extended");
 
     // ALT needs a slot to become active

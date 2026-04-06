@@ -1,5 +1,5 @@
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_client::rpc_config::{RpcBlockConfig, RpcTransactionConfig};
+use solana_client::rpc_config::{RpcBlockConfig, RpcSendTransactionConfig, RpcTransactionConfig};
 use solana_commitment_config::CommitmentConfig;
 use solana_sdk::account::Account;
 use solana_sdk::pubkey::Pubkey;
@@ -161,14 +161,55 @@ impl SolanaRpcClient {
         &self,
         tx: &VersionedTransaction,
     ) -> eyre::Result<Signature> {
+        self.send_and_confirm_versioned_transaction_inner(tx, false)
+            .await
+    }
+
+    pub async fn send_and_confirm_versioned_transaction_skip_preflight(
+        &self,
+        tx: &VersionedTransaction,
+    ) -> eyre::Result<Signature> {
+        self.send_and_confirm_versioned_transaction_inner(tx, true)
+            .await
+    }
+
+    async fn send_and_confirm_versioned_transaction_inner(
+        &self,
+        tx: &VersionedTransaction,
+        skip_preflight: bool,
+    ) -> eyre::Result<Signature> {
         let client = self.client.clone();
         let tx = tx.clone();
         self.guard
             .guarded(|| async move {
-                client
-                    .send_and_confirm_transaction(&tx)
-                    .await
-                    .map_err(|e| eyre::eyre!("send_and_confirm_versioned_transaction failed: {e}"))
+                if skip_preflight {
+                    let config = RpcSendTransactionConfig {
+                        skip_preflight: true,
+                        ..Default::default()
+                    };
+                    let sig = client
+                        .send_transaction_with_config(&tx, config)
+                        .await
+                        .map_err(|e| {
+                            eyre::eyre!("send_versioned_transaction failed: {e}")
+                        })?;
+                    tracing::debug!(%sig, "transaction sent (skip_preflight), confirming...");
+                    client
+                        .confirm_transaction_with_spinner(
+                            &sig,
+                            tx.message.recent_blockhash(),
+                            client.commitment(),
+                        )
+                        .await
+                        .map_err(|e| {
+                            eyre::eyre!("confirm_versioned_transaction failed: {e}")
+                        })?;
+                    Ok(sig)
+                } else {
+                    client.send_and_confirm_transaction(&tx).await.map_err(|e| {
+                        eyre::eyre!("send_and_confirm_versioned_transaction failed: {e}")
+                    })
+                }
             })
             .await
     }
