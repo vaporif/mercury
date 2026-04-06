@@ -458,7 +458,7 @@ pub async fn create_dummy_wasm_client(
 
     handle
         .exec_cmd(&format!(
-            "simd tx ibc-client create \
+            "simd tx ibc client create \
              /tmp/wasm_client_state.json /tmp/wasm_consensus_state.json \
              --from relayer --keyring-backend test --home /root/.simapp \
              --chain-id {chain_id} --fees 0stake -y --output json"
