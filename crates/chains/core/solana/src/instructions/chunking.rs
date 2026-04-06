@@ -5,6 +5,7 @@ use solana_sdk::pubkey::Pubkey;
 use crate::accounts::{self, Ics26Router};
 
 pub const CHUNK_DATA_SIZE: usize = 900;
+pub const HEADER_CHUNK_DATA_SIZE: usize = 750;
 
 #[must_use]
 pub fn chunk_data(data: &[u8]) -> Vec<Vec<u8>> {
@@ -270,14 +271,14 @@ mod tests {
         let data = vec![0u8; 2000];
         let chunks = chunk_data(&data);
         assert_eq!(chunks.len(), 3);
-        assert_eq!(chunks[0].len(), 900);
-        assert_eq!(chunks[1].len(), 900);
-        assert_eq!(chunks[2].len(), 200);
+        assert_eq!(chunks[0].len(), CHUNK_DATA_SIZE);
+        assert_eq!(chunks[1].len(), CHUNK_DATA_SIZE);
+        assert_eq!(chunks[2].len(), 2000 - 2 * CHUNK_DATA_SIZE);
     }
 
     #[test]
     fn needs_chunking_boundary() {
-        assert!(!needs_chunking(&[0u8; 900]));
-        assert!(needs_chunking(&[0u8; 901]));
+        assert!(!needs_chunking(&[0u8; CHUNK_DATA_SIZE]));
+        assert!(needs_chunking(&[0u8; CHUNK_DATA_SIZE + 1]));
     }
 }
