@@ -441,18 +441,19 @@ pub async fn create_dummy_wasm_client(
         "data": ""
     });
 
-    // Write JSON files inside the container via printf to avoid shell escaping
-    let cs_str = serde_json::to_string(&client_state_json)?;
-    let cons_str = serde_json::to_string(&consensus_state_json)?;
+    let cs_b64 = base64::engine::general_purpose::STANDARD
+        .encode(serde_json::to_vec(&client_state_json)?);
+    let cons_b64 = base64::engine::general_purpose::STANDARD
+        .encode(serde_json::to_vec(&consensus_state_json)?);
 
     handle
         .exec_cmd(&format!(
-            "sh -c \"printf '%s' '{cs_str}' > /tmp/wasm_client_state.json\""
+            "sh -c \"printf '%s' '{cs_b64}' | base64 -d > /tmp/wasm_client_state.json\""
         ))
         .await?;
     handle
         .exec_cmd(&format!(
-            "sh -c \"printf '%s' '{cons_str}' > /tmp/wasm_consensus_state.json\""
+            "sh -c \"printf '%s' '{cons_b64}' | base64 -d > /tmp/wasm_consensus_state.json\""
         ))
         .await?;
 
