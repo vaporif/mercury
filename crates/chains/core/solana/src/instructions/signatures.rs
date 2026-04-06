@@ -21,6 +21,7 @@ pub fn upload_header_chunk(
     target_height: u64,
     chunk_index: u8,
     chunk_data: Vec<u8>,
+    access_manager_program_id: &Pubkey,
 ) -> eyre::Result<Instruction> {
     let args = UploadHeaderChunkArgs {
         target_height,
@@ -31,12 +32,19 @@ pub fn upload_header_chunk(
 
     let (header_chunk_pda, _) =
         Ics07Tendermint::header_chunk_pda(payer, target_height, chunk_index, ics07_program_id);
+    let (client_state_pda, _) = Ics07Tendermint::client_state_pda(ics07_program_id);
+    let (app_state_pda, _) = Ics07Tendermint::app_state_pda(ics07_program_id);
+    let (access_manager_pda, _) = crate::accounts::AccessManager::pda(access_manager_program_id);
 
     Ok(Instruction {
         program_id: *ics07_program_id,
         accounts: vec![
             AccountMeta::new(header_chunk_pda, false),
+            AccountMeta::new_readonly(client_state_pda, false),
+            AccountMeta::new_readonly(app_state_pda, false),
+            AccountMeta::new_readonly(access_manager_pda, false),
             AccountMeta::new(*payer, true),
+            AccountMeta::new_readonly(sysvar::instructions::ID, false),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
         ],
         data,

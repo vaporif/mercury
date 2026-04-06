@@ -592,8 +592,14 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         for (i, chunk) in header_chunks.into_iter().enumerate() {
             let chunk_idx = u8::try_from(i)
                 .map_err(|_| eyre::eyre!("header chunk index {i} exceeds u8::MAX"))?;
-            let ix =
-                signatures::upload_header_chunk(&ics07, &payer, target_height, chunk_idx, chunk)?;
+            let ix = signatures::upload_header_chunk(
+                &ics07,
+                &payer,
+                target_height,
+                chunk_idx,
+                chunk,
+                &access_mgr,
+            )?;
             messages.push(SolanaMessage {
                 instructions: instructions::with_compute_budget(ix),
             });
