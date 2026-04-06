@@ -8,8 +8,8 @@ use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::signer::Signer;
+use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 
@@ -145,15 +145,30 @@ impl SolanaBootstrap {
         Ok(())
     }
 
-    fn initialize_programs(&self) -> Result<()> {
-        const RELAYER_ROLE: u64 = 1;
-        const ID_CUSTOMIZER_ROLE: u64 = 6;
-
+    fn grant_role(&self, role_id: u64, account: Pubkey) -> Result<()> {
         #[derive(BorshSerialize)]
         struct GrantRoleArgs {
             role_id: u64,
             account: Pubkey,
         }
+
+        let (am_pda, _) = AccessManager::pda(&self.program_ids.access_manager);
+        let grant_data =
+            accounts::encode_anchor_instruction("grant_role", &GrantRoleArgs { role_id, account })?;
+        self.send_instruction(Instruction {
+            program_id: self.program_ids.access_manager,
+            accounts: vec![
+                AccountMeta::new(am_pda, false),
+                AccountMeta::new(self.keypair.pubkey(), true),
+                AccountMeta::new_readonly(sysvar::instructions::ID, false),
+            ],
+            data: grant_data,
+        })
+    }
+
+    fn initialize_programs(&self) -> Result<()> {
+        const RELAYER_ROLE: u64 = 1;
+        const ID_CUSTOMIZER_ROLE: u64 = 6;
 
         let payer = self.keypair.pubkey();
         let ids = &self.program_ids;
@@ -188,22 +203,7 @@ impl SolanaBootstrap {
 
         // Grant roles to test keypair
         for role_id in [RELAYER_ROLE, ID_CUSTOMIZER_ROLE] {
-            let grant_data = accounts::encode_anchor_instruction(
-                "grant_role",
-                &GrantRoleArgs {
-                    role_id,
-                    account: payer,
-                },
-            )?;
-            self.send_instruction(Instruction {
-                program_id: ids.access_manager,
-                accounts: vec![
-                    AccountMeta::new(am_pda, false),
-                    AccountMeta::new(payer, true),
-                    AccountMeta::new_readonly(sysvar::instructions::ID, false),
-                ],
-                data: grant_data,
-            })?;
+            self.grant_role(role_id, payer)?;
         }
 
         // Initialize IBC app

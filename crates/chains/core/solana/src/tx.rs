@@ -17,9 +17,7 @@ pub async fn send_transaction(
     send_transaction_inner(rpc, keypair, instructions, alt, false).await
 }
 
-/// Send a single batch of instructions, skipping preflight simulation.
-/// Use when the transaction is known-valid but preflight bank state may
-/// not reflect the latest sysvars (e.g. ALT creation on test validators).
+/// Send instructions in a single batch, skipping preflight simulation.
 pub async fn send_transaction_skip_preflight(
     rpc: &SolanaRpcClient,
     keypair: &Keypair,
