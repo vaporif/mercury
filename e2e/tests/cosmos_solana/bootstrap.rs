@@ -34,7 +34,7 @@ pub async fn set_up_cosmos_solana(fixtures_dir: &Path) -> Result<CosmosSolanaHar
     let solana_bootstrap = SolanaBootstrap::start(fixtures_dir)?;
 
     let cosmos_chain = build_cosmos_chain(&cosmos_handle).await?;
-    let solana_adapter = build_solana_adapter(&solana_bootstrap)?;
+    let solana_adapter = build_solana_adapter(&solana_bootstrap).await?;
 
     let wasm_checksum = store_dummy_wasm_light_client(&cosmos_handle).await?;
     let cosmos_wasm_client_id = create_dummy_wasm_client(&cosmos_handle, &wasm_checksum).await?;
@@ -115,10 +115,44 @@ async fn build_cosmos_chain(handle: &CosmosDockerHandle) -> Result<CosmosChain<S
         .map_err(|e| eyre::eyre!("{e}"))
 }
 
-fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapter> {
+async fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapter> {
+    use mercury_solana::accounts::{AccessManager, Ics07Tendermint};
+    use mercury_solana::alt;
+    use solana_sdk::signer::Signer;
+
     let keypair_path = tempfile::NamedTempFile::new()?.into_temp_path();
     let kp_bytes: Vec<u8> = bootstrap.keypair.to_bytes().to_vec();
     std::fs::write(&keypair_path, serde_json::to_vec(&kp_bytes)?)?;
+
+    let payer = bootstrap.keypair.pubkey();
+    let rpc = mercury_solana::rpc::SolanaRpcClient::new(
+        &bootstrap.rpc_url,
+        mercury_core::rpc_guard::default_timeout_secs(),
+        mercury_core::rpc_guard::default_rate_limit(),
+    );
+
+    let recent_slot = rpc.get_slot().await?;
+    let (create_ix, alt_address) = alt::create_alt(&payer, recent_slot);
+    mercury_solana::tx::send_transaction(&rpc, &bootstrap.keypair, vec![create_ix], None).await?;
+
+    let (client_state_pda, _) = Ics07Tendermint::client_state_pda(&bootstrap.program_ids.ics07);
+    let (app_state_pda, _) = Ics07Tendermint::app_state_pda(&bootstrap.program_ids.ics07);
+    let (access_manager_pda, _) = AccessManager::pda(&bootstrap.program_ids.access_manager);
+
+    let addresses = vec![
+        client_state_pda,
+        app_state_pda,
+        access_manager_pda,
+        solana_sdk::sysvar::instructions::ID,
+        solana_system_interface::program::ID,
+        bootstrap.program_ids.ics07,
+        bootstrap.program_ids.ics26,
+    ];
+    let extend_ixs = alt::extend_alt(&alt_address, &payer, &addresses);
+    mercury_solana::tx::send_transaction(&rpc, &bootstrap.keypair, extend_ixs, None).await?;
+
+    // ALT needs a slot to become active
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
     let config = SolanaChainConfig {
         rpc_addr: bootstrap.rpc_url.clone(),
@@ -129,10 +163,12 @@ fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapter> {
         block_time: Duration::from_millis(400),
         rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
         rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
-        alt_address: None,
+        alt_address: Some(alt_address.to_string()),
         skip_pre_verify_threshold: None,
     };
-    SolanaAdapter::new(config).map_err(|e| eyre::eyre!("{e}"))
+    SolanaAdapter::new_and_init(config)
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))
 }
 
 async fn register_counterparty_on_cosmos(
