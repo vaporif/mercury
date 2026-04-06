@@ -25,16 +25,24 @@ impl SolanaRpcClient {
     #[must_use]
     pub fn new(config: &SolanaChainConfig) -> Self {
         let rpc_config = config.rpc_config();
-        let client = std::sync::Arc::new(RpcClient::new_with_timeout(
+        let client = std::sync::Arc::new(RpcClient::new_with_timeout_and_commitment(
             config.rpc_addr.clone(),
             std::time::Duration::from_secs(config.rpc_timeout_secs),
+            CommitmentConfig::confirmed(),
         ));
         let guard = RpcGuard::new("solana", rpc_config);
         Self { client, guard }
     }
 
     pub async fn get_slot(&self) -> eyre::Result<u64> {
-        self.get_slot_with_commitment(CommitmentConfig::confirmed())
+        let client = self.client.clone();
+        self.guard
+            .guarded(|| async move {
+                client
+                    .get_slot()
+                    .await
+                    .map_err(|e| eyre::eyre!("get_slot failed: {e}"))
+            })
             .await
     }
 
