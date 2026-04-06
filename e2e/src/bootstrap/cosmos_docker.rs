@@ -441,8 +441,8 @@ pub async fn create_dummy_wasm_client(
         "data": ""
     });
 
-    let cs_b64 = base64::engine::general_purpose::STANDARD
-        .encode(serde_json::to_vec(&client_state_json)?);
+    let cs_b64 =
+        base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&client_state_json)?);
     let cons_b64 = base64::engine::general_purpose::STANDARD
         .encode(serde_json::to_vec(&consensus_state_json)?);
 
