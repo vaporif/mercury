@@ -497,16 +497,16 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
             .try_into()
             .map_err(|_| eyre::eyre!("next_validators_hash is not 32 bytes"))?;
 
+        let timestamp = u64::try_from(tm_consensus_state.timestamp.unix_timestamp())
+            .map_err(|_| eyre::eyre!("consensus state has negative timestamp"))?;
+
         let consensus_state = mercury_solana::ibc_types::ConsensusState {
-            timestamp: tm_consensus_state
-                .timestamp
-                .unix_timestamp()
-                .cast_unsigned(),
+            timestamp,
             root: root_bytes,
             next_validators_hash: next_val_hash,
         };
 
-        let client_id = "07-tendermint-0";
+        let client_id = crate::DEFAULT_TENDERMINT_CLIENT_ID;
 
         let counterparty_client_id = payload.counterparty_client_id.ok_or_else(|| {
             eyre::eyre!(

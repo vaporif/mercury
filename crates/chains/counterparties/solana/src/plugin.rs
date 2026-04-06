@@ -120,7 +120,7 @@ impl ChainPlugin for SolanaPlugin {
             .await?;
 
             c.send_messages(vec![msg]).await?;
-            return Ok("07-tendermint-0".to_string());
+            return Ok(crate::DEFAULT_TENDERMINT_CLIENT_ID.to_string());
         }
 
         eyre::bail!("unsupported payload type for Solana create_client")

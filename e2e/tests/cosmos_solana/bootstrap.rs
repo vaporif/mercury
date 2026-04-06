@@ -29,21 +29,16 @@ pub struct CosmosSolanaHarness {
 
 #[allow(clippy::future_not_send)]
 pub async fn set_up_cosmos_solana(fixtures_dir: &Path) -> Result<CosmosSolanaHarness> {
-    // 1. Boot both chains.
     let cosmos_bootstrap = CosmosDockerBootstrap::new("mercury-cosmos-solana");
     let cosmos_handle = cosmos_bootstrap.start().await?;
     let solana_bootstrap = SolanaBootstrap::start(fixtures_dir)?;
 
-    // 2. Build typed chain instances.
     let cosmos_chain = build_cosmos_chain(&cosmos_handle).await?;
     let solana_adapter = build_solana_adapter(&solana_bootstrap)?;
 
-    // 3. Store dummy wasm code via governance, then create the wasm client.
     let wasm_checksum = store_dummy_wasm_light_client(&cosmos_handle).await?;
     let cosmos_wasm_client_id = create_dummy_wasm_client(&cosmos_handle, &wasm_checksum).await?;
 
-    // 4. Create the Solana-side Tendermint client, threading counterparty
-    //    info through the new payload fields.
     let mut payload: CosmosCreateClientPayload =
         <CosmosChain<Secp256k1KeyPair> as ClientPayloadBuilder<SolanaAdapter>>::build_create_client_payload(&cosmos_chain)
             .await
@@ -61,9 +56,9 @@ pub async fn set_up_cosmos_solana(fixtures_dir: &Path) -> Result<CosmosSolanaHar
         .await
         .map_err(|e| eyre::eyre!("{e}"))?;
 
-    let solana_tendermint_client_id = "07-tendermint-0".to_string();
+    let solana_tendermint_client_id =
+        mercury_solana_counterparties::DEFAULT_TENDERMINT_CLIENT_ID.to_string();
 
-    // 5. Register the counterparty on Cosmos.
     register_counterparty_on_cosmos(
         &cosmos_chain,
         &cosmos_wasm_client_id,
