@@ -427,10 +427,15 @@ pub async fn create_dummy_wasm_client(
     // wasm VM rejects empty `data`, but the dummy LC doesn't inspect it
     let placeholder_data = base64::engine::general_purpose::STANDARD.encode([0u8]);
 
+    // checksum is hex-encoded but protobuf JSON expects base64 for bytes fields
+    let checksum_bytes = hex::decode(wasm_checksum)
+        .wrap_err_with(|| format!("decoding wasm checksum hex: {wasm_checksum}"))?;
+    let checksum_b64 = base64::engine::general_purpose::STANDARD.encode(&checksum_bytes);
+
     let client_state_json = serde_json::json!({
         "@type": "/ibc.lightclients.wasm.v1.ClientState",
         "data": placeholder_data,
-        "checksum": wasm_checksum,
+        "checksum": checksum_b64,
         "latest_height": { "revision_number": "0", "revision_height": "1" }
     });
     let consensus_state_json = serde_json::json!({
