@@ -417,12 +417,6 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
     store_wasm_light_client(handle, &mock_path).await
 }
 
-/// Create an `08-wasm` light client on Cosmos pointing at a previously-stored
-/// dummy wasm checksum. Returns the newly-created client ID (e.g. `08-wasm-0`).
-///
-/// This client is never updated or queried after creation. Its only purpose is
-/// to make `MsgSendPacket.source_client` validate on the Cosmos side so the
-/// full ICS20 send path executes (bank debit, commitment write, event emission).
 #[allow(clippy::future_not_send)]
 pub async fn create_dummy_wasm_client(
     handle: &CosmosDockerHandle,
@@ -430,8 +424,7 @@ pub async fn create_dummy_wasm_client(
 ) -> Result<String> {
     let chain_id = handle.chain_id();
 
-    // `data` must be non-empty or the wasm VM rejects it with "data cannot be empty".
-    // The dummy LC contract doesn't inspect the bytes, so a single zero byte suffices.
+    // wasm VM rejects empty `data`, but the dummy LC doesn't inspect it
     let placeholder_data = base64::engine::general_purpose::STANDARD.encode([0u8]);
 
     let client_state_json = serde_json::json!({
