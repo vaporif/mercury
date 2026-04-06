@@ -506,9 +506,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
             next_validators_hash: next_val_hash,
         };
 
-        let client_id: String = payload
-            .solana_client_id
-            .unwrap_or_else(|| "07-tendermint-0".to_string());
+        let client_id = "07-tendermint-0";
 
         let counterparty_client_id = payload.counterparty_client_id.ok_or_else(|| {
             eyre::eyre!(
@@ -529,7 +527,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         let add_client_ix = mercury_solana::instructions::client::add_client(
             &chain.ics26_program_id,
             &payer,
-            &client_id,
+            client_id,
             counterparty_info,
             &ics07_program_id,
             &access_mgr,

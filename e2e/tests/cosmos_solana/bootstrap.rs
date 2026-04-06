@@ -50,8 +50,6 @@ pub async fn set_up_cosmos_solana(fixtures_dir: &Path) -> Result<CosmosSolanaHar
             .map_err(|e| eyre::eyre!("{e}"))?;
     payload.counterparty_client_id = Some(cosmos_wasm_client_id.clone());
     payload.counterparty_merkle_prefix = Some(cosmos_chain.config.merkle_prefix.clone());
-    payload.solana_client_id = Some("07-tendermint-0".to_string());
-
     let create_msg =
         <SolanaAdapter as ClientMessageBuilder<CosmosChain<Secp256k1KeyPair>>>::build_create_client_message(
             &solana_adapter, payload,
