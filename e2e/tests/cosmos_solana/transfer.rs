@@ -42,7 +42,6 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
         "handshake complete",
     );
 
-    // Verify client was created on Solana.
     let rpc = RpcClient::new_with_commitment(
         harness.solana_bootstrap.rpc_url.clone(),
         CommitmentConfig::confirmed(),
@@ -50,15 +49,12 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
     assert_client_state_exists(&rpc, &harness)?;
     info!("Solana-side Tendermint client verified");
 
-    // Send ICS20 packet on Cosmos.
     let (tx_responses, packet_height) = send_ics20_packet(&harness).await?;
     info!(%packet_height, "ICS20 packet sent");
 
-    // Extract the packet from SendPacket events.
     let packet = extract_send_packet(&tx_responses)?;
     info!(sequence = %packet.sequence.0, "SendPacket event decoded");
 
-    // Build and submit update-client on Solana.
     let trusted_height = tendermint::block::Height::try_from(packet_height.saturating_sub(1))
         .map_err(|e| eyre::eyre!("height conversion: {e}"))?;
     let target_height = tendermint::block::Height::try_from(packet_height)
@@ -90,11 +86,8 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
         .map_err(|e| eyre::eyre!("{e}"))?;
     info!("update-client submitted to Solana");
 
-    // Verify consensus state was stored at the updated height.
     assert_consensus_state_stored(&rpc, &harness, packet_height)?;
-    info!("consensus state verified at height {packet_height}");
 
-    // Query packet commitment proof from Cosmos and submit recv_packet on Solana.
     let cosmos_client_id: ibc::core::host::types::identifiers::ClientId = harness
         .cosmos_wasm_client_id
         .parse()
@@ -126,7 +119,6 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
         .map_err(|e| eyre::eyre!("{e}"))?;
     info!("recv_packet submitted to Solana");
 
-    // Verify packet receipt and acknowledgement PDAs.
     assert_packet_receipt_written(&rpc, &harness, packet.sequence.0)?;
     assert_acknowledgement_written(&rpc, &harness, packet.sequence.0)?;
 
