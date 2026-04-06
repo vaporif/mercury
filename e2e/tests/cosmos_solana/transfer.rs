@@ -9,7 +9,9 @@ use mercury_chain_traits::types::{ChainTypes, MessageSender};
 use mercury_cosmos_counterparties::chain::CosmosChain;
 use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
 use mercury_cosmos_counterparties::types::{CosmosPacket, SendPacketEvent};
-use mercury_solana::accounts::{Ics07Tendermint, Ics26Router};
+use mercury_solana::accounts::{
+    Ics07Tendermint, Ics26Router, OnChainClientState, deserialize_anchor_account,
+};
 use mercury_solana::types::SolanaClientState;
 use mercury_solana_counterparties::SolanaAdapter;
 use prost::Message as _;
@@ -55,7 +57,12 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
     let packet = extract_send_packet(&tx_responses)?;
     info!(sequence = %packet.sequence.0, "SendPacket event decoded");
 
-    let trusted_height = tendermint::block::Height::try_from(packet_height.saturating_sub(1))
+    let trusted_revision_height = get_client_latest_height(&rpc, &harness)?;
+    info!(
+        trusted_revision_height,
+        "using on-chain client latest_height as trusted height"
+    );
+    let trusted_height = tendermint::block::Height::try_from(trusted_revision_height)
         .map_err(|e| eyre::eyre!("height conversion: {e}"))?;
     let target_height = tendermint::block::Height::try_from(packet_height)
         .map_err(|e| eyre::eyre!("height conversion: {e}"))?;
@@ -196,6 +203,15 @@ fn extract_send_packet(
         }
     }
     eyre::bail!("no SendPacket event found in tx responses")
+}
+
+fn get_client_latest_height(rpc: &RpcClient, harness: &CosmosSolanaHarness) -> Result<u64> {
+    let (pda, _) = Ics07Tendermint::client_state_pda(&harness.solana_bootstrap.program_ids.ics07);
+    let account = rpc
+        .get_account(&pda)
+        .map_err(|e| eyre::eyre!("ClientState PDA not found: {e}"))?;
+    let cs: OnChainClientState = deserialize_anchor_account(&account.data)?;
+    Ok(cs.latest_height.revision_height)
 }
 
 fn assert_client_state_exists(rpc: &RpcClient, harness: &CosmosSolanaHarness) -> Result<()> {
