@@ -430,15 +430,19 @@ pub async fn create_dummy_wasm_client(
 ) -> Result<String> {
     let chain_id = handle.chain_id();
 
+    // `data` must be non-empty or the wasm VM rejects it with "data cannot be empty".
+    // The dummy LC contract doesn't inspect the bytes, so a single zero byte suffices.
+    let placeholder_data = base64::engine::general_purpose::STANDARD.encode([0u8]);
+
     let client_state_json = serde_json::json!({
         "@type": "/ibc.lightclients.wasm.v1.ClientState",
-        "data": "",
+        "data": placeholder_data,
         "checksum": wasm_checksum,
         "latest_height": { "revision_number": "0", "revision_height": "1" }
     });
     let consensus_state_json = serde_json::json!({
         "@type": "/ibc.lightclients.wasm.v1.ConsensusState",
-        "data": ""
+        "data": placeholder_data
     });
 
     let cs_b64 =
