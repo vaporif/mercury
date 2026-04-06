@@ -403,12 +403,16 @@ impl PacketEvents for SolanaChain {
 #[async_trait]
 impl MessageSender for SolanaChain {
     async fn send_messages(&self, messages: Vec<SolanaMessage>) -> Result<TxReceipt> {
+        let has_alt = self.alt_cache.is_some();
         let alt_slice = self.alt_cache.as_ref().map(std::slice::from_ref);
-        for msg in messages {
-            let tx_groups = split_into_transaction_groups(msg.instructions);
-            for group in tx_groups {
+        tracing::debug!(num_messages = messages.len(), has_alt, "sending solana messages");
+        for (i, msg) in messages.iter().enumerate() {
+            let tx_groups = split_into_transaction_groups(msg.instructions.clone());
+            tracing::debug!(message = i, num_tx_groups = tx_groups.len(), "split message into tx groups");
+            for (j, group) in tx_groups.into_iter().enumerate() {
+                tracing::debug!(message = i, tx_group = j, num_instructions = group.len(), "sending tx group");
                 let sig = tx::send_transaction(&self.rpc, &self.keypair, group, alt_slice).await?;
-                tracing::info!(%sig, "solana transaction confirmed");
+                tracing::info!(%sig, message = i, tx_group = j, "solana transaction confirmed");
             }
         }
         Ok(TxReceipt {

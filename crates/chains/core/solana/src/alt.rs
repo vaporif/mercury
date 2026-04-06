@@ -7,7 +7,9 @@ use crate::rpc::SolanaRpcClient;
 
 #[must_use]
 pub fn create_alt(payer: &Pubkey, recent_slot: u64) -> (Instruction, Pubkey) {
-    alt_interface::instruction::create_lookup_table(*payer, *payer, recent_slot)
+    let (ix, alt_address) = alt_interface::instruction::create_lookup_table(*payer, *payer, recent_slot);
+    tracing::debug!(%alt_address, recent_slot, %payer, "creating address lookup table");
+    (ix, alt_address)
 }
 
 #[must_use]
@@ -30,12 +32,14 @@ pub async fn lookup_alt(
     rpc: &SolanaRpcClient,
     alt_address: &Pubkey,
 ) -> eyre::Result<AddressLookupTableAccount> {
+    tracing::debug!(%alt_address, "looking up address lookup table");
     let account = rpc
         .get_account(alt_address)
         .await?
         .ok_or_else(|| eyre::eyre!("ALT account not found: {alt_address}"))?;
     let table = alt_interface::state::AddressLookupTable::deserialize(&account.data)
         .map_err(|e| eyre::eyre!("failed to deserialize ALT: {e}"))?;
+    tracing::debug!(%alt_address, num_addresses = table.addresses.len(), "ALT loaded");
     Ok(AddressLookupTableAccount {
         key: *alt_address,
         addresses: table.addresses.to_vec(),

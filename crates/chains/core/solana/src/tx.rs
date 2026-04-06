@@ -16,6 +16,13 @@ pub async fn send_transaction(
 ) -> eyre::Result<Signature> {
     let blockhash = rpc.get_latest_blockhash().await?;
     let alts = alt.unwrap_or(&[]);
+    let program_ids: Vec<_> = instructions.iter().map(|ix| ix.program_id).collect();
+    tracing::debug!(
+        num_instructions = instructions.len(),
+        num_alts = alts.len(),
+        ?program_ids,
+        "compiling solana transaction"
+    );
     let msg = solana_message::v0::Message::try_compile(
         &keypair.pubkey(),
         &instructions,
@@ -24,5 +31,7 @@ pub async fn send_transaction(
     )?;
     let versioned_msg = solana_message::VersionedMessage::V0(msg);
     let tx = VersionedTransaction::try_new(versioned_msg, &[keypair])?;
-    rpc.send_and_confirm_versioned_transaction(&tx).await
+    let sig = rpc.send_and_confirm_versioned_transaction(&tx).await?;
+    tracing::debug!(%sig, "solana transaction confirmed");
+    Ok(sig)
 }

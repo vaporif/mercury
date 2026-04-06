@@ -8,8 +8,8 @@ use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signer::Signer;
 use solana_sdk::signer::keypair::Keypair;
+use solana_sdk::signer::Signer;
 use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 
@@ -100,8 +100,9 @@ impl SolanaBootstrap {
 
     fn wait_for_ready(&self) -> Result<()> {
         let client = RpcClient::new_with_timeout(self.rpc_url.clone(), Duration::from_secs(5));
-        for _ in 0..30 {
+        for i in 0..30 {
             if client.get_health().is_ok() {
+                tracing::info!(attempts = i + 1, "solana-test-validator is ready");
                 return Ok(());
             }
             std::thread::sleep(Duration::from_millis(500));
@@ -111,13 +112,13 @@ impl SolanaBootstrap {
 
     fn airdrop(&self) -> Result<()> {
         let client = RpcClient::new_with_timeout(self.rpc_url.clone(), Duration::from_secs(10));
-        let sig = client.request_airdrop(
-            &self.keypair.pubkey(),
-            100 * solana_sdk::native_token::LAMPORTS_PER_SOL,
-        )?;
+        let amount = 100 * solana_sdk::native_token::LAMPORTS_PER_SOL;
+        tracing::debug!(amount, pubkey = %self.keypair.pubkey(), "requesting airdrop");
+        let sig = client.request_airdrop(&self.keypair.pubkey(), amount)?;
         let now = std::time::Instant::now();
         while now.elapsed() < Duration::from_secs(15) {
             if client.confirm_transaction(&sig).unwrap_or(false) {
+                tracing::info!(%sig, elapsed = ?now.elapsed(), "airdrop confirmed");
                 return Ok(());
             }
             std::thread::sleep(Duration::from_millis(500));

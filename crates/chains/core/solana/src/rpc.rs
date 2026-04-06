@@ -43,14 +43,17 @@ impl SolanaRpcClient {
         commitment: CommitmentConfig,
     ) -> eyre::Result<u64> {
         let client = self.client.clone();
-        self.guard
+        let slot = self
+            .guard
             .guarded(|| async move {
                 client
                     .get_slot_with_commitment(commitment)
                     .await
                     .map_err(|e| eyre::eyre!("get_slot failed: {e}"))
             })
-            .await
+            .await?;
+        tracing::trace!(slot, ?commitment, "get_slot");
+        Ok(slot)
     }
 
     pub async fn get_block_time(&self, slot: u64) -> eyre::Result<i64> {
