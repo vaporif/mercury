@@ -124,12 +124,21 @@ async fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapt
     let kp_bytes: Vec<u8> = bootstrap.keypair.to_bytes().to_vec();
     std::fs::write(&keypair_path, serde_json::to_vec(&kp_bytes)?)?;
 
+    // Build a temporary config (without ALT) to get an RPC client for ALT setup
+    let base_config = SolanaChainConfig {
+        rpc_addr: bootstrap.rpc_url.clone(),
+        ws_addr: None,
+        program_id: bootstrap.program_ids.ics26.to_string(),
+        ics07_program_id: Some(bootstrap.program_ids.ics07.to_string()),
+        keypair_path: keypair_path.to_path_buf(),
+        block_time: Duration::from_millis(400),
+        rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
+        rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
+        alt_address: None,
+        skip_pre_verify_threshold: None,
+    };
+    let rpc = mercury_solana::rpc::SolanaRpcClient::new(&base_config);
     let payer = bootstrap.keypair.pubkey();
-    let rpc = mercury_solana::rpc::SolanaRpcClient::new(
-        &bootstrap.rpc_url,
-        mercury_core::rpc_guard::default_timeout_secs(),
-        mercury_core::rpc_guard::default_rate_limit(),
-    );
 
     let recent_slot = rpc.get_slot().await?;
     let (create_ix, alt_address) = alt::create_alt(&payer, recent_slot);
@@ -155,16 +164,8 @@ async fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapt
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let config = SolanaChainConfig {
-        rpc_addr: bootstrap.rpc_url.clone(),
-        ws_addr: None,
-        program_id: bootstrap.program_ids.ics26.to_string(),
-        ics07_program_id: Some(bootstrap.program_ids.ics07.to_string()),
-        keypair_path: keypair_path.to_path_buf(),
-        block_time: Duration::from_millis(400),
-        rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
-        rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
         alt_address: Some(alt_address.to_string()),
-        skip_pre_verify_threshold: None,
+        ..base_config
     };
     SolanaAdapter::new_and_init(config)
         .await
