@@ -34,11 +34,19 @@ impl SolanaRpcClient {
     }
 
     pub async fn get_slot(&self) -> eyre::Result<u64> {
+        self.get_slot_with_commitment(CommitmentConfig::confirmed())
+            .await
+    }
+
+    pub async fn get_slot_with_commitment(
+        &self,
+        commitment: CommitmentConfig,
+    ) -> eyre::Result<u64> {
         let client = self.client.clone();
         self.guard
             .guarded(|| async move {
                 client
-                    .get_slot()
+                    .get_slot_with_commitment(commitment)
                     .await
                     .map_err(|e| eyre::eyre!("get_slot failed: {e}"))
             })
