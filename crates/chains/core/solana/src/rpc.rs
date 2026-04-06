@@ -190,9 +190,7 @@ impl SolanaRpcClient {
                     let sig = client
                         .send_transaction_with_config(&tx, config)
                         .await
-                        .map_err(|e| {
-                            eyre::eyre!("send_versioned_transaction failed: {e}")
-                        })?;
+                        .map_err(|e| eyre::eyre!("send_versioned_transaction failed: {e}"))?;
                     tracing::debug!(%sig, "transaction sent (skip_preflight), confirming...");
                     client
                         .confirm_transaction_with_spinner(
@@ -201,9 +199,7 @@ impl SolanaRpcClient {
                             client.commitment(),
                         )
                         .await
-                        .map_err(|e| {
-                            eyre::eyre!("confirm_versioned_transaction failed: {e}")
-                        })?;
+                        .map_err(|e| eyre::eyre!("confirm_versioned_transaction failed: {e}"))?;
                     Ok(sig)
                 } else {
                     client.send_and_confirm_transaction(&tx).await.map_err(|e| {

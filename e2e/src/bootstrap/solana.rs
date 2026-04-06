@@ -8,8 +8,8 @@ use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signer::Signer;
 use solana_sdk::signer::keypair::Keypair;
+use solana_sdk::signer::Signer;
 use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 
@@ -146,6 +146,7 @@ impl SolanaBootstrap {
     }
 
     fn initialize_programs(&self) -> Result<()> {
+        const RELAYER_ROLE: u64 = 1;
         const ID_CUSTOMIZER_ROLE: u64 = 6;
 
         #[derive(BorshSerialize)]
@@ -185,23 +186,25 @@ impl SolanaBootstrap {
             data: router_init_data,
         })?;
 
-        // Grant ID_CUSTOMIZER_ROLE to test keypair
-        let grant_data = accounts::encode_anchor_instruction(
-            "grant_role",
-            &GrantRoleArgs {
-                role_id: ID_CUSTOMIZER_ROLE,
-                account: payer,
-            },
-        )?;
-        self.send_instruction(Instruction {
-            program_id: ids.access_manager,
-            accounts: vec![
-                AccountMeta::new(am_pda, false),
-                AccountMeta::new(payer, true),
-                AccountMeta::new_readonly(sysvar::instructions::ID, false),
-            ],
-            data: grant_data,
-        })?;
+        // Grant roles to test keypair
+        for role_id in [RELAYER_ROLE, ID_CUSTOMIZER_ROLE] {
+            let grant_data = accounts::encode_anchor_instruction(
+                "grant_role",
+                &GrantRoleArgs {
+                    role_id,
+                    account: payer,
+                },
+            )?;
+            self.send_instruction(Instruction {
+                program_id: ids.access_manager,
+                accounts: vec![
+                    AccountMeta::new(am_pda, false),
+                    AccountMeta::new(payer, true),
+                    AccountMeta::new_readonly(sysvar::instructions::ID, false),
+                ],
+                data: grant_data,
+            })?;
+        }
 
         // Initialize IBC app
         let (app_state, _) = IbcApp::state_pda(&ids.ibc_app);

@@ -167,13 +167,8 @@ async fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapt
     ];
     let extend_ixs = alt::extend_alt(&alt_address, &payer, &addresses);
     info!(num_addresses = addresses.len(), %alt_address, "extending ALT");
-    mercury_solana::tx::send_transaction_skip_preflight(
-        &rpc,
-        &bootstrap.keypair,
-        extend_ixs,
-        None,
-    )
-    .await?;
+    mercury_solana::tx::send_transaction_skip_preflight(&rpc, &bootstrap.keypair, extend_ixs, None)
+        .await?;
     info!(%alt_address, "ALT extended");
 
     // ALT needs a slot to become active
