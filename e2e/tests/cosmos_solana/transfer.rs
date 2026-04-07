@@ -110,15 +110,39 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
         client_id = %cosmos_client_id,
         "querying packet commitment proof"
     );
-    let (_commitment, proof) = harness
+    let (commitment, proof) = harness
         .cosmos_chain
         .query_packet_commitment(&cosmos_client_id, packet.sequence, &target_height)
         .await
         .map_err(|e| eyre::eyre!("{e}"))?;
     info!(
         proof_len = proof.proof_bytes.len(),
+        commitment_present = commitment.is_some(),
+        commitment_hex = %commitment.as_ref().map(|c| hex::encode(&c.0)).unwrap_or_default(),
         "packet commitment proof obtained"
     );
+
+    // Log packet fields that affect on-chain commitment recomputation
+    info!(
+        source_client = %packet.source_client_id.0,
+        dest_client = %packet.dest_client_id.0,
+        sequence = packet.sequence.0,
+        timeout_timestamp = packet.timeout_timestamp.0,
+        num_payloads = packet.payloads.len(),
+        "packet fields for commitment recomputation"
+    );
+    for (i, p) in packet.payloads.iter().enumerate() {
+        info!(
+            payload_idx = i,
+            source_port = %p.source_port.0,
+            dest_port = %p.dest_port.0,
+            version = %p.version,
+            encoding = %p.encoding,
+            data_len = p.data.len(),
+            data_hex = %hex::encode(&p.data),
+            "payload details"
+        );
+    }
 
     let revision = harness.cosmos_chain.revision_number();
 
