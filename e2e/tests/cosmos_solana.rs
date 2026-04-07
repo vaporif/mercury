@@ -58,13 +58,15 @@ fn solana_fixtures_dir() -> eyre::Result<PathBuf> {
     }
 
     std::fs::create_dir_all(&fixtures_dir)?;
-    let deploy_dir = anchor_dir.join("target/deploy");
+    let so_dir = anchor_dir.join("target/sbf-solana-solana/release");
+    let keypair_dir = workspace_root.join("external/solidity-ibc-eureka/solana-keypairs/localnet");
     for prog in PROGRAMS {
-        for suffix in [".so", "-keypair.json"] {
-            let name = format!("{prog}{suffix}");
-            std::fs::copy(deploy_dir.join(&name), fixtures_dir.join(&name))
-                .map_err(|e| eyre::eyre!("copy {name}: {e}"))?;
-        }
+        let so_name = format!("{prog}.so");
+        std::fs::copy(so_dir.join(&so_name), fixtures_dir.join(&so_name))
+            .map_err(|e| eyre::eyre!("copy {so_name}: {e}"))?;
+        let kp_name = format!("{prog}-keypair.json");
+        std::fs::copy(keypair_dir.join(&kp_name), fixtures_dir.join(&kp_name))
+            .map_err(|e| eyre::eyre!("copy {kp_name}: {e}"))?;
     }
 
     Ok(fixtures_dir)
