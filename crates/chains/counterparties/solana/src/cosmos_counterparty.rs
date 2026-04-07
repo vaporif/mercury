@@ -497,8 +497,9 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
             .try_into()
             .map_err(|_| eyre::eyre!("next_validators_hash is not 32 bytes"))?;
 
-        let timestamp = u64::try_from(tm_consensus_state.timestamp.unix_timestamp())
-            .map_err(|_| eyre::eyre!("consensus state has negative timestamp"))?;
+        let timestamp_nanos = tm_consensus_state.timestamp.unix_timestamp_nanos();
+        let timestamp = u64::try_from(timestamp_nanos)
+            .map_err(|_| eyre::eyre!("consensus state has negative or overflowing timestamp"))?;
 
         let consensus_state = mercury_solana::ibc_types::ConsensusState {
             timestamp,

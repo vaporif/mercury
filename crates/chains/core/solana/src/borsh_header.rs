@@ -112,6 +112,7 @@ pub struct BorshHeight {
     pub revision_height: u64,
 }
 
+#[must_use]
 pub fn header_to_borsh(h: Header) -> BorshHeader {
     BorshHeader {
         signed_header: signed_header_to_borsh(h.signed_header),
