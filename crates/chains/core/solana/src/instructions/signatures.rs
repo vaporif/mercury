@@ -326,72 +326,24 @@ pub fn select_minimal_signatures(
     selected
 }
 
-/// Close header chunk PDAs and reclaim rent.
-pub fn cleanup_header_chunks(
+/// Close header chunk and sig-verify PDAs via `cleanup_incomplete_upload`.
+pub fn cleanup_incomplete_upload(
     ics07_program_id: &Pubkey,
     payer: &Pubkey,
-    target_height: u64,
-    chunk_count: u8,
-) -> eyre::Result<Vec<Instruction>> {
-    #[derive(BorshSerialize)]
-    struct CleanupHeaderChunksArgs {
-        target_height: u64,
-        chunk_count: u8,
-    }
+    pdas: &[Pubkey],
+) -> eyre::Result<Instruction> {
+    let data = accounts::anchor_instruction_discriminator("cleanup_incomplete_upload").to_vec();
 
-    let args = CleanupHeaderChunksArgs {
-        target_height,
-        chunk_count,
-    };
-    let data = accounts::encode_anchor_instruction("cleanup_header_chunks", &args)?;
-
-    let mut account_metas = vec![
-        AccountMeta::new(*payer, true),
-        AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-    ];
-
-    for i in 0..chunk_count {
-        let (pda, _) = Ics07Tendermint::header_chunk_pda(payer, target_height, i, ics07_program_id);
-        account_metas.push(AccountMeta::new(pda, false));
-    }
-
-    Ok(vec![Instruction {
-        program_id: *ics07_program_id,
-        accounts: account_metas,
-        data,
-    }])
-}
-
-/// Close sig verify PDAs and reclaim rent.
-pub fn cleanup_sig_verify_pdas(
-    ics07_program_id: &Pubkey,
-    payer: &Pubkey,
-    sig_verify_pdas: &[Pubkey],
-) -> eyre::Result<Vec<Instruction>> {
-    #[derive(BorshSerialize)]
-    struct CleanupSigVerifyArgs {
-        count: u8,
-    }
-
-    let count = u8::try_from(sig_verify_pdas.len())
-        .map_err(|_| eyre::eyre!("too many sig verify PDAs: {}", sig_verify_pdas.len()))?;
-    let args = CleanupSigVerifyArgs { count };
-    let data = accounts::encode_anchor_instruction("cleanup_sig_verify", &args)?;
-
-    let mut account_metas = vec![
-        AccountMeta::new(*payer, true),
-        AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-    ];
-
-    for pda in sig_verify_pdas {
+    let mut account_metas = vec![AccountMeta::new(*payer, true)];
+    for pda in pdas {
         account_metas.push(AccountMeta::new(*pda, false));
     }
 
-    Ok(vec![Instruction {
+    Ok(Instruction {
         program_id: *ics07_program_id,
         accounts: account_metas,
         data,
-    }])
+    })
 }
 
 pub fn initialize_ics07(

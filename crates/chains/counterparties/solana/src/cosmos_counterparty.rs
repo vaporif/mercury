@@ -588,8 +588,6 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         let mut messages = Vec::new();
 
         let header_chunks = chunking::chunk_data(&header_bytes);
-        let chunk_count = u8::try_from(header_chunks.len())
-            .map_err(|_| eyre::eyre!("header chunk count exceeds u8::MAX"))?;
         let mut header_chunk_pdas = Vec::with_capacity(header_chunks.len());
         for (i, chunk) in header_chunks.into_iter().enumerate() {
             let chunk_idx = u8::try_from(i)
@@ -643,18 +641,13 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
             instructions: assemble_ixs,
         });
 
-        let cleanup_ixs =
-            signatures::cleanup_header_chunks(&ics07, &payer, target_height, chunk_count)?;
-        if let Some(msg) = wrap_cleanup_message(cleanup_ixs) {
-            messages.push(msg);
-        }
-
-        if !sig_verify_pdas.is_empty() {
-            let sig_cleanup_ixs =
-                signatures::cleanup_sig_verify_pdas(&ics07, &payer, &sig_verify_pdas)?;
-            if let Some(msg) = wrap_cleanup_message(sig_cleanup_ixs) {
-                messages.push(msg);
-            }
+        let mut cleanup_pdas = header_chunk_pdas;
+        cleanup_pdas.extend_from_slice(&sig_verify_pdas);
+        if !cleanup_pdas.is_empty() {
+            let cleanup_ix = signatures::cleanup_incomplete_upload(&ics07, &payer, &cleanup_pdas)?;
+            messages.push(SolanaMessage {
+                instructions: mercury_solana::instructions::with_compute_budget(cleanup_ix),
+            });
         }
 
         Ok(UpdateClientOutput {
