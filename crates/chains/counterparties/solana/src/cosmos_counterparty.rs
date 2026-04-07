@@ -580,8 +580,9 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         let use_pre_verify = all_signatures.len() > chain.config.skip_pre_verify_threshold();
         let selected_sigs = signatures::select_minimal_signatures(&header, &all_signatures);
 
-        let header_any: ibc_proto::google::protobuf::Any = header.into();
-        let header_bytes = header_any.value;
+        let borsh_header = mercury_solana::borsh_header::header_to_borsh(header);
+        let header_bytes =
+            borsh::to_vec(&borsh_header).map_err(|e| eyre::eyre!("borsh serialize header: {e}"))?;
 
         let mut messages = Vec::new();
 
