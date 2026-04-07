@@ -240,6 +240,7 @@
             anchor-cli
             solana-rust
           ])
+          ++ [pkgs.solana-cli]
           ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
           ]

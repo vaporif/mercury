@@ -8,8 +8,8 @@ use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signer::Signer;
 use solana_sdk::signer::keypair::Keypair;
+use solana_sdk::signer::Signer;
 use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 
@@ -61,7 +61,14 @@ impl SolanaBootstrap {
             .args(["--bpf-program", &app_id.to_string()])
             .arg(fixtures_dir.join("test_ibc_app.so"));
 
+        let log_path = ledger_dir.path().join("validator.log");
+        let log_file =
+            std::fs::File::create(&log_path).wrap_err("failed to create validator log file")?;
         let process = cmd
+            .stdout(std::process::Stdio::from(
+                log_file.try_clone().wrap_err("clone stdout log")?,
+            ))
+            .stderr(std::process::Stdio::from(log_file))
             .spawn()
             .wrap_err("failed to start solana-test-validator")?;
 
@@ -74,7 +81,7 @@ impl SolanaBootstrap {
             ibc_app: app_id,
         };
 
-        let bootstrap = Self {
+        let mut bootstrap = Self {
             rpc_url,
             keypair: Keypair::new(),
             program_ids,
@@ -98,16 +105,27 @@ impl SolanaBootstrap {
         Ok(kp.pubkey())
     }
 
-    fn wait_for_ready(&self) -> Result<()> {
+    fn wait_for_ready(&mut self) -> Result<()> {
         let client = RpcClient::new_with_timeout(self.rpc_url.clone(), Duration::from_secs(5));
-        for i in 0..30 {
+        let log_path = self._ledger_dir.path().join("validator.log");
+        let read_log = || std::fs::read_to_string(&log_path).unwrap_or_default();
+        for i in 0..120 {
+            if let Some(status) = self.validator_process.try_wait()? {
+                eyre::bail!(
+                    "solana-test-validator exited with {status}\n--- validator log ---\n{}",
+                    read_log()
+                );
+            }
             if client.get_health().is_ok() {
                 tracing::info!(attempts = i + 1, "solana-test-validator is ready");
                 return Ok(());
             }
             std::thread::sleep(Duration::from_millis(500));
         }
-        eyre::bail!("solana-test-validator did not become ready in 15s")
+        eyre::bail!(
+            "solana-test-validator did not become ready in 60s\n--- validator log ---\n{}",
+            read_log()
+        )
     }
 
     fn airdrop(&self) -> Result<()> {
