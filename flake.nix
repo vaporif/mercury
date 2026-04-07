@@ -184,6 +184,8 @@
         mainProgram = "mercury-relayer";
       };
 
+      agave = pkgs.callPackage ./nix/agave.nix {};
+
       toolchain = fenixPkgs.combine [
         (fenixPkgs.stable.withComponents [
           "cargo"
@@ -240,7 +242,7 @@
             anchor-cli
             solana-rust
           ])
-          ++ [pkgs.solana-cli]
+          ++ [agave]
           ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
           ]
