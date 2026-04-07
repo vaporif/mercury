@@ -116,23 +116,23 @@ pub struct BorshHeight {
 pub fn header_to_borsh(h: Header) -> BorshHeader {
     BorshHeader {
         signed_header: signed_header_to_borsh(h.signed_header),
-        validator_set: validator_set_to_borsh(h.validator_set),
+        validator_set: validator_set_to_borsh(&h.validator_set),
         trusted_height: BorshHeight {
             revision_number: h.trusted_height.revision_number(),
             revision_height: h.trusted_height.revision_height(),
         },
-        trusted_next_validator_set: validator_set_to_borsh(h.trusted_next_validator_set),
+        trusted_next_validator_set: validator_set_to_borsh(&h.trusted_next_validator_set),
     }
 }
 
 fn signed_header_to_borsh(sh: SignedHeader) -> BorshSignedHeader {
     BorshSignedHeader {
-        header: block_header_to_borsh(sh.header),
+        header: block_header_to_borsh(&sh.header),
         commit: commit_to_borsh(sh.commit),
     }
 }
 
-fn block_header_to_borsh(h: TmHeader) -> BorshBlockHeader {
+fn block_header_to_borsh(h: &TmHeader) -> BorshBlockHeader {
     BorshBlockHeader {
         version: BorshConsensusVersion {
             block: h.version.block,
@@ -226,6 +226,7 @@ fn commit_to_borsh(c: Commit) -> BorshCommit {
 
     BorshCommit {
         height: c.height.value(),
+        #[allow(clippy::cast_possible_truncation)]
         round: c.round.value() as u16,
         block_id: block_id_to_borsh(c.block_id),
         signatures,
@@ -274,20 +275,15 @@ fn commit_sig_to_borsh(cs: CommitSig) -> BorshCommitSig {
     }
 }
 
-fn validator_set_to_borsh(vs: ValidatorSet) -> BorshValidatorSet {
+fn validator_set_to_borsh(vs: &ValidatorSet) -> BorshValidatorSet {
     BorshValidatorSet {
-        validators: vs
-            .validators()
-            .iter()
-            .cloned()
-            .map(validator_to_borsh)
-            .collect(),
-        proposer: vs.proposer().clone().map(validator_to_borsh),
+        validators: vs.validators().iter().map(validator_to_borsh).collect(),
+        proposer: vs.proposer().as_ref().map(validator_to_borsh),
         total_voting_power: vs.total_voting_power().value(),
     }
 }
 
-fn validator_to_borsh(v: ValidatorInfo) -> BorshValidator {
+fn validator_to_borsh(v: &ValidatorInfo) -> BorshValidator {
     let address_array: [u8; 20] = v
         .address
         .as_bytes()
