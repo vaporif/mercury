@@ -4,7 +4,7 @@ use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, PacketMessageBuilder,
 };
 use mercury_chain_traits::events::PacketEvents;
-use mercury_chain_traits::queries::PacketStateQuery;
+use mercury_chain_traits::queries::{ChainStatusQuery, PacketStateQuery};
 use mercury_chain_traits::types::{ChainTypes, MessageSender};
 use mercury_cosmos_counterparties::chain::CosmosChain;
 use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
@@ -57,14 +57,18 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
     let packet = extract_send_packet(&tx_responses)?;
     info!(sequence = %packet.sequence.0, "SendPacket event decoded");
 
+    // Cosmos commits state at height H into block H+1's app_hash, so we need
+    // to update the client to at least packet_height+1 for the proof to be
+    // verifiable against the stored consensus state root.
+    let target_height = wait_for_height_past(&harness.cosmos_chain, packet_height).await?;
+    info!(%target_height, %packet_height, "cosmos advanced past packet height");
+
     let trusted_revision_height = get_client_latest_height(&rpc, &harness)?;
     info!(
         trusted_revision_height,
         "using on-chain client latest_height as trusted height"
     );
     let trusted_height = tendermint::block::Height::try_from(trusted_revision_height)
-        .map_err(|e| eyre::eyre!("height conversion: {e}"))?;
-    let target_height = tendermint::block::Height::try_from(packet_height)
         .map_err(|e| eyre::eyre!("height conversion: {e}"))?;
 
     let update_payload =
@@ -93,18 +97,28 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
         .map_err(|e| eyre::eyre!("{e}"))?;
     info!("update-client submitted to Solana");
 
-    assert_consensus_state_stored(&rpc, &harness, packet_height)?;
+    assert_consensus_state_stored(&rpc, &harness, target_height.value())?;
 
     let cosmos_client_id: ibc::core::host::types::identifiers::ClientId = harness
         .cosmos_wasm_client_id
         .parse()
         .map_err(|e| eyre::eyre!("parse client id: {e}"))?;
 
+    info!(
+        %target_height,
+        sequence = %packet.sequence.0,
+        client_id = %cosmos_client_id,
+        "querying packet commitment proof"
+    );
     let (_commitment, proof) = harness
         .cosmos_chain
         .query_packet_commitment(&cosmos_client_id, packet.sequence, &target_height)
         .await
         .map_err(|e| eyre::eyre!("{e}"))?;
+    info!(
+        proof_len = proof.proof_bytes.len(),
+        "packet commitment proof obtained"
+    );
 
     let revision = harness.cosmos_chain.revision_number();
 
@@ -118,6 +132,11 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
         )
         .await
         .map_err(|e| eyre::eyre!("{e}"))?;
+    info!(
+        %target_height,
+        revision,
+        "submitting recv_packet to Solana"
+    );
 
     harness
         .solana_adapter
@@ -131,6 +150,31 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
 
     info!("cosmos_to_solana_transfer: all assertions passed");
     Ok(())
+}
+
+async fn wait_for_height_past(
+    chain: &CosmosChain<Secp256k1KeyPair>,
+    min_height: u64,
+) -> Result<tendermint::block::Height> {
+    use std::time::Duration;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let latest = chain
+            .query_latest_height()
+            .await
+            .map_err(|e| eyre::eyre!("{e}"))?;
+        if latest.value() > min_height {
+            info!(latest = %latest, min_height, "cosmos chain advanced past min_height");
+            return Ok(latest);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            eyre::bail!(
+                "timed out waiting for cosmos to advance past height {min_height} (current: {})",
+                latest.value()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 }
 
 async fn send_ics20_packet(
