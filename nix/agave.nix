@@ -3,6 +3,7 @@
   stdenv,
   fetchFromGitHub,
   rustPlatform,
+  rust-bin,
   pkg-config,
   openssl,
   zlib,
@@ -23,8 +24,15 @@
   inherit (stdenv) hostPlatform isLinux;
 
   version = "3.1.6";
+
+  rustForAgave = rust-bin.stable."1.86.0".default.override {
+    extensions = ["rust-src"];
+  };
 in
-  rustPlatform.buildRustPackage {
+  (rustPlatform.buildRustPackage.override {
+    rustc = rustForAgave;
+    cargo = rustForAgave;
+  }) {
     pname = "agave";
     inherit version;
 
@@ -39,8 +47,6 @@ in
     cargoHash = "sha256-eendPKd1oZmVqWAGWxm+AayLDm5w9J6/gSEPUXJZj88=";
 
     cargoBuildFlags = map (n: "--bin=${n}") solanaPkgs;
-
-    RUSTFLAGS = "--cap-lints warn";
 
     nativeBuildInputs = [
       pkg-config

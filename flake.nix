@@ -43,7 +43,7 @@
       nixpkgs.lib.genAttrs systems (system: let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [sp1.overlays.default anchor.overlays.default];
+          overlays = [sp1.overlays.default anchor.inputs.rust-overlay.overlays.default anchor.overlays.default];
         };
       in
         f {
