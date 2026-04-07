@@ -33,10 +33,7 @@ const TRANSFER_AMOUNT: u64 = 1_000_000;
 async fn cosmos_to_solana_transfer() -> Result<()> {
     init_tracing();
 
-    let fixtures_dir = std::path::PathBuf::from(
-        std::env::var("SOLANA_PROGRAMS_DIR")
-            .map_err(|_| eyre::eyre!("SOLANA_PROGRAMS_DIR env var must be set"))?,
-    );
+    let fixtures_dir = super::solana_fixtures_dir()?;
 
     let harness = set_up_cosmos_solana(&fixtures_dir).await?;
     info!(

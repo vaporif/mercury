@@ -39,10 +39,9 @@ build-solana-fixtures:
     done
     echo "Solana fixtures staged at $OUT"
 
-# Run the cosmos-solana e2e test end-to-end
-e2e-cosmos-solana: build-solana-fixtures
-    SOLANA_PROGRAMS_DIR=$(pwd)/target/solana-fixtures \
-        cargo test -p mercury-e2e --test cosmos_solana -- --ignored --nocapture
+# Run the cosmos-solana e2e test end-to-end (builds fixtures automatically if missing)
+e2e-cosmos-solana:
+    cargo test -p mercury-e2e --test cosmos_solana -- --ignored --nocapture
 
 # Format everything
 fmt-fix:
