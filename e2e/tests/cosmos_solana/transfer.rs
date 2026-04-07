@@ -16,6 +16,7 @@ use mercury_solana::types::SolanaClientState;
 use mercury_solana_counterparties::SolanaAdapter;
 use prost::Message as _;
 use prost::Name as _;
+use sha2::{Digest, Sha256};
 use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use tracing::info;
@@ -143,6 +144,34 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
             "payload details"
         );
     }
+
+    // Recompute commitment same as eureka ics24::packet_commitment_bytes32
+    let expected_commitment = {
+        let mut app_bytes = Vec::new();
+        for p in &packet.payloads {
+            let mut payload_buf = Vec::new();
+            payload_buf.extend_from_slice(&sha256(p.source_port.0.as_bytes()));
+            payload_buf.extend_from_slice(&sha256(p.dest_port.0.as_bytes()));
+            payload_buf.extend_from_slice(&sha256(p.version.as_bytes()));
+            payload_buf.extend_from_slice(&sha256(p.encoding.as_bytes()));
+            payload_buf.extend_from_slice(&sha256(&p.data));
+            app_bytes.extend_from_slice(&sha256(&payload_buf));
+        }
+        let dest_client_hash = sha256(packet.dest_client_id.0.as_bytes());
+        let timeout_hash = sha256(&packet.timeout_timestamp.0.to_be_bytes());
+        let app_hash = sha256(&app_bytes);
+        let mut commitment_input = vec![0x02u8];
+        commitment_input.extend_from_slice(&dest_client_hash);
+        commitment_input.extend_from_slice(&timeout_hash);
+        commitment_input.extend_from_slice(&app_hash);
+        sha256(&commitment_input)
+    };
+    info!(
+        expected_commitment_hex = %hex::encode(&expected_commitment),
+        cosmos_commitment_hex = %commitment.as_ref().map(|c| hex::encode(&c.0)).unwrap_or_default(),
+        commitments_match = (commitment.as_ref().map(|c| c.0.as_slice()) == Some(&expected_commitment[..])),
+        "commitment comparison (eureka recomputation vs cosmos stored)"
+    );
 
     let revision = harness.cosmos_chain.revision_number();
 
@@ -344,4 +373,13 @@ fn assert_acknowledgement_written(
     assert!(!account.data.is_empty(), "PacketAck PDA has empty data");
     info!(?pda, sequence, "PacketAck PDA exists");
     Ok(())
+}
+
+fn sha256(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let result = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&result);
+    out
 }
