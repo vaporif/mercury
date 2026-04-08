@@ -134,7 +134,8 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
         );
 
         // Also fetch block at target_height+1 to check if proof root is one block ahead
-        let next_height = (target_height.value() + 1).try_into().unwrap();
+        let next_height: tendermint::block::Height =
+            (target_height.value() + 1).try_into().unwrap();
         if let Ok(next_block) = harness.cosmos_chain.rpc_client.commit(next_height).await {
             let next_app_hash = next_block.signed_header.header.app_hash;
             info!(
