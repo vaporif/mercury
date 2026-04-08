@@ -28,7 +28,7 @@ pub struct SolanaBootstrap {
     pub keypair: Keypair,
     pub program_ids: SolanaProgramIds,
     validator_process: Child,
-    _ledger_dir: tempfile::TempDir,
+    ledger_dir: tempfile::TempDir,
 }
 
 impl Drop for SolanaBootstrap {
@@ -87,7 +87,7 @@ impl SolanaBootstrap {
             keypair: Keypair::new(),
             program_ids,
             validator_process: process,
-            _ledger_dir: ledger_dir,
+            ledger_dir,
         };
 
         bootstrap.wait_for_ready()?;
@@ -108,7 +108,7 @@ impl SolanaBootstrap {
 
     fn wait_for_ready(&mut self) -> Result<()> {
         let client = RpcClient::new_with_timeout(self.rpc_url.clone(), Duration::from_secs(5));
-        let ledger = self._ledger_dir.path();
+        let ledger = self.ledger_dir.path();
         let read_file = |name: &str| std::fs::read_to_string(ledger.join(name)).unwrap_or_default();
         for i in 0..120 {
             if let Some(status) = self.validator_process.try_wait()? {
