@@ -8,8 +8,8 @@ use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::signer::Signer;
+use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 
@@ -62,13 +62,14 @@ impl SolanaBootstrap {
             .arg(fixtures_dir.join("test_ibc_app.so"));
 
         let log_path = ledger_dir.path().join("validator.log");
+        let stderr_path = ledger_dir.path().join("validator.stderr");
         let log_file =
             std::fs::File::create(&log_path).wrap_err("failed to create validator log file")?;
+        let stderr_file =
+            std::fs::File::create(&stderr_path).wrap_err("failed to create stderr log file")?;
         let process = cmd
-            .stdout(std::process::Stdio::from(
-                log_file.try_clone().wrap_err("clone stdout log")?,
-            ))
-            .stderr(std::process::Stdio::from(log_file))
+            .stdout(std::process::Stdio::from(log_file))
+            .stderr(std::process::Stdio::from(stderr_file))
             .spawn()
             .wrap_err("failed to start solana-test-validator")?;
 
@@ -107,13 +108,28 @@ impl SolanaBootstrap {
 
     fn wait_for_ready(&mut self) -> Result<()> {
         let client = RpcClient::new_with_timeout(self.rpc_url.clone(), Duration::from_secs(5));
-        let log_path = self._ledger_dir.path().join("validator.log");
-        let read_log = || std::fs::read_to_string(&log_path).unwrap_or_default();
+        let ledger = self._ledger_dir.path();
+        let read_file = |name: &str| std::fs::read_to_string(ledger.join(name)).unwrap_or_default();
         for i in 0..120 {
             if let Some(status) = self.validator_process.try_wait()? {
+                use std::os::unix::process::ExitStatusExt;
+                let signal = status.signal();
                 eyre::bail!(
-                    "solana-test-validator exited with {status}\n--- validator log ---\n{}",
-                    read_log()
+                    "solana-test-validator exited with {status} (code={:?}, signal={:?})\n\
+                     --- stderr ---\n{}\n\
+                     --- validator log (last 50 lines) ---\n{}",
+                    status.code(),
+                    signal,
+                    read_file("validator.stderr"),
+                    read_file("validator.log")
+                        .lines()
+                        .rev()
+                        .take(50)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                        .join("\n"),
                 );
             }
             if client.get_health().is_ok() {
@@ -123,8 +139,19 @@ impl SolanaBootstrap {
             std::thread::sleep(Duration::from_millis(500));
         }
         eyre::bail!(
-            "solana-test-validator did not become ready in 60s\n--- validator log ---\n{}",
-            read_log()
+            "solana-test-validator did not become ready in 60s\n\
+             --- stderr ---\n{}\n\
+             --- validator log (last 50 lines) ---\n{}",
+            read_file("validator.stderr"),
+            read_file("validator.log")
+                .lines()
+                .rev()
+                .take(50)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n")
         )
     }
 

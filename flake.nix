@@ -43,7 +43,7 @@
       nixpkgs.lib.genAttrs systems (system: let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [sp1.overlays.default anchor.inputs.rust-overlay.overlays.default anchor.overlays.default];
+          overlays = [sp1.overlays.default anchor.overlays.default];
         };
       in
         f {
@@ -184,7 +184,9 @@
         mainProgram = "mercury-relayer";
       };
 
-      agave = pkgs.callPackage ./nix/agave.nix {};
+      agave = pkgs.callPackage ./nix/agave.nix {
+        rust-bin = anchor.inputs.rust-overlay.lib.mkRustBin {} pkgs.buildPackages;
+      };
 
       toolchain = fenixPkgs.combine [
         (fenixPkgs.stable.withComponents [
