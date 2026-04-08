@@ -135,7 +135,7 @@ fn build_chunked_packet_message(
             payload_chunk_counts.push(chunk_count);
             for ix in ixs {
                 chunk_messages.push(SolanaMessage {
-                    instructions: instructions::with_compute_budget(ix),
+                    instructions: vec![ix],
                 });
             }
         } else {
@@ -149,7 +149,7 @@ fn build_chunked_packet_message(
         .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
     for ix in proof_ixs {
         chunk_messages.push(SolanaMessage {
-            instructions: instructions::with_compute_budget(ix),
+            instructions: vec![ix],
         });
     }
 
