@@ -10,7 +10,8 @@ use mercury_cosmos_counterparties::chain::CosmosChain;
 use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
 use mercury_cosmos_counterparties::types::{CosmosPacket, SendPacketEvent};
 use mercury_solana::accounts::{
-    Ics07Tendermint, Ics26Router, OnChainClientState, deserialize_anchor_account,
+    Ics07Tendermint, Ics26Router, OnChainClientState, OnChainConsensusState,
+    deserialize_anchor_account,
 };
 use mercury_solana::types::SolanaClientState;
 use mercury_solana_counterparties::SolanaAdapter;
@@ -97,6 +98,53 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
 
     assert_consensus_state_stored(&rpc, &harness, target_height.value())?;
 
+    // Diagnostic: read consensus state root stored on Solana and compare with Cosmos block header
+    {
+        let (cs_pda, _) = Ics07Tendermint::consensus_state_pda(
+            target_height.value(),
+            &harness.solana_bootstrap.program_ids.ics07,
+        );
+        let cs_account = rpc
+            .get_account(&cs_pda)
+            .map_err(|e| eyre::eyre!("read consensus state: {e}"))?;
+        // Skip 8-byte Anchor discriminator + 8-byte height field
+        let cs: OnChainConsensusState =
+            borsh::BorshDeserialize::deserialize(&mut &cs_account.data[16..])
+                .map_err(|e| eyre::eyre!("deserialize consensus state: {e}"))?;
+        info!(
+            solana_root_hex = %hex::encode(cs.root),
+            solana_cs_height = target_height.value(),
+            "consensus state root stored on Solana"
+        );
+
+        // Fetch the Cosmos block header at target_height to compare app_hash
+        let block = harness
+            .cosmos_chain
+            .rpc_client
+            .commit(target_height)
+            .await
+            .map_err(|e| eyre::eyre!("fetch block at target_height: {e}"))?;
+        let cosmos_app_hash = block.signed_header.header.app_hash;
+        info!(
+            cosmos_app_hash_hex = %hex::encode(cosmos_app_hash.as_bytes()),
+            cosmos_block_height = %block.signed_header.header.height,
+            roots_match = (cs.root == cosmos_app_hash.as_bytes()),
+            "Cosmos block header app_hash at target_height"
+        );
+
+        // Also fetch block at target_height+1 to check if proof root is one block ahead
+        let next_height = (target_height.value() + 1).try_into().unwrap();
+        if let Ok(next_block) = harness.cosmos_chain.rpc_client.commit(next_height).await {
+            let next_app_hash = next_block.signed_header.header.app_hash;
+            info!(
+                next_app_hash_hex = %hex::encode(next_app_hash.as_bytes()),
+                next_block_height = %next_block.signed_header.header.height,
+                next_roots_match = (cs.root == next_app_hash.as_bytes()),
+                "Cosmos block header app_hash at target_height+1 (state after target_height txs)"
+            );
+        }
+    }
+
     let cosmos_client_id: ibc::core::host::types::identifiers::ClientId = harness
         .cosmos_wasm_client_id
         .parse()
@@ -117,6 +165,8 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
         proof_len = proof.proof_bytes.len(),
         commitment_present = commitment.is_some(),
         commitment_hex = %commitment.as_ref().map(|c| hex::encode(&c.0)).unwrap_or_default(),
+        abci_query_height = target_height.value() - 1,
+        proof_verifies_against_height = target_height.value(),
         "packet commitment proof obtained"
     );
 
