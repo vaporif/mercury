@@ -20,6 +20,7 @@ use prost::Name as _;
 use sha2::{Digest, Sha256};
 use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
+use tendermint_rpc::Client as _;
 use tracing::info;
 
 use mercury_e2e::bootstrap::traits::ChainHandle;
