@@ -45,13 +45,14 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Clippy
-        run: nix develop --command cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace -- -D warnings
 
   test:
     name: Test
@@ -61,13 +62,16 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: dtolnay/rust-toolchain@1.94.0
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
       - name: Test
-        run: nix develop --command cargo nextest run --workspace
+        run: cargo nextest run --workspace
 
   build:
     name: Build ${{ matrix.system }}
@@ -101,13 +105,18 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          components: llvm-tools-preview
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+
       - name: Generate coverage
-        run: nix develop --command cargo llvm-cov nextest --workspace --exclude e2e --exclude mock-wasm-eth-lc --lcov --output-path lcov.info
+        run: cargo llvm-cov nextest --workspace --exclude e2e --exclude mock-wasm-eth-lc --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
