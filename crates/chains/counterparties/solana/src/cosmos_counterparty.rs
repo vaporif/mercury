@@ -143,17 +143,14 @@ fn build_chunked_packet_message(
         }
     }
 
-    let mut proof_chunk_count: u8 = 0;
-    if chunking::needs_chunking(proof_bytes) {
-        let (ixs, _pdas) =
-            chunking::chunk_proof(ics26_program_id, payer, client_id, sequence, proof_bytes)?;
-        proof_chunk_count = u8::try_from(ixs.len())
-            .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
-        for ix in ixs {
-            chunk_messages.push(SolanaMessage {
-                instructions: instructions::with_compute_budget(ix),
-            });
-        }
+    let (proof_ixs, _proof_pdas) =
+        chunking::chunk_proof(ics26_program_id, payer, client_id, sequence, proof_bytes)?;
+    let proof_chunk_count = u8::try_from(proof_ixs.len())
+        .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
+    for ix in proof_ixs {
+        chunk_messages.push(SolanaMessage {
+            instructions: instructions::with_compute_budget(ix),
+        });
     }
 
     let proof_meta = mercury_solana::ibc_types::ProofMetadata {
