@@ -66,7 +66,7 @@ async fn start_kurtosis() -> Result<KurtosisHandle> {
     let output = tokio::process::Command::new("kurtosis")
         .args([
             "run",
-            "github.com/ethpandaops/ethereum-package",
+            "github.com/ethpandaops/ethereum-package@e07503d1",
             "--enclave",
             &enclave_name,
             "--args-file",
@@ -78,7 +78,8 @@ async fn start_kurtosis() -> Result<KurtosisHandle> {
 
     ensure!(
         output.status.success(),
-        "kurtosis run failed:\n{}",
+        "kurtosis run failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 
