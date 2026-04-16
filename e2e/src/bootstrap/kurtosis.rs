@@ -39,6 +39,7 @@ fn kurtosis_config() -> String {
     json!({
         "participants": [{
             "cl_type": "lodestar",
+            "cl_image": "chainsafe/lodestar:v1.41.1",
             "el_type": "geth",
             "count": 1,
             "el_extra_params": ["--http.api=admin,eth,net,web3,debug"]
