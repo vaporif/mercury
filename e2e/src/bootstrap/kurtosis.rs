@@ -39,6 +39,7 @@ fn kurtosis_config() -> String {
     json!({
         "participants": [{
             "cl_type": "lodestar",
+            "cl_image": "chainsafe/lodestar:v1.41.1",
             "el_type": "geth",
             "count": 1,
             "el_extra_params": ["--http.api=admin,eth,net,web3,debug"]
@@ -78,7 +79,8 @@ async fn start_kurtosis() -> Result<KurtosisHandle> {
 
     ensure!(
         output.status.success(),
-        "kurtosis run failed:\n{}",
+        "kurtosis run failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 
