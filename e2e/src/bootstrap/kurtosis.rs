@@ -67,7 +67,7 @@ async fn start_kurtosis() -> Result<KurtosisHandle> {
     let output = tokio::process::Command::new("kurtosis")
         .args([
             "run",
-            "github.com/ethpandaops/ethereum-package@e07503d1",
+            "github.com/ethpandaops/ethereum-package@e07503d16b292a4a0d0dde267b461c22eb394852",
             "--enclave",
             &enclave_name,
             "--args-file",
