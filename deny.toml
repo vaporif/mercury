@@ -20,6 +20,10 @@ ignore = [
   "RUSTSEC-2024-0388",
   # rustls-webpki CRL distribution point logic error — pinned by tendermint-rpc 0.40 -> rustls 0.22, waiting on upstream
   "RUSTSEC-2026-0049",
+  # rustls-webpki URI name constraints ignored — pinned by rustls 0.21/0.22 (reqwest 0.11, tungstenite 0.21), waiting on upstream
+  "RUSTSEC-2026-0098",
+  # rustls-webpki wildcard DNS name constraints bypass — pinned by rustls 0.21/0.22 (reqwest 0.11, tungstenite 0.21), waiting on upstream
+  "RUSTSEC-2026-0099",
 ]
 
 [licenses]

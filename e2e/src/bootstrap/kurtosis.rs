@@ -39,6 +39,7 @@ fn kurtosis_config() -> String {
     json!({
         "participants": [{
             "cl_type": "lodestar",
+            "cl_image": "chainsafe/lodestar:v1.41.1",
             "el_type": "geth",
             "count": 1,
             "el_extra_params": ["--http.api=admin,eth,net,web3,debug"]
@@ -66,7 +67,7 @@ async fn start_kurtosis() -> Result<KurtosisHandle> {
     let output = tokio::process::Command::new("kurtosis")
         .args([
             "run",
-            "github.com/ethpandaops/ethereum-package",
+            "github.com/ethpandaops/ethereum-package@e07503d16b292a4a0d0dde267b461c22eb394852",
             "--enclave",
             &enclave_name,
             "--args-file",
@@ -78,7 +79,8 @@ async fn start_kurtosis() -> Result<KurtosisHandle> {
 
     ensure!(
         output.status.success(),
-        "kurtosis run failed:\n{}",
+        "kurtosis run failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 
