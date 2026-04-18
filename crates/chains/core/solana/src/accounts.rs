@@ -38,7 +38,6 @@ pub struct Ics26Router;
 impl Ics26Router {
     pub const ROUTER_STATE_SEED: &[u8] = b"router_state";
     pub const CLIENT_SEED: &[u8] = b"client";
-    pub const CLIENT_SEQ_SEED: &[u8] = b"cseq";
     pub const IBC_APP_SEED: &[u8] = b"ibc_app";
     pub const PACKET_COMMITMENT_SEED: &[u8] = b"packet_commitment";
     pub const PACKET_RECEIPT_SEED: &[u8] = b"packet_receipt";
@@ -54,11 +53,6 @@ impl Ics26Router {
     #[must_use]
     pub fn client_pda(client_id: &str, program_id: &Pubkey) -> (Pubkey, u8) {
         Pubkey::find_program_address(&[Self::CLIENT_SEED, client_id.as_bytes()], program_id)
-    }
-
-    #[must_use]
-    pub fn client_sequence_pda(client_id: &str, program_id: &Pubkey) -> (Pubkey, u8) {
-        Pubkey::find_program_address(&[Self::CLIENT_SEQ_SEED, client_id.as_bytes()], program_id)
     }
 
     #[must_use]
@@ -248,9 +242,15 @@ pub struct OnChainConsensusState {
 }
 
 #[derive(BorshDeserialize, Debug, Clone)]
+pub struct AccessManagerState {
+    pub access_manager: Pubkey,
+    pub pending_access_manager: Option<Pubkey>,
+}
+
+#[derive(BorshDeserialize, Debug, Clone)]
 pub struct OnChainRouterState {
     pub version: u8,
-    pub access_manager: Pubkey,
+    pub am_state: AccessManagerState,
     pub paused: bool,
 }
 
@@ -259,12 +259,6 @@ pub struct OnChainClient {
     pub version: u8,
     pub client_id: String,
     pub client_program_id: Pubkey,
-}
-
-#[derive(BorshDeserialize, Debug, Clone)]
-pub struct OnChainClientSequence {
-    pub version: u8,
-    pub next_sequence_send: u64,
 }
 
 #[derive(BorshDeserialize, Debug, Clone)]

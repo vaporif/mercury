@@ -10,17 +10,14 @@ use mercury_cosmos_counterparties::chain::CosmosChain;
 use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
 use mercury_cosmos_counterparties::types::{CosmosPacket, SendPacketEvent};
 use mercury_solana::accounts::{
-    Ics07Tendermint, Ics26Router, OnChainClientState, OnChainConsensusState,
-    deserialize_anchor_account,
+    Ics07Tendermint, Ics26Router, OnChainClientState, deserialize_anchor_account,
 };
 use mercury_solana::types::SolanaClientState;
 use mercury_solana_counterparties::SolanaAdapter;
 use prost::Message as _;
 use prost::Name as _;
-use sha2::{Digest, Sha256};
 use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
-use tendermint_rpc::Client as _;
 use tracing::info;
 
 use mercury_e2e::bootstrap::traits::ChainHandle;
@@ -99,54 +96,6 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
 
     assert_consensus_state_stored(&rpc, &harness, target_height.value())?;
 
-    // Diagnostic: read consensus state root stored on Solana and compare with Cosmos block header
-    {
-        let (cs_pda, _) = Ics07Tendermint::consensus_state_pda(
-            target_height.value(),
-            &harness.solana_bootstrap.program_ids.ics07,
-        );
-        let cs_account = rpc
-            .get_account(&cs_pda)
-            .map_err(|e| eyre::eyre!("read consensus state: {e}"))?;
-        // Skip 8-byte Anchor discriminator + 8-byte height field
-        let cs: OnChainConsensusState =
-            borsh::BorshDeserialize::deserialize(&mut &cs_account.data[16..])
-                .map_err(|e| eyre::eyre!("deserialize consensus state: {e}"))?;
-        info!(
-            solana_root_hex = %hex::encode(cs.root),
-            solana_cs_height = target_height.value(),
-            "consensus state root stored on Solana"
-        );
-
-        // Fetch the Cosmos block header at target_height to compare app_hash
-        let block = harness
-            .cosmos_chain
-            .rpc_client
-            .commit(target_height)
-            .await
-            .map_err(|e| eyre::eyre!("fetch block at target_height: {e}"))?;
-        let cosmos_app_hash = block.signed_header.header.app_hash;
-        info!(
-            cosmos_app_hash_hex = %hex::encode(cosmos_app_hash.as_bytes()),
-            cosmos_block_height = %block.signed_header.header.height,
-            roots_match = (cs.root == cosmos_app_hash.as_bytes()),
-            "Cosmos block header app_hash at target_height"
-        );
-
-        // Also fetch block at target_height+1 to check if proof root is one block ahead
-        let next_height: tendermint::block::Height =
-            (target_height.value() + 1).try_into().unwrap();
-        if let Ok(next_block) = harness.cosmos_chain.rpc_client.commit(next_height).await {
-            let next_app_hash = next_block.signed_header.header.app_hash;
-            info!(
-                next_app_hash_hex = %hex::encode(next_app_hash.as_bytes()),
-                next_block_height = %next_block.signed_header.header.height,
-                next_roots_match = (cs.root == next_app_hash.as_bytes()),
-                "Cosmos block header app_hash at target_height+1 (state after target_height txs)"
-            );
-        }
-    }
-
     let cosmos_client_id: ibc::core::host::types::identifiers::ClientId = harness
         .cosmos_wasm_client_id
         .parse()
@@ -170,56 +119,6 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
         abci_query_height = target_height.value() - 1,
         proof_verifies_against_height = target_height.value(),
         "packet commitment proof obtained"
-    );
-
-    // Log packet fields that affect on-chain commitment recomputation
-    info!(
-        source_client = %packet.source_client_id.0,
-        dest_client = %packet.dest_client_id.0,
-        sequence = packet.sequence.0,
-        timeout_timestamp = packet.timeout_timestamp.0,
-        num_payloads = packet.payloads.len(),
-        "packet fields for commitment recomputation"
-    );
-    for (i, p) in packet.payloads.iter().enumerate() {
-        info!(
-            payload_idx = i,
-            source_port = %p.source_port.0,
-            dest_port = %p.dest_port.0,
-            version = %p.version,
-            encoding = %p.encoding,
-            data_len = p.data.len(),
-            data_hex = %hex::encode(&p.data),
-            "payload details"
-        );
-    }
-
-    // Recompute commitment same as eureka ics24::packet_commitment_bytes32
-    let expected_commitment = {
-        let mut app_bytes = Vec::new();
-        for p in &packet.payloads {
-            let mut payload_buf = Vec::new();
-            payload_buf.extend_from_slice(&sha256(p.source_port.0.as_bytes()));
-            payload_buf.extend_from_slice(&sha256(p.dest_port.0.as_bytes()));
-            payload_buf.extend_from_slice(&sha256(p.version.as_bytes()));
-            payload_buf.extend_from_slice(&sha256(p.encoding.as_bytes()));
-            payload_buf.extend_from_slice(&sha256(&p.data));
-            app_bytes.extend_from_slice(&sha256(&payload_buf));
-        }
-        let dest_client_hash = sha256(packet.dest_client_id.0.as_bytes());
-        let timeout_hash = sha256(&packet.timeout_timestamp.0.to_be_bytes());
-        let app_hash = sha256(&app_bytes);
-        let mut commitment_input = vec![0x02u8];
-        commitment_input.extend_from_slice(&dest_client_hash);
-        commitment_input.extend_from_slice(&timeout_hash);
-        commitment_input.extend_from_slice(&app_hash);
-        sha256(&commitment_input)
-    };
-    info!(
-        expected_commitment_hex = %hex::encode(&expected_commitment),
-        cosmos_commitment_hex = %commitment.as_ref().map(|c| hex::encode(&c.0)).unwrap_or_default(),
-        commitments_match = (commitment.as_ref().map(|c| c.0.as_slice()) == Some(&expected_commitment[..])),
-        "commitment comparison (eureka recomputation vs cosmos stored)"
     );
 
     let revision = harness.cosmos_chain.revision_number();
@@ -422,13 +321,4 @@ fn assert_acknowledgement_written(
     assert!(!account.data.is_empty(), "PacketAck PDA has empty data");
     info!(?pda, sequence, "PacketAck PDA exists");
     Ok(())
-}
-
-fn sha256(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    let result = hasher.finalize();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&result);
-    out
 }

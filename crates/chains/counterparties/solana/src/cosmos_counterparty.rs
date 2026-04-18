@@ -31,13 +31,8 @@ use mercury_solana::types::{
 
 use crate::wrapper::SolanaAdapter;
 
-fn cosmos_packet_to_ibc_parts(
-    packet: &CosmosPacket,
-) -> (
-    mercury_solana::ibc_types::Packet,
-    Vec<mercury_solana::ibc_types::PayloadMetadata>,
-) {
-    let ibc_packet = mercury_solana::ibc_types::Packet {
+fn cosmos_packet_to_msg_packet(packet: &CosmosPacket) -> mercury_solana::ibc_types::MsgPacket {
+    mercury_solana::ibc_types::MsgPacket {
         sequence: packet.sequence.0,
         source_client: packet.source_client_id.0.clone(),
         dest_client: packet.dest_client_id.0.clone(),
@@ -45,27 +40,17 @@ fn cosmos_packet_to_ibc_parts(
         payloads: packet
             .payloads
             .iter()
-            .map(|p| mercury_solana::ibc_types::Payload {
+            .map(|p| mercury_solana::ibc_types::MsgPayload {
                 source_port: p.source_port.0.clone(),
                 dest_port: p.dest_port.0.clone(),
                 version: p.version.clone(),
                 encoding: p.encoding.clone(),
-                value: p.data.clone(),
+                data: mercury_solana::ibc_types::Delivery::Inline {
+                    data: p.data.clone(),
+                },
             })
             .collect(),
-    };
-    let metas = packet
-        .payloads
-        .iter()
-        .map(|p| mercury_solana::ibc_types::PayloadMetadata {
-            source_port: p.source_port.0.clone(),
-            dest_port: p.dest_port.0.clone(),
-            version: p.version.clone(),
-            encoding: p.encoding.clone(),
-            total_chunks: 0,
-        })
-        .collect();
-    (ibc_packet, metas)
+    }
 }
 
 async fn resolve_access_manager(chain: &SolanaChain) -> Result<solana_sdk::pubkey::Pubkey> {
@@ -73,11 +58,9 @@ async fn resolve_access_manager(chain: &SolanaChain) -> Result<solana_sdk::pubke
     let router: OnChainRouterState = fetch_account(&chain.rpc, &router_pda)
         .await?
         .ok_or_else(|| eyre::eyre!("router state PDA not found"))?;
-    Ok(router.access_manager)
+    Ok(router.am_state.access_manager)
 }
 
-/// Build chunked packet message: uploads payload/proof chunks, then sends final packet tx.
-/// Returns (chunk upload messages, final packet message, cleanup message).
 struct ChunkedPacketOutput {
     chunk_messages: Vec<SolanaMessage>,
     packet_message: SolanaMessage,
@@ -90,8 +73,7 @@ struct ChunkedPacketParams<'a> {
     payer: &'a solana_sdk::pubkey::Pubkey,
     client_id: &'a str,
     sequence: u64,
-    ibc_packet: &'a mercury_solana::ibc_types::Packet,
-    payload_metas: &'a mut [mercury_solana::ibc_types::PayloadMetadata],
+    msg_packet: &'a mut mercury_solana::ibc_types::MsgPacket,
     proof_bytes: &'a [u8],
     proof_height: u64,
 }
@@ -99,9 +81,8 @@ struct ChunkedPacketParams<'a> {
 fn build_chunked_packet_message(
     params: ChunkedPacketParams<'_>,
     build_packet_ix: impl FnOnce(
-        &mercury_solana::ibc_types::Packet,
-        &[mercury_solana::ibc_types::PayloadMetadata],
-        mercury_solana::ibc_types::ProofMetadata,
+        &mercury_solana::ibc_types::MsgPacket,
+        mercury_solana::ibc_types::MsgProof,
         Vec<solana_sdk::instruction::AccountMeta>,
     ) -> eyre::Result<SolanaMessage>,
 ) -> eyre::Result<ChunkedPacketOutput> {
@@ -111,8 +92,7 @@ fn build_chunked_packet_message(
         payer,
         client_id,
         sequence,
-        ibc_packet,
-        payload_metas,
+        msg_packet,
         proof_bytes,
         proof_height,
     } = params;
@@ -129,15 +109,25 @@ fn build_chunked_packet_message(
     let mut payload_chunk_counts: Vec<u8> = Vec::new();
     let mut chunk_account_metas: Vec<solana_sdk::instruction::AccountMeta> = Vec::new();
 
-    for (payload_idx, payload) in ibc_packet.payloads.iter().enumerate() {
+    for (payload_idx, payload) in msg_packet.payloads.iter_mut().enumerate() {
         let p_idx = u8::try_from(payload_idx)
             .map_err(|_| eyre::eyre!("payload index {payload_idx} exceeds u8::MAX"))?;
 
-        if chunking::needs_chunking(&payload.value) {
-            let (ixs, pdas) = chunking::chunk_payload(&chunk_ctx, p_idx, &payload.value)?;
+        let payload_data = match &payload.data {
+            mercury_solana::ibc_types::Delivery::Inline { data } => data.clone(),
+            mercury_solana::ibc_types::Delivery::Chunked { .. } => {
+                payload_chunk_counts.push(payload.data.total_chunks());
+                continue;
+            }
+        };
+
+        if chunking::needs_chunking(&payload_data) {
+            let (ixs, pdas) = chunking::chunk_payload(&chunk_ctx, p_idx, &payload_data)?;
             let chunk_count = u8::try_from(ixs.len())
                 .map_err(|_| eyre::eyre!("payload chunk count exceeds u8::MAX"))?;
-            payload_metas[payload_idx].total_chunks = chunk_count;
+            payload.data = mercury_solana::ibc_types::Delivery::Chunked {
+                total_chunks: chunk_count,
+            };
             payload_chunk_counts.push(chunk_count);
             for pda in &pdas {
                 chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
@@ -152,29 +142,40 @@ fn build_chunked_packet_message(
         }
     }
 
-    let (proof_ixs, proof_pdas) = chunking::chunk_proof(&chunk_ctx, proof_bytes)?;
-    let proof_chunk_count = u8::try_from(proof_ixs.len())
-        .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
-    for pda in &proof_pdas {
-        chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
-    }
-    for ix in proof_ixs {
-        chunk_messages.push(SolanaMessage {
-            instructions: vec![ix],
-        });
+    let proof_needs_chunking = chunking::needs_chunking(proof_bytes);
+    let mut proof_chunk_count = 0u8;
+
+    if proof_needs_chunking {
+        let (proof_ixs, proof_pdas) = chunking::chunk_proof(&chunk_ctx, proof_bytes)?;
+        proof_chunk_count = u8::try_from(proof_ixs.len())
+            .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
+        for pda in &proof_pdas {
+            chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
+        }
+        for ix in proof_ixs {
+            chunk_messages.push(SolanaMessage {
+                instructions: vec![ix],
+            });
+        }
     }
 
-    let proof_meta = mercury_solana::ibc_types::ProofMetadata {
-        height: proof_height,
-        total_chunks: proof_chunk_count,
+    let proof = if proof_needs_chunking {
+        mercury_solana::ibc_types::MsgProof {
+            height: proof_height,
+            data: mercury_solana::ibc_types::Delivery::Chunked {
+                total_chunks: proof_chunk_count,
+            },
+        }
+    } else {
+        mercury_solana::ibc_types::MsgProof {
+            height: proof_height,
+            data: mercury_solana::ibc_types::Delivery::Inline {
+                data: proof_bytes.to_vec(),
+            },
+        }
     };
 
-    let packet_message = build_packet_ix(
-        ibc_packet,
-        payload_metas,
-        proof_meta,
-        chunk_account_metas.clone(),
-    )?;
+    let packet_message = build_packet_ix(msg_packet, proof, chunk_account_metas.clone())?;
 
     let has_chunks = !chunk_messages.is_empty();
     let cleanup_message = if has_chunks {
@@ -252,7 +253,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
             accounts::resolve_app_program_id(&chain.rpc, dest_port, &chain.ics26_program_id)
                 .await?;
 
-        let (ibc_packet, mut payload_metas) = cosmos_packet_to_ibc_parts(packet);
+        let mut msg_packet = cosmos_packet_to_msg_packet(packet);
         let proof_bytes = &proof.proof_bytes;
         let height_val = proof_height.value();
 
@@ -263,15 +264,13 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                 payer: &payer,
                 client_id: dest_client_id,
                 sequence,
-                ibc_packet: &ibc_packet,
-                payload_metas: &mut payload_metas,
+                msg_packet: &mut msg_packet,
                 proof_bytes,
                 proof_height: height_val,
             },
-            |pkt, metas, proof_meta, chunk_metas| {
+            |pkt, proof_meta, chunk_metas| {
                 let msg = mercury_solana::ibc_types::MsgRecvPacket {
                     packet: pkt.clone(),
-                    payloads: metas.to_vec(),
                     proof: proof_meta,
                 };
                 let params = instructions::PacketParams {
@@ -321,7 +320,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
             accounts::resolve_app_program_id(&chain.rpc, source_port, &chain.ics26_program_id)
                 .await?;
 
-        let (ibc_packet, mut payload_metas) = cosmos_packet_to_ibc_parts(packet);
+        let mut msg_packet = cosmos_packet_to_msg_packet(packet);
         let proof_bytes = &proof.proof_bytes;
         let height_val = proof_height.value();
         let ack_bytes = ack.0.clone();
@@ -333,15 +332,13 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                 payer: &payer,
                 client_id: source_client_id,
                 sequence,
-                ibc_packet: &ibc_packet,
-                payload_metas: &mut payload_metas,
+                msg_packet: &mut msg_packet,
                 proof_bytes,
                 proof_height: height_val,
             },
-            |pkt, metas, proof_meta, chunk_metas| {
+            |pkt, proof_meta, chunk_metas| {
                 let msg = mercury_solana::ibc_types::MsgAckPacket {
                     packet: pkt.clone(),
-                    payloads: metas.to_vec(),
                     acknowledgement: ack_bytes.clone(),
                     proof: proof_meta,
                 };
@@ -391,7 +388,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
             accounts::resolve_app_program_id(&chain.rpc, source_port, &chain.ics26_program_id)
                 .await?;
 
-        let (ibc_packet, mut payload_metas) = packet.to_ibc_parts();
+        let mut msg_packet = packet.to_msg_packet();
         let proof_bytes = &proof.proof_bytes;
         let height_val = proof_height.value();
 
@@ -402,15 +399,13 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                 payer: &payer,
                 client_id: source_client_id,
                 sequence,
-                ibc_packet: &ibc_packet,
-                payload_metas: &mut payload_metas,
+                msg_packet: &mut msg_packet,
                 proof_bytes,
                 proof_height: height_val,
             },
-            |pkt, metas, proof_meta, chunk_metas| {
+            |pkt, proof_meta, chunk_metas| {
                 let msg = mercury_solana::ibc_types::MsgTimeoutPacket {
                     packet: pkt.clone(),
-                    payloads: metas.to_vec(),
                     proof: proof_meta,
                 };
                 let params = instructions::PacketParams {

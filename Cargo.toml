@@ -134,14 +134,14 @@ reqwest = { version = "0.12", default-features = false, features = [
   "charset",
 ] }
 base64 = "0.22"
-ethereum-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
-ethereum-apis = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
-ethereum-light-client = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
-sp1-ics07-tendermint-prover = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee" }
+ethereum-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "cf652f3b09f532ef54a06469e617e50136be5637" }
+ethereum-apis = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "cf652f3b09f532ef54a06469e617e50136be5637" }
+ethereum-light-client = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "cf652f3b09f532ef54a06469e617e50136be5637" }
+sp1-ics07-tendermint-prover = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "cf652f3b09f532ef54a06469e617e50136be5637" }
 ibc-proto-eureka = { package = "ibc-proto", version = "0.51", default-features = false }
 sp1-sdk = { version = "5.0", default-features = false, features = ["network"] }
 sp1-prover = { version = "5.0", default-features = false }
-ibc-eureka-solidity-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "86505ac8c69be4e955f8b7d3baafbd0fddaeefee", features = ["rpc"] }
+ibc-eureka-solidity-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "cf652f3b09f532ef54a06469e617e50136be5637", features = ["rpc"] }
 governor = "0.10.4"
 opentelemetry = { version = "0.31", features = ["metrics"] }
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "metrics", "trace", "spec_unstable_metrics_views"] }

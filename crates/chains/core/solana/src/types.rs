@@ -120,16 +120,28 @@ pub struct SolanaUpdateClientPayload {
 }
 
 impl SolanaPacket {
-    pub fn to_ibc_parts(&self) -> (ibc_types::Packet, Vec<ibc_types::PayloadMetadata>) {
-        let packet = ibc_types::Packet {
+    /// Convert to on-chain `MsgPacket` with inline delivery.
+    #[must_use]
+    pub fn to_msg_packet(&self) -> ibc_types::MsgPacket {
+        ibc_types::MsgPacket {
             sequence: self.sequence.0,
             source_client: self.source_client_id.clone(),
             dest_client: self.dest_client_id.clone(),
             timeout_timestamp: self.timeout_timestamp.0,
-            payloads: self.payloads.iter().cloned().map(Into::into).collect(),
-        };
-        let metas = self.payloads.iter().map(Into::into).collect();
-        (packet, metas)
+            payloads: self
+                .payloads
+                .iter()
+                .map(|p| ibc_types::MsgPayload {
+                    source_port: p.source_port.0.clone(),
+                    dest_port: p.dest_port.0.clone(),
+                    version: p.version.clone(),
+                    encoding: p.encoding.clone(),
+                    data: ibc_types::Delivery::Inline {
+                        data: p.data.clone(),
+                    },
+                })
+                .collect(),
+        }
     }
 }
 
@@ -157,24 +169,12 @@ impl From<SolanaPayload> for ibc_types::Payload {
     }
 }
 
-impl From<&SolanaPayload> for ibc_types::PayloadMetadata {
-    fn from(p: &SolanaPayload) -> Self {
-        Self {
-            source_port: p.source_port.0.clone(),
-            dest_port: p.dest_port.0.clone(),
-            version: p.version.clone(),
-            encoding: p.encoding.clone(),
-            total_chunks: 0,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn solana_packet_to_ibc_packet() {
+    fn solana_packet_to_msg_packet() {
         let packet = SolanaPacket {
             source_client_id: "07-tendermint-0".into(),
             dest_client_id: "07-tendermint-1".into(),
@@ -188,9 +188,12 @@ mod tests {
                 data: vec![1, 2, 3],
             }],
         };
-        let ibc: ibc_types::Packet = packet.into();
-        assert_eq!(ibc.sequence, 1);
-        assert_eq!(ibc.source_client, "07-tendermint-0");
-        assert_eq!(ibc.payloads[0].value, vec![1, 2, 3]);
+        let msg = packet.to_msg_packet();
+        assert_eq!(msg.sequence, 1);
+        assert_eq!(msg.source_client, "07-tendermint-0");
+        match &msg.payloads[0].data {
+            ibc_types::Delivery::Inline { data } => assert_eq!(data, &[1, 2, 3]),
+            _ => panic!("expected inline delivery"),
+        }
     }
 }

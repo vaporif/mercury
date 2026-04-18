@@ -19,8 +19,8 @@ use solana_sdk::signer::Signer;
 use solana_sdk::signer::keypair::Keypair;
 
 use crate::accounts::{
-    self, Ics07Tendermint, Ics26Router, OnChainClientSequence, OnChainClientState,
-    OnChainCommitment, deserialize_anchor_account, fetch_account, resolve_ics07_program_id,
+    self, Ics07Tendermint, Ics26Router, OnChainClientState, OnChainCommitment,
+    deserialize_anchor_account, fetch_account, resolve_ics07_program_id,
 };
 use crate::config::SolanaChainConfig;
 use crate::events;
@@ -91,16 +91,20 @@ impl SolanaChain {
         client_id: &SolanaClientId,
         pda_fn: impl Fn(&str, u64, &Pubkey) -> (Pubkey, u8),
     ) -> Result<Vec<PacketSequence>> {
-        let (seq_pda, _) = Ics26Router::client_sequence_pda(&client_id.0, &self.ics26_program_id);
-        let seq: OnChainClientSequence = fetch_account(&self.rpc, &seq_pda)
-            .await?
-            .ok_or_else(|| eyre::eyre!("client sequence PDA not found for {client_id}"))?;
-
+        const MAX_CONSECUTIVE_MISSES: u32 = 10;
         let mut sequences = Vec::new();
-        for s in 1..seq.next_sequence_send {
+        let mut consecutive_misses = 0u32;
+
+        for s in 1.. {
             let (pda, _) = pda_fn(&client_id.0, s, &self.ics26_program_id);
             if self.rpc.get_account(&pda).await?.is_some() {
                 sequences.push(PacketSequence(s));
+                consecutive_misses = 0;
+            } else {
+                consecutive_misses += 1;
+                if consecutive_misses >= MAX_CONSECUTIVE_MISSES {
+                    break;
+                }
             }
         }
         Ok(sequences)
@@ -542,14 +546,13 @@ impl PacketMessageBuilder<Self> for SolanaChain {
         let app_program =
             accounts::resolve_app_program_id(&self.rpc, dest_port, &self.ics26_program_id).await?;
 
-        let (ibc_packet, payload_metas) = packet.to_ibc_parts();
+        let msg_packet = packet.to_msg_packet();
 
         let msg = crate::ibc_types::MsgRecvPacket {
-            packet: ibc_packet,
-            payloads: payload_metas,
-            proof: crate::ibc_types::ProofMetadata {
+            packet: msg_packet,
+            proof: crate::ibc_types::MsgProof {
                 height: proof_height.0,
-                total_chunks: 0,
+                data: crate::ibc_types::Delivery::Inline { data: vec![] },
             },
         };
 
@@ -561,7 +564,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             sequence,
             ics07_program_id: &ics07,
             consensus_height: proof_height.0,
-            access_manager_program_id: &router.access_manager,
+            access_manager_program_id: &router.am_state.access_manager,
             app_program_id: &app_program,
         };
         let ix = crate::instructions::recv_packet(&params, &msg, vec![])?;
@@ -598,15 +601,14 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             accounts::resolve_app_program_id(&self.rpc, source_port, &self.ics26_program_id)
                 .await?;
 
-        let (ibc_packet, payload_metas) = packet.to_ibc_parts();
+        let msg_packet = packet.to_msg_packet();
 
         let msg = crate::ibc_types::MsgAckPacket {
-            packet: ibc_packet,
-            payloads: payload_metas,
+            packet: msg_packet,
             acknowledgement: ack.0.clone(),
-            proof: crate::ibc_types::ProofMetadata {
+            proof: crate::ibc_types::MsgProof {
                 height: proof_height.0,
-                total_chunks: 0,
+                data: crate::ibc_types::Delivery::Inline { data: vec![] },
             },
         };
 
@@ -618,7 +620,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             sequence,
             ics07_program_id: &ics07,
             consensus_height: proof_height.0,
-            access_manager_program_id: &router.access_manager,
+            access_manager_program_id: &router.am_state.access_manager,
             app_program_id: &app_program,
         };
         let ix = crate::instructions::ack_packet(&params, &msg, vec![])?;
@@ -654,14 +656,13 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             accounts::resolve_app_program_id(&self.rpc, source_port, &self.ics26_program_id)
                 .await?;
 
-        let (ibc_packet, payload_metas) = packet.to_ibc_parts();
+        let msg_packet = packet.to_msg_packet();
 
         let msg = crate::ibc_types::MsgTimeoutPacket {
-            packet: ibc_packet,
-            payloads: payload_metas,
-            proof: crate::ibc_types::ProofMetadata {
+            packet: msg_packet,
+            proof: crate::ibc_types::MsgProof {
                 height: proof_height.0,
-                total_chunks: 0,
+                data: crate::ibc_types::Delivery::Inline { data: vec![] },
             },
         };
 
@@ -673,7 +674,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             sequence,
             ics07_program_id: &ics07,
             consensus_height: proof_height.0,
-            access_manager_program_id: &router.access_manager,
+            access_manager_program_id: &router.am_state.access_manager,
             app_program_id: &app_program,
         };
         let ix = crate::instructions::timeout_packet(&params, &msg, vec![])?;

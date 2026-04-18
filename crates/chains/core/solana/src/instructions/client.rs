@@ -29,7 +29,6 @@ pub fn add_client(
     let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
     let (access_manager, _) = AccessManager::pda(access_manager_program_id);
     let (client, _) = Ics26Router::client_pda(client_id, ics26_program_id);
-    let (client_sequence, _) = Ics26Router::client_sequence_pda(client_id, ics26_program_id);
 
     Ok(Instruction {
         program_id: *ics26_program_id,
@@ -38,7 +37,6 @@ pub fn add_client(
             AccountMeta::new_readonly(router_state, false),
             AccountMeta::new_readonly(access_manager, false),
             AccountMeta::new(client, false),
-            AccountMeta::new(client_sequence, false),
             AccountMeta::new_readonly(*ics07_program_id, false),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
             AccountMeta::new_readonly(sysvar::instructions::ID, false),
