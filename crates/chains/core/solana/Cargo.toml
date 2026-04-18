@@ -43,6 +43,9 @@ solana-transaction = { workspace = true }
 ibc-client-tendermint = { workspace = true, optional = true }
 tendermint = { workspace = true, optional = true }
 
+[dev-dependencies]
+ibc-core-client-types = { workspace = true }
+
 [features]
 default = []
 cosmos = ["dep:ibc-client-tendermint", "dep:tendermint"]

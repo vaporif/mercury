@@ -6151,6 +6151,7 @@ dependencies = [
  "borsh",
  "eyre",
  "ibc-client-tendermint",
+ "ibc-core-client-types",
  "mercury-chain-traits",
  "mercury-core",
  "serde",

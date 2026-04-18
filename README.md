@@ -11,7 +11,7 @@
 
 An IBC v2 relayer in Rust. Plain traits, no frameworks.
 
-Mercury moves packets between IBC-connected blockchains, even when the chains are completely different types. Cosmos↔Cosmos works today. Cosmos→EVM is in progress.
+Mercury moves packets between IBC-connected blockchains, even when the chains are completely different types. Cosmos↔Cosmos, Cosmos↔EVM, and Cosmos↔Solana all work today.
 
 [Hermes](https://github.com/informalsystems/hermes) handles Cosmos/Tendermint chains with a sync architecture. [hermes-sdk](https://github.com/informalsystems/hermes-sdk) gets the cross-chain abstraction right but buries it under 250+ component traits. Mercury keeps the same insight with less machinery: ~21 plain Rust traits, an adapter pattern for orphan rules, and all relay logic shared across chain pairs.
 
@@ -19,7 +19,16 @@ Adding a new chain doesn't touch Mercury's core. Chain support goes in independe
 
 ## Status
 
-Early development. Cosmos↔Cosmos/EVM packet relay works in E2E tests. Solana in progress. Not tested against live chains yet, so use at your own risk.
+Early development. Not tested against live chains yet, so use at your own risk. Core implementation complete for all chains.
+
+| Feature | Cosmos↔Cosmos | Cosmos↔EVM | Cosmos↔Solana |
+|---------|:---:|:---:|:---:|
+| Basic transfer | E2E | E2E | E2E |
+| Bidirectional transfer | E2E | E2E | Untested |
+| Packet timeout | E2E | Untested | Untested |
+| Near-expiry packet timeout | E2E | Untested | Untested |
+| Client refresh | E2E | Untested | Untested |
+| Concurrent transfers | E2E | Untested | Untested |
 
 ## How it works
 
