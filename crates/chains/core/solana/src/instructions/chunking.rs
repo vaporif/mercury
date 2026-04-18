@@ -2,7 +2,7 @@ use borsh::BorshSerialize;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
 
-use crate::accounts::{self, Ics26Router};
+use crate::accounts::{self, AccessManager, Ics26Router};
 
 pub const CHUNK_DATA_SIZE: usize = 900;
 
@@ -33,6 +33,7 @@ pub fn upload_payload_chunk(
     payload_index: u8,
     chunk_index: u8,
     chunk_data: Vec<u8>,
+    access_manager_program_id: &Pubkey,
 ) -> eyre::Result<Instruction> {
     let args = UploadPayloadChunkArgs {
         client_id: client_id.to_string(),
@@ -43,6 +44,8 @@ pub fn upload_payload_chunk(
     };
     let data = accounts::encode_anchor_instruction("upload_payload_chunk", &args)?;
 
+    let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
+    let (access_manager, _) = AccessManager::pda(access_manager_program_id);
     let (payload_chunk, _) = Ics26Router::payload_chunk_pda(
         payer,
         client_id,
@@ -55,9 +58,12 @@ pub fn upload_payload_chunk(
     Ok(Instruction {
         program_id: *ics26_program_id,
         accounts: vec![
+            AccountMeta::new_readonly(router_state, false),
+            AccountMeta::new_readonly(access_manager, false),
             AccountMeta::new(payload_chunk, false),
             AccountMeta::new(*payer, true),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+            AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
         ],
         data,
     })
@@ -67,6 +73,7 @@ pub fn upload_payload_chunk(
 struct UploadProofChunkArgs {
     client_id: String,
     sequence: u64,
+    payload_index: u8,
     chunk_index: u8,
     chunk_data: Vec<u8>,
 }
@@ -78,24 +85,31 @@ pub fn upload_proof_chunk(
     sequence: u64,
     chunk_index: u8,
     chunk_data: Vec<u8>,
+    access_manager_program_id: &Pubkey,
 ) -> eyre::Result<Instruction> {
     let args = UploadProofChunkArgs {
         client_id: client_id.to_string(),
         sequence,
+        payload_index: 0,
         chunk_index,
         chunk_data,
     };
     let data = accounts::encode_anchor_instruction("upload_proof_chunk", &args)?;
 
+    let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
+    let (access_manager, _) = AccessManager::pda(access_manager_program_id);
     let (proof_chunk, _) =
         Ics26Router::proof_chunk_pda(payer, client_id, sequence, chunk_index, ics26_program_id);
 
     Ok(Instruction {
         program_id: *ics26_program_id,
         accounts: vec![
+            AccountMeta::new_readonly(router_state, false),
+            AccountMeta::new_readonly(access_manager, false),
             AccountMeta::new(proof_chunk, false),
             AccountMeta::new(*payer, true),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+            AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
         ],
         data,
     })
@@ -108,6 +122,7 @@ pub fn chunk_payload(
     sequence: u64,
     payload_index: u8,
     payload_data: &[u8],
+    access_manager_program_id: &Pubkey,
 ) -> eyre::Result<(Vec<Instruction>, Vec<Pubkey>)> {
     let chunks = chunk_data(payload_data);
     let mut instructions = Vec::with_capacity(chunks.len());
@@ -133,6 +148,7 @@ pub fn chunk_payload(
             payload_index,
             chunk_index,
             chunk,
+            access_manager_program_id,
         )?);
     }
 
@@ -145,6 +161,7 @@ pub fn chunk_proof(
     client_id: &str,
     sequence: u64,
     proof_data: &[u8],
+    access_manager_program_id: &Pubkey,
 ) -> eyre::Result<(Vec<Instruction>, Vec<Pubkey>)> {
     let chunks = chunk_data(proof_data);
     let mut instructions = Vec::with_capacity(chunks.len());
@@ -163,6 +180,7 @@ pub fn chunk_proof(
             sequence,
             chunk_index,
             chunk,
+            access_manager_program_id,
         )?);
     }
 

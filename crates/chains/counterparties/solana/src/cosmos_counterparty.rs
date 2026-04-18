@@ -86,6 +86,7 @@ struct ChunkedPacketOutput {
 
 struct ChunkedPacketParams<'a> {
     ics26_program_id: &'a solana_sdk::pubkey::Pubkey,
+    access_manager_program_id: &'a solana_sdk::pubkey::Pubkey,
     payer: &'a solana_sdk::pubkey::Pubkey,
     client_id: &'a str,
     sequence: u64,
@@ -105,6 +106,7 @@ fn build_chunked_packet_message(
 ) -> eyre::Result<ChunkedPacketOutput> {
     let ChunkedPacketParams {
         ics26_program_id,
+        access_manager_program_id,
         payer,
         client_id,
         sequence,
@@ -128,6 +130,7 @@ fn build_chunked_packet_message(
                 sequence,
                 p_idx,
                 &payload.value,
+                access_manager_program_id,
             )?;
             let chunk_count = u8::try_from(ixs.len())
                 .map_err(|_| eyre::eyre!("payload chunk count exceeds u8::MAX"))?;
@@ -144,7 +147,7 @@ fn build_chunked_packet_message(
     }
 
     let (proof_ixs, _proof_pdas) =
-        chunking::chunk_proof(ics26_program_id, payer, client_id, sequence, proof_bytes)?;
+        chunking::chunk_proof(ics26_program_id, payer, client_id, sequence, proof_bytes, access_manager_program_id)?;
     let proof_chunk_count = u8::try_from(proof_ixs.len())
         .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
     for ix in proof_ixs {
@@ -264,6 +267,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
         let output = build_chunked_packet_message(
             ChunkedPacketParams {
                 ics26_program_id: &chain.ics26_program_id,
+                access_manager_program_id: &access_mgr,
                 payer: &payer,
                 client_id: dest_client_id,
                 sequence,
@@ -333,6 +337,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
         let output = build_chunked_packet_message(
             ChunkedPacketParams {
                 ics26_program_id: &chain.ics26_program_id,
+                access_manager_program_id: &access_mgr,
                 payer: &payer,
                 client_id: source_client_id,
                 sequence,
@@ -401,6 +406,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
         let output = build_chunked_packet_message(
             ChunkedPacketParams {
                 ics26_program_id: &chain.ics26_program_id,
+                access_manager_program_id: &access_mgr,
                 payer: &payer,
                 client_id: source_client_id,
                 sequence,
