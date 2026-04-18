@@ -3692,7 +3692,7 @@ dependencies = [
 [[package]]
 name = "ethereum-apis"
 version = "0.1.0"
-source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=86505ac8c69be4e955f8b7d3baafbd0fddaeefee#86505ac8c69be4e955f8b7d3baafbd0fddaeefee"
+source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=cf652f3b09f532ef54a06469e617e50136be5637#cf652f3b09f532ef54a06469e617e50136be5637"
 dependencies = [
  "alloy",
  "ethereum-types",
@@ -3706,7 +3706,7 @@ dependencies = [
 [[package]]
 name = "ethereum-light-client"
 version = "0.1.0"
-source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=86505ac8c69be4e955f8b7d3baafbd0fddaeefee#86505ac8c69be4e955f8b7d3baafbd0fddaeefee"
+source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=cf652f3b09f532ef54a06469e617e50136be5637#cf652f3b09f532ef54a06469e617e50136be5637"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -3724,7 +3724,7 @@ dependencies = [
 [[package]]
 name = "ethereum-trie-db"
 version = "0.1.0"
-source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=86505ac8c69be4e955f8b7d3baafbd0fddaeefee#86505ac8c69be4e955f8b7d3baafbd0fddaeefee"
+source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=cf652f3b09f532ef54a06469e617e50136be5637#cf652f3b09f532ef54a06469e617e50136be5637"
 dependencies = [
  "alloy-primitives",
  "hash-db",
@@ -3742,7 +3742,7 @@ dependencies = [
 [[package]]
 name = "ethereum-types"
 version = "0.1.0"
-source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=86505ac8c69be4e955f8b7d3baafbd0fddaeefee#86505ac8c69be4e955f8b7d3baafbd0fddaeefee"
+source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=cf652f3b09f532ef54a06469e617e50136be5637#cf652f3b09f532ef54a06469e617e50136be5637"
 dependencies = [
  "alloy-primitives",
  "schemars 0.8.22",
@@ -5117,7 +5117,7 @@ dependencies = [
 [[package]]
 name = "ibc-eureka-solidity-types"
 version = "0.1.0"
-source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=86505ac8c69be4e955f8b7d3baafbd0fddaeefee#86505ac8c69be4e955f8b7d3baafbd0fddaeefee"
+source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=cf652f3b09f532ef54a06469e617e50136be5637#cf652f3b09f532ef54a06469e617e50136be5637"
 dependencies = [
  "alloy-contract",
  "alloy-primitives",
@@ -6034,6 +6034,7 @@ dependencies = [
  "sha2 0.10.9",
  "solana-client",
  "solana-commitment-config",
+ "solana-loader-v3-interface",
  "solana-sdk",
  "solana-system-interface 3.1.0",
  "sp1-ics07-tendermint-prover",
@@ -6150,6 +6151,7 @@ dependencies = [
  "borsh",
  "eyre",
  "ibc-client-tendermint",
+ "ibc-core-client-types",
  "mercury-chain-traits",
  "mercury-core",
  "serde",
@@ -6159,6 +6161,7 @@ dependencies = [
  "solana-client",
  "solana-commitment-config",
  "solana-compute-budget-interface",
+ "solana-loader-v3-interface",
  "solana-message",
  "solana-sdk",
  "solana-system-interface 3.1.0",
@@ -10960,7 +10963,7 @@ dependencies = [
 [[package]]
 name = "sp1-ics07-tendermint-prover"
 version = "0.1.0"
-source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=86505ac8c69be4e955f8b7d3baafbd0fddaeefee#86505ac8c69be4e955f8b7d3baafbd0fddaeefee"
+source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=cf652f3b09f532ef54a06469e617e50136be5637#cf652f3b09f532ef54a06469e617e50136be5637"
 dependencies = [
  "alloy-sol-types",
  "ibc-core-commitment-types",
@@ -11856,7 +11859,7 @@ dependencies = [
 [[package]]
 name = "tendermint-light-client-update-client"
 version = "0.1.0"
-source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=86505ac8c69be4e955f8b7d3baafbd0fddaeefee#86505ac8c69be4e955f8b7d3baafbd0fddaeefee"
+source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=cf652f3b09f532ef54a06469e617e50136be5637#cf652f3b09f532ef54a06469e617e50136be5637"
 dependencies = [
  "ibc-client-tendermint",
  "ibc-core-client",
@@ -12591,7 +12594,7 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.1.0"
-source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=86505ac8c69be4e955f8b7d3baafbd0fddaeefee#86505ac8c69be4e955f8b7d3baafbd0fddaeefee"
+source = "git+https://github.com/cosmos/solidity-ibc-eureka?rev=cf652f3b09f532ef54a06469e617e50136be5637#cf652f3b09f532ef54a06469e617e50136be5637"
 dependencies = [
  "alloy-primitives",
  "sha2 0.10.9",

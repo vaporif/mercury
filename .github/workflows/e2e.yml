@@ -87,8 +87,8 @@ jobs:
       - name: Install SP1 toolchain
         if: steps.sp1-cache.outputs.cache-hit != 'true'
         run: |
-          curl -L https://sp1.succinct.xyz | bash
-          ~/.sp1/bin/sp1up --version 5.2.4
+          curl -L --retry 3 --retry-delay 5 https://sp1.succinct.xyz | bash
+          for i in 1 2 3; do ~/.sp1/bin/sp1up --version 5.2.4 && break || sleep 5; done
 
       - name: Add SP1 to PATH
         run: echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
@@ -99,7 +99,7 @@ jobs:
           key: bun-${{ hashFiles('external/solidity-ibc-eureka/bun.lock') }}
 
       - name: Install Solidity dependencies
-        run: bun install --frozen-lockfile
+        run: for i in 1 2 3; do bun install --frozen-lockfile && break || sleep 5; done
         working-directory: external/solidity-ibc-eureka
 
       - name: Build SP1 programs
@@ -110,7 +110,7 @@ jobs:
 
       - name: Install binaryen (wasm-opt)
         run: |
-          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/version_126/binaryen-version_126-x86_64-linux.tar.gz \
+          curl -fsSL --retry 3 --retry-delay 5 https://github.com/WebAssembly/binaryen/releases/download/version_126/binaryen-version_126-x86_64-linux.tar.gz \
             | sudo tar -xz -C /usr/local --strip-components=1
 
       - name: Build mock WASM light client
@@ -149,6 +149,7 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build-solana:
+    name: Build Solana
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

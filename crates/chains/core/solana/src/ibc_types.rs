@@ -1,6 +1,46 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+pub enum Delivery {
+    Inline { data: Vec<u8> },
+    Chunked { total_chunks: u8 },
+}
+
+impl Delivery {
+    #[must_use]
+    pub const fn total_chunks(&self) -> u8 {
+        match self {
+            Self::Inline { .. } => 0,
+            Self::Chunked { total_chunks } => *total_chunks,
+        }
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+pub struct MsgPayload {
+    pub source_port: String,
+    pub dest_port: String,
+    pub version: String,
+    pub encoding: String,
+    pub data: Delivery,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+pub struct MsgProof {
+    pub height: u64,
+    pub data: Delivery,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+pub struct MsgPacket {
+    pub sequence: u64,
+    pub source_client: String,
+    pub dest_client: String,
+    pub timeout_timestamp: u64,
+    pub payloads: Vec<MsgPayload>,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
 pub struct Packet {
     pub sequence: u64,
     pub source_client: String,
@@ -19,40 +59,22 @@ pub struct Payload {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
-pub struct PayloadMetadata {
-    pub source_port: String,
-    pub dest_port: String,
-    pub version: String,
-    pub encoding: String,
-    pub total_chunks: u8,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
-pub struct ProofMetadata {
-    pub height: u64,
-    pub total_chunks: u8,
-}
-
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
 pub struct MsgRecvPacket {
-    pub packet: Packet,
-    pub payloads: Vec<PayloadMetadata>,
-    pub proof: ProofMetadata,
+    pub packet: MsgPacket,
+    pub proof: MsgProof,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
 pub struct MsgAckPacket {
-    pub packet: Packet,
-    pub payloads: Vec<PayloadMetadata>,
+    pub packet: MsgPacket,
     pub acknowledgement: Vec<u8>,
-    pub proof: ProofMetadata,
+    pub proof: MsgProof,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
 pub struct MsgTimeoutPacket {
-    pub packet: Packet,
-    pub payloads: Vec<PayloadMetadata>,
-    pub proof: ProofMetadata,
+    pub packet: MsgPacket,
+    pub proof: MsgProof,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
@@ -101,29 +123,26 @@ mod tests {
     #[test]
     fn msg_recv_packet_round_trip() {
         let msg = MsgRecvPacket {
-            packet: Packet {
+            packet: MsgPacket {
                 sequence: 1,
                 source_client: "07-tendermint-0".into(),
                 dest_client: "07-tendermint-1".into(),
                 timeout_timestamp: 1_000_000,
-                payloads: vec![Payload {
+                payloads: vec![MsgPayload {
                     source_port: "transfer".into(),
                     dest_port: "transfer".into(),
                     version: "ics20-1".into(),
                     encoding: "proto3".into(),
-                    value: vec![1, 2, 3],
+                    data: Delivery::Inline {
+                        data: vec![1, 2, 3],
+                    },
                 }],
             },
-            payloads: vec![PayloadMetadata {
-                source_port: "transfer".into(),
-                dest_port: "transfer".into(),
-                version: "ics20-1".into(),
-                encoding: "proto3".into(),
-                total_chunks: 0,
-            }],
-            proof: ProofMetadata {
+            proof: MsgProof {
                 height: 100,
-                total_chunks: 0,
+                data: Delivery::Inline {
+                    data: vec![4, 5, 6],
+                },
             },
         };
         let bytes = borsh::to_vec(&msg).unwrap();

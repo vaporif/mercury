@@ -305,3 +305,270 @@ fn validator_to_borsh(v: &ValidatorInfo) -> BorshValidator {
         proposer_priority: v.proposer_priority.value(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ibc_client_tendermint::types::Header;
+    use ibc_core_client_types::Height as IbcHeight;
+    use tendermint::Time;
+    use tendermint::account::Id as AccountId;
+    use tendermint::block::header::Version;
+    use tendermint::block::parts::Header as PartSetHeader;
+    use tendermint::block::{Height, Round};
+    use tendermint::chain::Id as ChainId;
+    use tendermint::hash::{Algorithm, Hash};
+
+    fn make_validator(key_byte: u8, power: u32) -> ValidatorInfo {
+        let pk = PublicKey::from_raw_ed25519(&[key_byte; 32]).unwrap();
+        ValidatorInfo {
+            address: AccountId::from(pk),
+            pub_key: pk,
+            power: power.into(),
+            name: None,
+            proposer_priority: 0.into(),
+        }
+    }
+
+    fn make_time() -> Time {
+        Time::from_unix_timestamp(1_700_000_000, 123_456_789).unwrap()
+    }
+
+    fn make_hash(byte: u8) -> Hash {
+        Hash::from_bytes(Algorithm::Sha256, &[byte; 32]).unwrap()
+    }
+
+    fn make_block_id() -> BlockId {
+        BlockId {
+            hash: make_hash(0xAA),
+            part_set_header: PartSetHeader::new(42, make_hash(0xBB)).unwrap(),
+        }
+    }
+
+    fn make_commit_sig(key_byte: u8, flag: &str) -> CommitSig {
+        let pk = PublicKey::from_raw_ed25519(&[key_byte; 32]).unwrap();
+        let addr = AccountId::from(pk);
+        let sig_bytes: [u8; 64] = [key_byte; 64];
+        let sig = tendermint::Signature::try_from(sig_bytes.as_slice()).unwrap();
+        match flag {
+            "commit" => CommitSig::BlockIdFlagCommit {
+                validator_address: addr,
+                timestamp: make_time(),
+                signature: Some(sig),
+            },
+            "nil" => CommitSig::BlockIdFlagNil {
+                validator_address: addr,
+                timestamp: make_time(),
+                signature: Some(sig),
+            },
+            _ => CommitSig::BlockIdFlagAbsent,
+        }
+    }
+
+    fn make_tm_header(proposer: &ValidatorInfo) -> TmHeader {
+        TmHeader {
+            version: Version { block: 11, app: 1 },
+            chain_id: ChainId::try_from("test-chain-1".to_string()).unwrap(),
+            height: Height::try_from(100u64).unwrap(),
+            time: make_time(),
+            last_block_id: Some(make_block_id()),
+            last_commit_hash: Some(make_hash(0x01)),
+            data_hash: Some(make_hash(0x02)),
+            validators_hash: make_hash(0x03),
+            next_validators_hash: make_hash(0x04),
+            consensus_hash: make_hash(0x05),
+            app_hash: vec![0x06; 32].try_into().unwrap(),
+            last_results_hash: Some(make_hash(0x07)),
+            evidence_hash: Some(make_hash(0x08)),
+            proposer_address: proposer.address,
+        }
+    }
+
+    fn make_commit(sigs: Vec<CommitSig>) -> Commit {
+        Commit {
+            height: Height::try_from(100u64).unwrap(),
+            round: Round::try_from(1u16).unwrap(),
+            block_id: make_block_id(),
+            signatures: sigs,
+        }
+    }
+
+    fn make_full_header() -> Header {
+        let v1 = make_validator(1, 10);
+        let v2 = make_validator(2, 20);
+        let v3 = make_validator(3, 30);
+
+        let validator_set =
+            ValidatorSet::new(vec![v1.clone(), v2.clone(), v3.clone()], Some(v1.clone()));
+        let trusted_set = ValidatorSet::new(vec![v1.clone(), v2.clone()], Some(v1.clone()));
+
+        let tm_header = make_tm_header(&v1);
+        let commit = make_commit(vec![
+            make_commit_sig(3, "commit"),
+            make_commit_sig(0, "absent"),
+            make_commit_sig(1, "commit"),
+        ]);
+
+        let signed_header = SignedHeader::new(tm_header, commit).unwrap();
+
+        Header {
+            signed_header,
+            validator_set,
+            trusted_height: IbcHeight::new(0, 99).unwrap(),
+            trusted_next_validator_set: trusted_set,
+        }
+    }
+
+    #[test]
+    fn full_header_serializes() {
+        let header = make_full_header();
+        let borsh = header_to_borsh(header);
+        let bytes = borsh::to_vec(&borsh).unwrap();
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn serialization_is_deterministic() {
+        let bytes1 = borsh::to_vec(&header_to_borsh(make_full_header())).unwrap();
+        let bytes2 = borsh::to_vec(&header_to_borsh(make_full_header())).unwrap();
+        assert_eq!(bytes1, bytes2);
+    }
+
+    #[test]
+    fn commit_sig_sorting_absent_comes_first() {
+        let sigs = vec![
+            make_commit_sig(5, "commit"),
+            make_commit_sig(0, "absent"),
+            make_commit_sig(1, "commit"),
+        ];
+        let borsh_commit = commit_to_borsh(make_commit(sigs));
+
+        assert!(matches!(
+            borsh_commit.signatures[0],
+            BorshCommitSig::BlockIdFlagAbsent
+        ));
+    }
+
+    #[test]
+    fn commit_sig_sorting_by_address() {
+        let sigs = vec![
+            make_commit_sig(5, "commit"),
+            make_commit_sig(1, "commit"),
+            make_commit_sig(3, "commit"),
+        ];
+        let borsh_commit = commit_to_borsh(make_commit(sigs));
+
+        let addresses: Vec<[u8; 20]> = borsh_commit
+            .signatures
+            .iter()
+            .map(|s| match s {
+                BorshCommitSig::BlockIdFlagCommit {
+                    validator_address, ..
+                } => *validator_address,
+                _ => unreachable!(),
+            })
+            .collect();
+
+        for pair in addresses.windows(2) {
+            assert!(pair[0] <= pair[1]);
+        }
+    }
+
+    #[test]
+    fn commit_sig_sorting_mixed_commit_and_nil() {
+        let sigs = vec![
+            make_commit_sig(5, "nil"),
+            make_commit_sig(0, "absent"),
+            make_commit_sig(1, "commit"),
+            make_commit_sig(0, "absent"),
+            make_commit_sig(3, "nil"),
+        ];
+        let borsh_commit = commit_to_borsh(make_commit(sigs));
+
+        let absent_count = borsh_commit
+            .signatures
+            .iter()
+            .take_while(|s| matches!(s, BorshCommitSig::BlockIdFlagAbsent))
+            .count();
+        assert_eq!(absent_count, 2);
+
+        let addresses: Vec<[u8; 20]> = borsh_commit.signatures[absent_count..]
+            .iter()
+            .map(|s| match s {
+                BorshCommitSig::BlockIdFlagCommit {
+                    validator_address, ..
+                }
+                | BorshCommitSig::BlockIdFlagNil {
+                    validator_address, ..
+                } => *validator_address,
+                _ => unreachable!(),
+            })
+            .collect();
+
+        for pair in addresses.windows(2) {
+            assert!(pair[0] <= pair[1]);
+        }
+    }
+
+    #[test]
+    fn none_signature_becomes_zeroes() {
+        let pk = PublicKey::from_raw_ed25519(&[42; 32]).unwrap();
+        let sig = CommitSig::BlockIdFlagCommit {
+            validator_address: AccountId::from(pk),
+            timestamp: make_time(),
+            signature: None,
+        };
+        match commit_sig_to_borsh(sig) {
+            BorshCommitSig::BlockIdFlagCommit { signature, .. } => {
+                assert_eq!(signature, [0u8; 64]);
+            }
+            _ => panic!("expected BlockIdFlagCommit"),
+        }
+    }
+
+    #[test]
+    fn header_with_no_optional_fields() {
+        let v1 = make_validator(1, 10);
+        let validator_set = ValidatorSet::new(vec![v1.clone()], Some(v1.clone()));
+
+        let tm_header = TmHeader {
+            version: Version { block: 11, app: 1 },
+            chain_id: ChainId::try_from("test-1".to_string()).unwrap(),
+            height: Height::try_from(1u64).unwrap(),
+            time: make_time(),
+            last_block_id: None,
+            last_commit_hash: None,
+            data_hash: None,
+            validators_hash: make_hash(0x01),
+            next_validators_hash: make_hash(0x02),
+            consensus_hash: make_hash(0x03),
+            app_hash: vec![0x04; 32].try_into().unwrap(),
+            last_results_hash: None,
+            evidence_hash: None,
+            proposer_address: v1.address,
+        };
+        let commit = Commit {
+            height: Height::try_from(1u64).unwrap(),
+            round: Round::try_from(1u16).unwrap(),
+            block_id: make_block_id(),
+            signatures: vec![make_commit_sig(1, "commit")],
+        };
+        let signed_header = SignedHeader::new(tm_header, commit).unwrap();
+
+        let header = Header {
+            signed_header,
+            validator_set: validator_set.clone(),
+            trusted_height: IbcHeight::new(0, 1).unwrap(),
+            trusted_next_validator_set: validator_set,
+        };
+
+        let borsh = header_to_borsh(header);
+        assert!(borsh.signed_header.header.last_block_id.is_none());
+        assert!(borsh.signed_header.header.last_commit_hash.is_none());
+        assert!(borsh.signed_header.header.data_hash.is_none());
+        assert!(borsh.signed_header.header.last_results_hash.is_none());
+        assert!(borsh.signed_header.header.evidence_hash.is_none());
+
+        borsh::to_vec(&borsh).unwrap();
+    }
+}

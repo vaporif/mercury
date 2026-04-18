@@ -52,4 +52,5 @@ solana-sdk = { workspace = true }
 solana-client = { workspace = true }
 solana-commitment-config = { workspace = true }
 solana-system-interface = { workspace = true }
+solana-loader-v3-interface = { workspace = true }
 borsh = { workspace = true }

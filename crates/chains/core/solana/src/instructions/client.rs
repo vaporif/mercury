@@ -29,7 +29,6 @@ pub fn add_client(
     let (router_state, _) = Ics26Router::router_state_pda(ics26_program_id);
     let (access_manager, _) = AccessManager::pda(access_manager_program_id);
     let (client, _) = Ics26Router::client_pda(client_id, ics26_program_id);
-    let (client_sequence, _) = Ics26Router::client_sequence_pda(client_id, ics26_program_id);
 
     Ok(Instruction {
         program_id: *ics26_program_id,
@@ -38,7 +37,6 @@ pub fn add_client(
             AccountMeta::new_readonly(router_state, false),
             AccountMeta::new_readonly(access_manager, false),
             AccountMeta::new(client, false),
-            AccountMeta::new(client_sequence, false),
             AccountMeta::new_readonly(*ics07_program_id, false),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
             AccountMeta::new_readonly(sysvar::instructions::ID, false),
@@ -74,6 +72,7 @@ pub fn initialize_ics07(
         ics07_program_id,
     );
     let (app_state_pda, _) = Ics07Tendermint::app_state_pda(ics07_program_id);
+    let program_data_pda = solana_loader_v3_interface::get_program_data_address(ics07_program_id);
 
     Ok(Instruction {
         program_id: *ics07_program_id,
@@ -83,6 +82,8 @@ pub fn initialize_ics07(
             AccountMeta::new(app_state_pda, false),
             AccountMeta::new(*payer, true),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+            AccountMeta::new_readonly(program_data_pda, false),
+            AccountMeta::new_readonly(*payer, true),
         ],
         data,
     })
