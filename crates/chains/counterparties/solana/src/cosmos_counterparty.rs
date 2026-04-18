@@ -146,8 +146,14 @@ fn build_chunked_packet_message(
         }
     }
 
-    let (proof_ixs, _proof_pdas) =
-        chunking::chunk_proof(ics26_program_id, payer, client_id, sequence, proof_bytes, access_manager_program_id)?;
+    let (proof_ixs, _proof_pdas) = chunking::chunk_proof(
+        ics26_program_id,
+        payer,
+        client_id,
+        sequence,
+        proof_bytes,
+        access_manager_program_id,
+    )?;
     let proof_chunk_count = u8::try_from(proof_ixs.len())
         .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
     for ix in proof_ixs {
