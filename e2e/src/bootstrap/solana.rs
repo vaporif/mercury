@@ -222,9 +222,7 @@ impl SolanaBootstrap {
     }
 
     fn program_data_pda(program_id: &Pubkey) -> Pubkey {
-        let (pda, _) =
-            Pubkey::find_program_address(&[program_id.as_ref()], &solana_loader_v3_interface::ID);
-        pda
+        solana_loader_v3_interface::get_program_data_address(program_id)
     }
 
     fn initialize_programs(&self) -> Result<()> {
