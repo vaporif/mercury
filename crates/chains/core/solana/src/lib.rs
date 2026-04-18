@@ -1,5 +1,7 @@
 pub mod accounts;
 pub mod alt;
+#[cfg(feature = "cosmos")]
+pub mod borsh_header;
 pub mod chain;
 pub mod config;
 pub mod events;

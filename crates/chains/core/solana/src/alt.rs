@@ -7,7 +7,10 @@ use crate::rpc::SolanaRpcClient;
 
 #[must_use]
 pub fn create_alt(payer: &Pubkey, recent_slot: u64) -> (Instruction, Pubkey) {
-    alt_interface::instruction::create_lookup_table(*payer, *payer, recent_slot)
+    let (ix, alt_address) =
+        alt_interface::instruction::create_lookup_table(*payer, *payer, recent_slot);
+    tracing::debug!(%alt_address, recent_slot, %payer, "creating address lookup table");
+    (ix, alt_address)
 }
 
 #[must_use]

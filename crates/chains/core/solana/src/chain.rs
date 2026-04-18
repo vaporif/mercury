@@ -404,11 +404,11 @@ impl PacketEvents for SolanaChain {
 impl MessageSender for SolanaChain {
     async fn send_messages(&self, messages: Vec<SolanaMessage>) -> Result<TxReceipt> {
         let alt_slice = self.alt_cache.as_ref().map(std::slice::from_ref);
-        for msg in messages {
-            let tx_groups = split_into_transaction_groups(msg.instructions);
-            for group in tx_groups {
+        for (i, msg) in messages.iter().enumerate() {
+            let tx_groups = split_into_transaction_groups(msg.instructions.clone());
+            for (j, group) in tx_groups.into_iter().enumerate() {
                 let sig = tx::send_transaction(&self.rpc, &self.keypair, group, alt_slice).await?;
-                tracing::info!(%sig, "solana transaction confirmed");
+                tracing::info!(%sig, message = i, tx_group = j, "solana transaction confirmed");
             }
         }
         Ok(TxReceipt {
@@ -564,7 +564,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             access_manager_program_id: &router.access_manager,
             app_program_id: &app_program,
         };
-        let ix = crate::instructions::recv_packet(&params, &msg)?;
+        let ix = crate::instructions::recv_packet(&params, &msg, vec![])?;
 
         Ok(SolanaMessage {
             instructions: crate::instructions::with_compute_budget(ix),
@@ -621,7 +621,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             access_manager_program_id: &router.access_manager,
             app_program_id: &app_program,
         };
-        let ix = crate::instructions::ack_packet(&params, &msg)?;
+        let ix = crate::instructions::ack_packet(&params, &msg, vec![])?;
 
         Ok(SolanaMessage {
             instructions: crate::instructions::with_compute_budget(ix),
@@ -676,7 +676,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             access_manager_program_id: &router.access_manager,
             app_program_id: &app_program,
         };
-        let ix = crate::instructions::timeout_packet(&params, &msg)?;
+        let ix = crate::instructions::timeout_packet(&params, &msg, vec![])?;
 
         Ok(SolanaMessage {
             instructions: crate::instructions::with_compute_budget(ix),

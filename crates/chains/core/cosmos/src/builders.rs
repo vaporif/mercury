@@ -39,11 +39,12 @@ const DEFAULT_TRUSTING_PERIOD: Duration = Duration::from_secs(14 * 24 * 3600);
 const DEFAULT_UNBONDING_PERIOD: Duration = Duration::from_secs(21 * 24 * 3600);
 pub(crate) const DEFAULT_MAX_CLOCK_DRIFT: Duration = Duration::from_secs(40);
 
-/// Payload for creating a Tendermint light client on a counterparty chain.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct CosmosCreateClientPayload {
     pub client_state: Any,
     pub consensus_state: Any,
+    pub counterparty_client_id: Option<String>,
+    pub counterparty_merkle_prefix: Option<mercury_core::MerklePrefix>,
 }
 
 /// Payload containing headers to update a Tendermint light client.
@@ -108,6 +109,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
         Ok(CosmosCreateClientPayload {
             client_state: client_state.into(),
             consensus_state: consensus_state.into(),
+            ..Default::default()
         })
     }
 
@@ -546,6 +548,13 @@ mod tests {
         let result = find_proposer(&[validator.clone()], &validator.address);
         assert!(result.is_some());
         assert_eq!(result.unwrap().address, validator.address);
+    }
+
+    #[test]
+    fn default_has_none_counterparty_fields() {
+        let p = CosmosCreateClientPayload::default();
+        assert!(p.counterparty_client_id.is_none());
+        assert!(p.counterparty_merkle_prefix.is_none());
     }
 
     #[test]

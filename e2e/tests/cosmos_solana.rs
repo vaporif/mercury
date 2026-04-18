@@ -1,6 +1,8 @@
+use std::path::PathBuf;
 use std::sync::Once;
 
-use eyre::Result;
+#[path = "cosmos_solana/bootstrap.rs"]
+mod bootstrap;
 
 #[path = "cosmos_solana/transfer.rs"]
 mod transfer;
@@ -15,4 +17,57 @@ fn init_tracing() {
             )
             .init();
     });
+}
+
+const PROGRAMS: &[&str] = &[
+    "ics26_router",
+    "ics07_tendermint",
+    "access_manager",
+    "test_ibc_app",
+];
+
+fn solana_fixtures_dir() -> eyre::Result<PathBuf> {
+    if let Ok(dir) = std::env::var("SOLANA_PROGRAMS_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
+
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("e2e crate must be inside workspace")
+        .to_path_buf();
+    let fixtures_dir = workspace_root.join("target/solana-fixtures");
+
+    let all_present = PROGRAMS.iter().all(|p| {
+        fixtures_dir.join(format!("{p}.so")).exists()
+            && fixtures_dir.join(format!("{p}-keypair.json")).exists()
+    });
+
+    if all_present {
+        return Ok(fixtures_dir);
+    }
+
+    eprintln!("Solana fixtures missing — building with `anchor build`…");
+    let anchor_dir = workspace_root.join("external/solidity-ibc-eureka/programs/solana");
+    let status = std::process::Command::new("anchor")
+        .arg("build")
+        .current_dir(&anchor_dir)
+        .status()
+        .map_err(|e| eyre::eyre!("failed to run `anchor build`: {e}"))?;
+    if !status.success() {
+        eyre::bail!("`anchor build` failed with {status}");
+    }
+
+    std::fs::create_dir_all(&fixtures_dir)?;
+    let so_dir = anchor_dir.join("target/sbf-solana-solana/release");
+    let keypair_dir = workspace_root.join("external/solidity-ibc-eureka/solana-keypairs/localnet");
+    for prog in PROGRAMS {
+        let so_name = format!("{prog}.so");
+        std::fs::copy(so_dir.join(&so_name), fixtures_dir.join(&so_name))
+            .map_err(|e| eyre::eyre!("copy {so_name}: {e}"))?;
+        let kp_name = format!("{prog}-keypair.json");
+        std::fs::copy(keypair_dir.join(&kp_name), fixtures_dir.join(&kp_name))
+            .map_err(|e| eyre::eyre!("copy {kp_name}: {e}"))?;
+    }
+
+    Ok(fixtures_dir)
 }

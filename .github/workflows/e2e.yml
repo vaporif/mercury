@@ -28,7 +28,30 @@ env:
   ANCHOR_VERSION: "0.32.1"
 
 jobs:
-  build-and-generate:
+  build-relayer:
+    name: Build Relayer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.94.0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: relayer-build
+
+      - name: Build relayer binary
+        run: cargo build -p mercury-cli --release
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mercury-relayer
+          path: target/release/mercury-relayer
+
+  build-e2e-artifacts:
+    name: Build E2E Artifacts
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -101,26 +124,6 @@ jobs:
           cp target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm.gz \
             e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
 
-      - uses: solana-developers/github-actions/setup-all@v0.2.7
-        with:
-          anchor_version: ${{ env.ANCHOR_VERSION }}
-          solana_version: ${{ env.SOLANA_VERSION }}
-
-      - uses: arduino/setup-protoc@v3
-
-      - name: Build Solana programs
-        run: anchor build
-        working-directory: external/solidity-ibc-eureka/programs/solana
-
-      - name: Prepare Solana program fixtures
-        run: |
-          mkdir -p solana-programs
-          cp external/solidity-ibc-eureka/programs/solana/target/deploy/*.so solana-programs/
-          cp external/solidity-ibc-eureka/solana-keypairs/localnet/*-keypair.json solana-programs/
-
-      - name: Build relayer binary
-        run: cargo build -p mercury-cli --release
-
       - name: Build and archive tests
         run: cargo nextest archive --archive-file mercury-e2e.tar.zst --package mercury-e2e
 
@@ -128,11 +131,6 @@ jobs:
         with:
           name: e2e-archive
           path: mercury-e2e.tar.zst
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: mercury-relayer
-          path: target/release/mercury-relayer
 
       - uses: actions/upload-artifact@v7
         with:
@@ -144,27 +142,56 @@ jobs:
           name: mock-wasm-eth-lc
           path: e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
 
-      - uses: actions/upload-artifact@v7
-        with:
-          name: solana-programs
-          path: solana-programs/
-
       - name: Generate matrix
         id: matrix
         run: |
           matrix=$(python3 .github/scripts/generate-e2e-matrix.py mercury-e2e.tar.zst e2e-matrix.toml)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
+  build-solana:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: solana-developers/github-actions/setup-all@v0.2.5
+        with:
+          anchor_version: ${{ env.ANCHOR_VERSION }}
+          solana_version: ${{ env.SOLANA_VERSION }}
+
+      - uses: arduino/setup-protoc@v3
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: solana-build
+          workspaces: external/solidity-ibc-eureka/programs/solana -> target
+
+      - name: Build Solana programs
+        run: anchor build
+        working-directory: external/solidity-ibc-eureka/programs/solana
+
+      - name: Prepare Solana program fixtures
+        run: |
+          mkdir -p solana-programs
+          cp external/solidity-ibc-eureka/programs/solana/target/deploy/*.so solana-programs/
+          cp external/solidity-ibc-eureka/solana-keypairs/localnet/*-keypair.json solana-programs/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: solana-programs
+          path: solana-programs/
+
   e2e-test:
     name: E2E / ${{ matrix.binary }} / ${{ matrix.test }}
-    needs: build-and-generate
-    if: needs.build-and-generate.outputs.matrix != '[]'
+    needs: [build-relayer, build-e2e-artifacts, build-solana]
+    if: needs.build-e2e-artifacts.outputs.matrix != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.build-and-generate.outputs.matrix) }}
+        include: ${{ fromJSON(needs.build-e2e-artifacts.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v6
         with:

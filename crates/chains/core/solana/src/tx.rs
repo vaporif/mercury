@@ -14,6 +14,26 @@ pub async fn send_transaction(
     instructions: Vec<Instruction>,
     alt: Option<&[AddressLookupTableAccount]>,
 ) -> eyre::Result<Signature> {
+    send_transaction_inner(rpc, keypair, instructions, alt, false).await
+}
+
+/// Send instructions in a single batch, skipping preflight simulation.
+pub async fn send_transaction_skip_preflight(
+    rpc: &SolanaRpcClient,
+    keypair: &Keypair,
+    instructions: Vec<Instruction>,
+    alt: Option<&[AddressLookupTableAccount]>,
+) -> eyre::Result<Signature> {
+    send_transaction_inner(rpc, keypair, instructions, alt, true).await
+}
+
+async fn send_transaction_inner(
+    rpc: &SolanaRpcClient,
+    keypair: &Keypair,
+    instructions: Vec<Instruction>,
+    alt: Option<&[AddressLookupTableAccount]>,
+    skip_preflight: bool,
+) -> eyre::Result<Signature> {
     let blockhash = rpc.get_latest_blockhash().await?;
     let alts = alt.unwrap_or(&[]);
     let msg = solana_message::v0::Message::try_compile(
@@ -24,5 +44,11 @@ pub async fn send_transaction(
     )?;
     let versioned_msg = solana_message::VersionedMessage::V0(msg);
     let tx = VersionedTransaction::try_new(versioned_msg, &[keypair])?;
-    rpc.send_and_confirm_versioned_transaction(&tx).await
+    let sig = if skip_preflight {
+        rpc.send_and_confirm_versioned_transaction_skip_preflight(&tx)
+            .await?
+    } else {
+        rpc.send_and_confirm_versioned_transaction(&tx).await?
+    };
+    Ok(sig)
 }

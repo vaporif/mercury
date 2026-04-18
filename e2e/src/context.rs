@@ -364,6 +364,7 @@ fn make_test_cosmos_config(handle: &CosmosDockerHandle, key_name: &str) -> Cosmo
         mock_proofs: false,
         rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
         rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
+        merkle_prefix: mercury_core::MerklePrefix::ibc_default(),
     }
 }
 

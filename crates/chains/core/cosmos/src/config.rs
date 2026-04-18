@@ -72,6 +72,8 @@ pub struct CosmosChainConfig {
     pub rpc_timeout_secs: u64,
     #[serde(default = "mercury_core::rpc_guard::default_rate_limit")]
     pub rpc_rate_limit: u64,
+    #[serde(default = "default_merkle_prefix")]
+    pub merkle_prefix: mercury_core::MerklePrefix,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -156,6 +158,10 @@ const fn default_max_msg_num() -> usize {
     30
 }
 
+fn default_merkle_prefix() -> mercury_core::MerklePrefix {
+    mercury_core::MerklePrefix::ibc_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +196,7 @@ mod tests {
             mock_proofs: false,
             rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
             rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
+            merkle_prefix: mercury_core::MerklePrefix::ibc_default(),
         }
     }
 
@@ -446,6 +453,41 @@ mod tests {
     fn ws_addr_none_passes() {
         let cfg = valid_config();
         assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn merkle_prefix_defaults_when_absent() {
+        let toml_str = r#"
+            chain_id = "test-1"
+            rpc_addr = "http://localhost:26657"
+            grpc_addr = "http://localhost:9090"
+            account_prefix = "cosmos"
+            key_name = "default"
+            key_file = "key.toml"
+            [gas_price]
+            amount = 0.025
+            denom = "uatom"
+        "#;
+        let cfg: CosmosChainConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.merkle_prefix, mercury_core::MerklePrefix::ibc_default());
+    }
+
+    #[test]
+    fn merkle_prefix_parses_when_provided() {
+        let toml_str = r#"
+            chain_id = "test-1"
+            rpc_addr = "http://localhost:26657"
+            grpc_addr = "http://localhost:9090"
+            account_prefix = "cosmos"
+            key_name = "default"
+            key_file = "key.toml"
+            merkle_prefix = ["ibc", ""]
+            [gas_price]
+            amount = 0.025
+            denom = "uatom"
+        "#;
+        let cfg: CosmosChainConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.merkle_prefix, mercury_core::MerklePrefix::ibc_default());
     }
 
     #[test]

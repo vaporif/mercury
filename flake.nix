@@ -16,6 +16,11 @@
       url = "github:vaporif/sp1-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    anchor = {
+      url = "github:vaporif/anchor-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.crane.follows = "crane";
+    };
     ethereum-nix = {
       url = "github:nix-community/ethereum.nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -29,6 +34,7 @@
     crane,
     solidity-ibc-eureka,
     sp1,
+    anchor,
     ethereum-nix,
     ...
   }: let
@@ -37,7 +43,7 @@
       nixpkgs.lib.genAttrs systems (system: let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [sp1.overlays.default];
+          overlays = [sp1.overlays.default anchor.overlays.default];
         };
       in
         f {
@@ -178,6 +184,10 @@
         mainProgram = "mercury-relayer";
       };
 
+      agave = pkgs.callPackage ./nix/agave.nix {
+        rust-bin = anchor.inputs.rust-overlay.lib.mkRustBin {} pkgs.buildPackages;
+      };
+
       toolchain = fenixPkgs.combine [
         (fenixPkgs.stable.withComponents [
           "cargo"
@@ -230,6 +240,11 @@
             cargo-prove
             sp1-rust-toolchain
           ])
+          ++ (with pkgs.anchor."0.32.1"; [
+            anchor-cli
+            solana-rust
+          ])
+          ++ [agave]
           ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             pkgs.apple-sdk_15
           ]

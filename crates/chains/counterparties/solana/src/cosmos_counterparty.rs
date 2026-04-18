@@ -86,6 +86,7 @@ struct ChunkedPacketOutput {
 
 struct ChunkedPacketParams<'a> {
     ics26_program_id: &'a solana_sdk::pubkey::Pubkey,
+    access_manager_program_id: &'a solana_sdk::pubkey::Pubkey,
     payer: &'a solana_sdk::pubkey::Pubkey,
     client_id: &'a str,
     sequence: u64,
@@ -101,10 +102,12 @@ fn build_chunked_packet_message(
         &mercury_solana::ibc_types::Packet,
         &[mercury_solana::ibc_types::PayloadMetadata],
         mercury_solana::ibc_types::ProofMetadata,
+        Vec<solana_sdk::instruction::AccountMeta>,
     ) -> eyre::Result<SolanaMessage>,
 ) -> eyre::Result<ChunkedPacketOutput> {
     let ChunkedPacketParams {
         ics26_program_id,
+        access_manager_program_id,
         payer,
         client_id,
         sequence,
@@ -113,29 +116,35 @@ fn build_chunked_packet_message(
         proof_bytes,
         proof_height,
     } = params;
+
+    let chunk_ctx = chunking::ChunkContext {
+        ics26_program_id,
+        payer,
+        client_id,
+        sequence,
+        access_manager_program_id,
+    };
+
     let mut chunk_messages = Vec::new();
     let mut payload_chunk_counts: Vec<u8> = Vec::new();
+    let mut chunk_account_metas: Vec<solana_sdk::instruction::AccountMeta> = Vec::new();
 
     for (payload_idx, payload) in ibc_packet.payloads.iter().enumerate() {
         let p_idx = u8::try_from(payload_idx)
             .map_err(|_| eyre::eyre!("payload index {payload_idx} exceeds u8::MAX"))?;
 
         if chunking::needs_chunking(&payload.value) {
-            let (ixs, _pdas) = chunking::chunk_payload(
-                ics26_program_id,
-                payer,
-                client_id,
-                sequence,
-                p_idx,
-                &payload.value,
-            )?;
+            let (ixs, pdas) = chunking::chunk_payload(&chunk_ctx, p_idx, &payload.value)?;
             let chunk_count = u8::try_from(ixs.len())
                 .map_err(|_| eyre::eyre!("payload chunk count exceeds u8::MAX"))?;
             payload_metas[payload_idx].total_chunks = chunk_count;
             payload_chunk_counts.push(chunk_count);
+            for pda in &pdas {
+                chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
+            }
             for ix in ixs {
                 chunk_messages.push(SolanaMessage {
-                    instructions: instructions::with_compute_budget(ix),
+                    instructions: vec![ix],
                 });
             }
         } else {
@@ -143,17 +152,16 @@ fn build_chunked_packet_message(
         }
     }
 
-    let mut proof_chunk_count: u8 = 0;
-    if chunking::needs_chunking(proof_bytes) {
-        let (ixs, _pdas) =
-            chunking::chunk_proof(ics26_program_id, payer, client_id, sequence, proof_bytes)?;
-        proof_chunk_count = u8::try_from(ixs.len())
-            .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
-        for ix in ixs {
-            chunk_messages.push(SolanaMessage {
-                instructions: instructions::with_compute_budget(ix),
-            });
-        }
+    let (proof_ixs, proof_pdas) = chunking::chunk_proof(&chunk_ctx, proof_bytes)?;
+    let proof_chunk_count = u8::try_from(proof_ixs.len())
+        .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
+    for pda in &proof_pdas {
+        chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
+    }
+    for ix in proof_ixs {
+        chunk_messages.push(SolanaMessage {
+            instructions: vec![ix],
+        });
     }
 
     let proof_meta = mercury_solana::ibc_types::ProofMetadata {
@@ -161,34 +169,18 @@ fn build_chunked_packet_message(
         total_chunks: proof_chunk_count,
     };
 
-    let packet_message = build_packet_ix(ibc_packet, payload_metas, proof_meta)?;
+    let packet_message = build_packet_ix(
+        ibc_packet,
+        payload_metas,
+        proof_meta,
+        chunk_account_metas.clone(),
+    )?;
 
     let has_chunks = !chunk_messages.is_empty();
     let cleanup_message = if has_chunks {
-        let mut cleanup_ixs = Vec::new();
-        let has_payload_chunks = payload_chunk_counts.iter().any(|&c| c > 0);
-        if has_payload_chunks {
-            let payload_count = u8::try_from(payload_chunk_counts.len())
-                .map_err(|_| eyre::eyre!("payload count exceeds u8::MAX"))?;
-            cleanup_ixs.extend(chunking::cleanup_payload_chunks(
-                ics26_program_id,
-                payer,
-                client_id,
-                sequence,
-                payload_count,
-                &payload_chunk_counts,
-            )?);
-        }
-        if proof_chunk_count > 0 {
-            cleanup_ixs.extend(chunking::cleanup_proof_chunks(
-                ics26_program_id,
-                payer,
-                client_id,
-                sequence,
-                proof_chunk_count,
-            )?);
-        }
-        wrap_cleanup_message(cleanup_ixs)
+        let cleanup_ix =
+            chunking::cleanup_chunks(&chunk_ctx, &payload_chunk_counts, proof_chunk_count)?;
+        wrap_cleanup_message(vec![cleanup_ix])
     } else {
         None
     };
@@ -267,6 +259,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
         let output = build_chunked_packet_message(
             ChunkedPacketParams {
                 ics26_program_id: &chain.ics26_program_id,
+                access_manager_program_id: &access_mgr,
                 payer: &payer,
                 client_id: dest_client_id,
                 sequence,
@@ -275,7 +268,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                 proof_bytes,
                 proof_height: height_val,
             },
-            |pkt, metas, proof_meta| {
+            |pkt, metas, proof_meta, chunk_metas| {
                 let msg = mercury_solana::ibc_types::MsgRecvPacket {
                     packet: pkt.clone(),
                     payloads: metas.to_vec(),
@@ -292,7 +285,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                     access_manager_program_id: &access_mgr,
                     app_program_id: &app_program,
                 };
-                let ix = instructions::recv_packet(&params, &msg)?;
+                let ix = instructions::recv_packet(&params, &msg, chunk_metas)?;
                 Ok(SolanaMessage {
                     instructions: instructions::with_compute_budget(ix),
                 })
@@ -336,6 +329,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
         let output = build_chunked_packet_message(
             ChunkedPacketParams {
                 ics26_program_id: &chain.ics26_program_id,
+                access_manager_program_id: &access_mgr,
                 payer: &payer,
                 client_id: source_client_id,
                 sequence,
@@ -344,7 +338,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                 proof_bytes,
                 proof_height: height_val,
             },
-            |pkt, metas, proof_meta| {
+            |pkt, metas, proof_meta, chunk_metas| {
                 let msg = mercury_solana::ibc_types::MsgAckPacket {
                     packet: pkt.clone(),
                     payloads: metas.to_vec(),
@@ -362,7 +356,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                     access_manager_program_id: &access_mgr,
                     app_program_id: &app_program,
                 };
-                let ix = instructions::ack_packet(&params, &msg)?;
+                let ix = instructions::ack_packet(&params, &msg, chunk_metas)?;
                 Ok(SolanaMessage {
                     instructions: instructions::with_compute_budget(ix),
                 })
@@ -404,6 +398,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
         let output = build_chunked_packet_message(
             ChunkedPacketParams {
                 ics26_program_id: &chain.ics26_program_id,
+                access_manager_program_id: &access_mgr,
                 payer: &payer,
                 client_id: source_client_id,
                 sequence,
@@ -412,7 +407,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                 proof_bytes,
                 proof_height: height_val,
             },
-            |pkt, metas, proof_meta| {
+            |pkt, metas, proof_meta, chunk_metas| {
                 let msg = mercury_solana::ibc_types::MsgTimeoutPacket {
                     packet: pkt.clone(),
                     payloads: metas.to_vec(),
@@ -429,7 +424,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                     access_manager_program_id: &access_mgr,
                     app_program_id: &app_program,
                 };
-                let ix = instructions::timeout_packet(&params, &msg)?;
+                let ix = instructions::timeout_packet(&params, &msg, chunk_metas)?;
                 Ok(SolanaMessage {
                     instructions: instructions::with_compute_budget(ix),
                 })
@@ -497,20 +492,32 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
             .try_into()
             .map_err(|_| eyre::eyre!("next_validators_hash is not 32 bytes"))?;
 
+        let timestamp_nanos = tm_consensus_state.timestamp.unix_timestamp_nanos();
+        let timestamp = u64::try_from(timestamp_nanos)
+            .map_err(|_| eyre::eyre!("consensus state has negative or overflowing timestamp"))?;
+
         let consensus_state = mercury_solana::ibc_types::ConsensusState {
-            timestamp: tm_consensus_state
-                .timestamp
-                .unix_timestamp()
-                .cast_unsigned(),
+            timestamp,
             root: root_bytes,
             next_validators_hash: next_val_hash,
         };
 
-        let client_id = "07-tendermint-0";
+        let client_id = crate::DEFAULT_TENDERMINT_CLIENT_ID;
+
+        let counterparty_client_id = payload.counterparty_client_id.ok_or_else(|| {
+            eyre::eyre!(
+                "CosmosCreateClientPayload.counterparty_client_id is required \
+                 when creating a client on Solana"
+            )
+        })?;
+
+        let counterparty_merkle_prefix = payload
+            .counterparty_merkle_prefix
+            .unwrap_or_else(mercury_core::MerklePrefix::ibc_default);
 
         let counterparty_info = mercury_solana::ibc_types::CounterpartyInfo {
-            client_id: String::new(),
-            merkle_prefix: vec![b"ibc".to_vec()],
+            client_id: counterparty_client_id,
+            merkle_prefix: counterparty_merkle_prefix.0,
         };
 
         let add_client_ix = mercury_solana::instructions::client::add_client(
@@ -569,22 +576,27 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         let use_pre_verify = all_signatures.len() > chain.config.skip_pre_verify_threshold();
         let selected_sigs = signatures::select_minimal_signatures(&header, &all_signatures);
 
-        let header_any: ibc_proto::google::protobuf::Any = header.into();
-        let header_bytes = header_any.value;
+        let borsh_header = mercury_solana::borsh_header::header_to_borsh(header);
+        let header_bytes =
+            borsh::to_vec(&borsh_header).map_err(|e| eyre::eyre!("borsh serialize header: {e}"))?;
 
         let mut messages = Vec::new();
 
         let header_chunks = chunking::chunk_data(&header_bytes);
-        let chunk_count = u8::try_from(header_chunks.len())
-            .map_err(|_| eyre::eyre!("header chunk count exceeds u8::MAX"))?;
         let mut header_chunk_pdas = Vec::with_capacity(header_chunks.len());
         for (i, chunk) in header_chunks.into_iter().enumerate() {
             let chunk_idx = u8::try_from(i)
                 .map_err(|_| eyre::eyre!("header chunk index {i} exceeds u8::MAX"))?;
-            let ix =
-                signatures::upload_header_chunk(&ics07, &payer, target_height, chunk_idx, chunk)?;
+            let ix = signatures::upload_header_chunk(
+                &ics07,
+                &payer,
+                target_height,
+                chunk_idx,
+                chunk,
+                &access_mgr,
+            )?;
             messages.push(SolanaMessage {
-                instructions: instructions::with_compute_budget(ix),
+                instructions: vec![ix],
             });
             let (pda, _) =
                 Ics07Tendermint::header_chunk_pda(&payer, target_height, chunk_idx, &ics07);
@@ -624,18 +636,13 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
             instructions: assemble_ixs,
         });
 
-        let cleanup_ixs =
-            signatures::cleanup_header_chunks(&ics07, &payer, target_height, chunk_count)?;
-        if let Some(msg) = wrap_cleanup_message(cleanup_ixs) {
-            messages.push(msg);
-        }
-
-        if !sig_verify_pdas.is_empty() {
-            let sig_cleanup_ixs =
-                signatures::cleanup_sig_verify_pdas(&ics07, &payer, &sig_verify_pdas)?;
-            if let Some(msg) = wrap_cleanup_message(sig_cleanup_ixs) {
-                messages.push(msg);
-            }
+        let mut cleanup_pdas = header_chunk_pdas;
+        cleanup_pdas.extend_from_slice(&sig_verify_pdas);
+        if !cleanup_pdas.is_empty() {
+            let cleanup_ix = signatures::cleanup_incomplete_upload(&ics07, &payer, &cleanup_pdas)?;
+            messages.push(SolanaMessage {
+                instructions: mercury_solana::instructions::with_compute_budget(cleanup_ix),
+            });
         }
 
         Ok(UpdateClientOutput {
@@ -741,5 +748,16 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for SolanaAdapt
         _evidence: mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence,
     ) -> Result<SolanaMessage> {
         eyre::bail!("misbehaviour submission not yet implemented for Cosmos-on-Solana")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mercury_cosmos::builders::CosmosCreateClientPayload;
+
+    #[test]
+    fn payload_without_counterparty_client_id_is_none_by_default() {
+        let p = CosmosCreateClientPayload::default();
+        assert!(p.counterparty_client_id.is_none());
     }
 }
