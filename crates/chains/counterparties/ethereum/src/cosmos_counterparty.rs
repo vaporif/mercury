@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use alloy::consensus::Transaction as _;
@@ -488,8 +489,7 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
             .wrap_err("fetching updateClient transactions")?;
 
         let mut heights = Vec::new();
-        let mut cache = self.1.lock().unwrap();
-        cache.clear();
+        let mut new_cache = HashMap::new();
 
         for tx in txs.into_iter().flatten() {
             let Ok(call) = ICS26Router::updateClientCall::abi_decode(tx.inner.input()) else {
@@ -520,11 +520,11 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
                 root: output.newConsensusState.root.into(),
                 next_validators_hash: output.newConsensusState.nextValidatorsHash.into(),
             };
-            cache.insert(h.value(), cs);
+            new_cache.insert(h.value(), cs);
             heights.push(h);
         }
 
-        drop(cache);
+        *self.1.lock().unwrap() = new_cache;
 
         heights.sort_unstable();
         heights.dedup();
@@ -553,6 +553,59 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for EthereumAda
         &self,
         client_id: &Self::ClientId,
         evidence: mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence,
+    ) -> Result<EvmMessage> {
+        match evidence {
+            mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence::CorrectiveUpdate {
+                payload,
+            } => self.build_corrective_update_message(client_id, payload).await,
+            mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence::Misbehaviour {
+                misbehaviour,
+                ..
+            } => self.build_sp1_misbehaviour_message(client_id, misbehaviour).await,
+        }
+    }
+}
+
+impl EthereumAdapter {
+    async fn build_corrective_update_message(
+        &self,
+        client_id: &EvmClientId,
+        payload: mercury_cosmos::builders::CosmosUpdateClientPayload,
+    ) -> Result<EvmMessage> {
+        tracing::info!("building corrective updateClient to trigger on-chain conflict detection");
+
+        let headers: Vec<Vec<u8>> = payload
+            .headers
+            .iter()
+            .map(prost::Message::encode_to_vec)
+            .collect();
+
+        let sp1 = self.sp1.as_ref().ok_or_else(|| {
+            eyre::eyre!("SP1 prover not configured — required for corrective update proof")
+        })?;
+
+        let output = self
+            .0
+            .build_update_client_message_sp1(
+                client_id,
+                headers,
+                payload.trusted_consensus_state,
+                payload.membership_proofs,
+                sp1,
+            )
+            .await?;
+
+        output
+            .messages
+            .into_iter()
+            .next()
+            .ok_or_else(|| eyre::eyre!("SP1 corrective update produced no messages"))
+    }
+
+    async fn build_sp1_misbehaviour_message(
+        &self,
+        client_id: &EvmClientId,
+        misbehaviour: ibc_client_tendermint::types::Misbehaviour,
     ) -> Result<EvmMessage> {
         use alloy::sol_types::SolValue;
         use ibc_eureka_solidity_types::msgs::IICS07TendermintMsgs::{
@@ -586,24 +639,15 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for EthereumAda
             .await?
             .into();
 
-        let trusted_height_1 = evidence
-            .misbehaviour
-            .header1()
-            .trusted_height
-            .revision_height();
-        let trusted_height_2 = evidence
-            .misbehaviour
-            .header2()
-            .trusted_height
-            .revision_height();
+        let trusted_height_1 = misbehaviour.header1().trusted_height.revision_height();
+        let trusted_height_2 = misbehaviour.header2().trusted_height.revision_height();
 
-        // Reconstruct trusted consensus states from the headers' data (contract only stores hashes).
-        let h1 = evidence.misbehaviour.header1();
+        let h1 = misbehaviour.header1();
         let trusted_cs_1 = SolConsensusState::from(
             ibc_client_tendermint::types::ConsensusState::from(h1.signed_header.header.clone()),
         );
 
-        let h2 = evidence.misbehaviour.header2();
+        let h2 = misbehaviour.header2();
         let trusted_cs_2 = if trusted_height_1 == trusted_height_2 {
             trusted_cs_1.clone()
         } else {
@@ -612,12 +656,9 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for EthereumAda
             ))
         };
 
-        // Convert TmMisbehaviour to the eureka proto Misbehaviour for the SP1 prover.
-        // Disambiguate via the re-exported proto type from ibc-client-tendermint (which
-        // uses ibc-proto 0.51.x internally), avoiding version mismatch with the workspace's ibc-proto.
         let proto_bytes = <ibc_client_tendermint::types::Misbehaviour as Protobuf<
             RawMisbehaviour,
-        >>::encode_vec(evidence.misbehaviour);
+        >>::encode_vec(misbehaviour);
         let eureka_misbehaviour: ibc_proto_eureka::ibc::lightclients::tendermint::v1::Misbehaviour =
             prost::Message::decode(proto_bytes.as_slice())
                 .wrap_err("re-encoding misbehaviour for SP1 prover")?;

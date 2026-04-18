@@ -290,7 +290,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
     }
 }
 
-fn find_proposer(
+pub(crate) fn find_proposer(
     validators: &[ValidatorInfo],
     proposer_address: &account::Id,
 ) -> Option<ValidatorInfo> {

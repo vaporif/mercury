@@ -1,6 +1,10 @@
 use async_trait::async_trait;
+use ibc::core::client::types::Height;
 use ibc::core::host::types::identifiers::ClientId;
-use ibc_client_tendermint::types::{Header as TmIbcHeader, Misbehaviour as TmMisbehaviour};
+use ibc_client_tendermint::types::{
+    ConsensusState as TendermintConsensusState, Header as TmIbcHeader,
+    Misbehaviour as TmMisbehaviour,
+};
 use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::core::client::v1::{
     MsgUpdateClient, QueryConsensusStateHeightsRequest,
@@ -17,6 +21,8 @@ use mercury_chain_traits::queries::MisbehaviourQuery;
 use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::Result;
 
+use crate::builders::{CosmosUpdateClientPayload, find_proposer};
+use mercury_core::MembershipProofs;
 use crate::chain::CosmosChain;
 use crate::client_types::CosmosClientState;
 use crate::keys::CosmosSigner;
@@ -77,10 +83,101 @@ pub async fn expected_consensus_state_at_height<S: CosmosSigner>(
     })
 }
 
+/// Fetches the correct header at `target_height` so it can be re-submitted to the
+/// counterparty — the contract's `_checkUpdateResult` will see the conflict and freeze.
+pub async fn build_corrective_update_payload<S: CosmosSigner>(
+    chain: &CosmosChain<S>,
+    trusted_height: TmHeight,
+    target_height: TmHeight,
+) -> Result<CosmosUpdateClientPayload> {
+    let (trusted_validators_response, trusted_commit_response) = chain
+        .rpc_guard
+        .guarded_pair(
+            || async {
+                chain
+                    .rpc_client
+                    .validators(trusted_height, Paging::All)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+            || async {
+                chain
+                    .rpc_client
+                    .commit(trusted_height)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+        )
+        .await?;
+
+    let trusted_proposer = find_proposer(
+        &trusted_validators_response.validators,
+        &trusted_commit_response
+            .signed_header
+            .header
+            .proposer_address,
+    );
+    let trusted_consensus_state = Some(TendermintConsensusState::from(
+        trusted_commit_response.signed_header.header,
+    ));
+    let trusted_next_validator_set =
+        ValidatorSet::new(trusted_validators_response.validators, trusted_proposer);
+
+    let ibc_trusted_height =
+        Height::new(chain.chain_id.revision_number(), trusted_height.value())
+            .map_err(|e| eyre::eyre!("{e}"))?;
+
+    let (commit_response, validators_response) = chain
+        .rpc_guard
+        .guarded_pair(
+            || async {
+                chain
+                    .rpc_client
+                    .commit(target_height)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+            || async {
+                chain
+                    .rpc_client
+                    .validators(target_height, Paging::All)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+        )
+        .await?;
+
+    let proposer = find_proposer(
+        &validators_response.validators,
+        &commit_response.signed_header.header.proposer_address,
+    );
+    let validator_set = ValidatorSet::new(validators_response.validators, proposer);
+
+    let header = TmIbcHeader {
+        signed_header: commit_response.signed_header,
+        validator_set,
+        trusted_height: ibc_trusted_height,
+        trusted_next_validator_set,
+    };
+
+    Ok(CosmosUpdateClientPayload {
+        headers: vec![header.into()],
+        trusted_consensus_state,
+        membership_proofs: MembershipProofs::new(),
+    })
+}
+
 #[derive(Clone, Debug)]
-pub struct CosmosMisbehaviourEvidence {
-    pub misbehaviour: TmMisbehaviour,
-    pub supporting_headers: Vec<TmIbcHeader>,
+pub enum CosmosMisbehaviourEvidence {
+    /// Two conflicting signed headers at the same height.
+    Misbehaviour {
+        misbehaviour: TmMisbehaviour,
+        supporting_headers: Vec<TmIbcHeader>,
+    },
+    /// Re-submit the correct header so the contract detects the conflict and freezes.
+    CorrectiveUpdate {
+        payload: crate::builders::CosmosUpdateClientPayload,
+    },
 }
 
 // TODO: break and refactor
@@ -182,7 +279,7 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
         let misbehaviour =
             TmMisbehaviour::new(client_id.clone(), update_header.clone(), challenging_header);
 
-        Ok(Some(CosmosMisbehaviourEvidence {
+        Ok(Some(CosmosMisbehaviourEvidence::Misbehaviour {
             misbehaviour,
             supporting_headers: Vec::new(),
         }))
@@ -199,9 +296,13 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChain<S> {
         client_id: &ClientId,
         evidence: CosmosMisbehaviourEvidence,
     ) -> Result<CosmosMessage> {
+        let CosmosMisbehaviourEvidence::Misbehaviour { misbehaviour, .. } = evidence else {
+            eyre::bail!("corrective update is not applicable for native Tendermint clients");
+        };
+
         let signer = self.signer.account_address()?;
 
-        let misbehaviour_any: Any = evidence.misbehaviour.into();
+        let misbehaviour_any: Any = misbehaviour.into();
 
         let msg = MsgUpdateClient {
             client_id: client_id.to_string(),

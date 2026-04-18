@@ -305,7 +305,11 @@ impl<S: CosmosSigner> MisbehaviourDetector<SolanaChain> for CosmosAdapter<S> {
             "MISBEHAVIOUR DETECTED: consensus state mismatch (Cosmos→Solana)"
         );
 
-        Ok(None)
+        eyre::bail!(
+            "misbehaviour detected at height {} (Cosmos→Solana): \
+             corrective update submission not yet implemented for Solana",
+            on_chain.height
+        )
     }
 }
 

@@ -323,7 +323,7 @@ impl<S: CosmosSigner> MisbehaviourDetector<EthereumChain> for CosmosAdapter<S> {
         &self,
         _client_id: &<EthereumChain as mercury_chain_traits::types::ChainTypes>::ClientId,
         on_chain: &mercury_cosmos::misbehaviour::OnChainTmConsensusState,
-        _client_state: &EvmClientState,
+        client_state: &EvmClientState,
     ) -> Result<Option<mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence>> {
         let expected = mercury_cosmos::misbehaviour::expected_consensus_state_at_height(
             &self.0,
@@ -343,7 +343,22 @@ impl<S: CosmosSigner> MisbehaviourDetector<EthereumChain> for CosmosAdapter<S> {
             "MISBEHAVIOUR DETECTED: consensus state mismatch (Cosmos→Ethereum)"
         );
 
-        Ok(None)
+        let decoded = mercury_ethereum::queries::decode_client_state(&client_state.0)
+            .ok_or_else(|| eyre::eyre!("failed to decode EvmClientState for trusted height"))?;
+        let trusted_height = tendermint::block::Height::try_from(
+            decoded.latestHeight.revisionHeight,
+        )?;
+
+        let payload = mercury_cosmos::misbehaviour::build_corrective_update_payload(
+            &self.0,
+            trusted_height,
+            on_chain.height,
+        )
+        .await?;
+
+        Ok(Some(
+            mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence::CorrectiveUpdate { payload },
+        ))
     }
 }
 
