@@ -175,7 +175,12 @@ fn build_chunked_packet_message(
         total_chunks: proof_chunk_count,
     };
 
-    let packet_message = build_packet_ix(ibc_packet, payload_metas, proof_meta, chunk_account_metas.clone())?;
+    let packet_message = build_packet_ix(
+        ibc_packet,
+        payload_metas,
+        proof_meta,
+        chunk_account_metas.clone(),
+    )?;
 
     let has_chunks = !chunk_messages.is_empty();
     let cleanup_message = if has_chunks {
