@@ -184,30 +184,16 @@ fn build_chunked_packet_message(
 
     let has_chunks = !chunk_messages.is_empty();
     let cleanup_message = if has_chunks {
-        let mut cleanup_ixs = Vec::new();
-        let has_payload_chunks = payload_chunk_counts.iter().any(|&c| c > 0);
-        if has_payload_chunks {
-            let payload_count = u8::try_from(payload_chunk_counts.len())
-                .map_err(|_| eyre::eyre!("payload count exceeds u8::MAX"))?;
-            cleanup_ixs.extend(chunking::cleanup_payload_chunks(
-                ics26_program_id,
-                payer,
-                client_id,
-                sequence,
-                payload_count,
-                &payload_chunk_counts,
-            )?);
-        }
-        if proof_chunk_count > 0 {
-            cleanup_ixs.extend(chunking::cleanup_proof_chunks(
-                ics26_program_id,
-                payer,
-                client_id,
-                sequence,
-                proof_chunk_count,
-            )?);
-        }
-        wrap_cleanup_message(cleanup_ixs)
+        let cleanup_ix = chunking::cleanup_chunks(
+            ics26_program_id,
+            payer,
+            client_id,
+            sequence,
+            &payload_chunk_counts,
+            proof_chunk_count,
+            access_manager_program_id,
+        )?;
+        wrap_cleanup_message(vec![cleanup_ix])
     } else {
         None
     };
