@@ -116,6 +116,15 @@ fn build_chunked_packet_message(
         proof_bytes,
         proof_height,
     } = params;
+
+    let chunk_ctx = chunking::ChunkContext {
+        ics26_program_id,
+        payer,
+        client_id,
+        sequence,
+        access_manager_program_id,
+    };
+
     let mut chunk_messages = Vec::new();
     let mut payload_chunk_counts: Vec<u8> = Vec::new();
     let mut chunk_account_metas: Vec<solana_sdk::instruction::AccountMeta> = Vec::new();
@@ -125,15 +134,7 @@ fn build_chunked_packet_message(
             .map_err(|_| eyre::eyre!("payload index {payload_idx} exceeds u8::MAX"))?;
 
         if chunking::needs_chunking(&payload.value) {
-            let (ixs, pdas) = chunking::chunk_payload(
-                ics26_program_id,
-                payer,
-                client_id,
-                sequence,
-                p_idx,
-                &payload.value,
-                access_manager_program_id,
-            )?;
+            let (ixs, pdas) = chunking::chunk_payload(&chunk_ctx, p_idx, &payload.value)?;
             let chunk_count = u8::try_from(ixs.len())
                 .map_err(|_| eyre::eyre!("payload chunk count exceeds u8::MAX"))?;
             payload_metas[payload_idx].total_chunks = chunk_count;
@@ -151,14 +152,7 @@ fn build_chunked_packet_message(
         }
     }
 
-    let (proof_ixs, proof_pdas) = chunking::chunk_proof(
-        ics26_program_id,
-        payer,
-        client_id,
-        sequence,
-        proof_bytes,
-        access_manager_program_id,
-    )?;
+    let (proof_ixs, proof_pdas) = chunking::chunk_proof(&chunk_ctx, proof_bytes)?;
     let proof_chunk_count = u8::try_from(proof_ixs.len())
         .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
     for pda in &proof_pdas {
@@ -184,15 +178,8 @@ fn build_chunked_packet_message(
 
     let has_chunks = !chunk_messages.is_empty();
     let cleanup_message = if has_chunks {
-        let cleanup_ix = chunking::cleanup_chunks(
-            ics26_program_id,
-            payer,
-            client_id,
-            sequence,
-            &payload_chunk_counts,
-            proof_chunk_count,
-            access_manager_program_id,
-        )?;
+        let cleanup_ix =
+            chunking::cleanup_chunks(&chunk_ctx, &payload_chunk_counts, proof_chunk_count)?;
         wrap_cleanup_message(vec![cleanup_ix])
     } else {
         None
