@@ -725,6 +725,8 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for SolanaAdapter {
             eyre::eyre!("ics07_program_id not configured — required for misbehaviour scan")
         })?;
 
+        let discriminator = accounts::anchor_account_discriminator("ConsensusStateStore");
+
         let filter_accounts = self
             .0
             .rpc
@@ -732,23 +734,29 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for SolanaAdapter {
                 &ics07_program_id,
                 vec![RpcFilterType::Memcmp(Memcmp::new(
                     0,
-                    MemcmpEncodedBytes::Bytes(CONSENSUS_STATE_DISCRIMINATOR.to_vec()),
+                    MemcmpEncodedBytes::Bytes(discriminator.to_vec()),
                 ))],
             )
             .await?;
 
         let mut heights = Vec::new();
         for (_pubkey, account) in &filter_accounts {
-            if let Some(h) = parse_height_from_consensus_account(&account.data) {
-                if let Ok(h) = TmHeight::try_from(h) {
-                    heights.push(h);
-                }
+            let Ok(store) =
+                accounts::deserialize_anchor_account::<ConsensusStateStore>(&account.data)
+            else {
+                continue;
+            };
+            if let Ok(h) = TmHeight::try_from(store.height) {
+                heights.push(h);
             }
         }
 
         heights.sort_unstable_by(|a, b| b.cmp(a));
 
-        tracing::debug!(count = heights.len(), "found Solana consensus state heights");
+        tracing::debug!(
+            count = heights.len(),
+            "found Solana consensus state heights"
+        );
         Ok(heights)
     }
 
@@ -757,23 +765,18 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for SolanaAdapter {
         _client_id: &SolanaClientId,
         consensus_height: &TmHeight,
     ) -> Result<Option<mercury_cosmos::misbehaviour::OnChainTmConsensusState>> {
-        let ics07_program_id = self.0.ics07_program_id.ok_or_else(|| {
-            eyre::eyre!("ics07_program_id not configured")
-        })?;
+        let ics07_program_id = self
+            .0
+            .ics07_program_id
+            .ok_or_else(|| eyre::eyre!("ics07_program_id not configured"))?;
 
         let height = consensus_height.value();
         let (pda, _bump) =
             accounts::Ics07Tendermint::consensus_state_pda(height, &ics07_program_id);
 
-        let account = self.0.rpc.get_account(&pda).await?;
-        let Some(account) = account else {
-            return Ok(None);
-        };
+        let store: Option<ConsensusStateStore> = accounts::fetch_account(&self.0.rpc, &pda).await?;
 
-        Ok(Some(parse_consensus_state_account(
-            &account.data,
-            *consensus_height,
-        )?))
+        Ok(store.and_then(ConsensusStateStore::into_on_chain))
     }
 }
 
@@ -790,40 +793,22 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for SolanaAdapt
     }
 }
 
-// sha256("account:ConsensusStateStore")[..8]
-const CONSENSUS_STATE_DISCRIMINATOR: [u8; 8] = [82, 126, 130, 187, 68, 64, 80, 32];
-
-// Account layout: [8 discriminator][8 height_le][8 timestamp_le][32 root][32 next_validators_hash]
-fn parse_height_from_consensus_account(data: &[u8]) -> Option<u64> {
-    if data.len() < 16 {
-        return None;
-    }
-    let height_bytes: [u8; 8] = data[8..16].try_into().unwrap();
-    Some(u64::from_le_bytes(height_bytes))
+#[derive(borsh::BorshDeserialize)]
+struct ConsensusStateStore {
+    height: u64,
+    state: accounts::OnChainConsensusState,
 }
 
-fn parse_consensus_state_account(
-    data: &[u8],
-    height: TmHeight,
-) -> eyre::Result<mercury_cosmos::misbehaviour::OnChainTmConsensusState> {
-    let min_len = 8 + 8 + 8 + 32 + 32;
-    if data.len() < min_len {
-        eyre::bail!(
-            "consensus state account data too short: {} < {min_len}",
-            data.len()
-        );
+impl ConsensusStateStore {
+    fn into_on_chain(self) -> Option<mercury_cosmos::misbehaviour::OnChainTmConsensusState> {
+        let height = TmHeight::try_from(self.height).ok()?;
+        Some(mercury_cosmos::misbehaviour::OnChainTmConsensusState {
+            height,
+            timestamp_nanos: u128::from(self.state.timestamp),
+            root: self.state.root,
+            next_validators_hash: self.state.next_validators_hash,
+        })
     }
-    let cs_data = &data[16..];
-    let timestamp = u64::from_le_bytes(cs_data[0..8].try_into().unwrap());
-    let root: [u8; 32] = cs_data[8..40].try_into().unwrap();
-    let next_validators_hash: [u8; 32] = cs_data[40..72].try_into().unwrap();
-
-    Ok(mercury_cosmos::misbehaviour::OnChainTmConsensusState {
-        height,
-        timestamp_nanos: u128::from(timestamp),
-        root,
-        next_validators_hash,
-    })
 }
 
 #[cfg(test)]
@@ -838,47 +823,29 @@ mod tests {
         assert!(p.counterparty_client_id.is_none());
     }
 
-    fn make_consensus_account_data(height: u64, timestamp: u64, root: [u8; 32], nvh: [u8; 32]) -> Vec<u8> {
+    #[test]
+    fn deserialize_consensus_state_store() {
         let mut data = Vec::new();
-        data.extend_from_slice(&CONSENSUS_STATE_DISCRIMINATOR);
-        data.extend_from_slice(&height.to_le_bytes());
-        data.extend_from_slice(&timestamp.to_le_bytes());
-        data.extend_from_slice(&root);
-        data.extend_from_slice(&nvh);
-        data
-    }
+        let discriminator = accounts::anchor_account_discriminator("ConsensusStateStore");
+        data.extend_from_slice(&discriminator);
+        data.extend_from_slice(&42u64.to_le_bytes());
+        data.extend_from_slice(&1_000_000_000u64.to_le_bytes());
+        data.extend_from_slice(&[0xAA; 32]);
+        data.extend_from_slice(&[0xBB; 32]);
 
-    #[test]
-    fn parse_height_from_valid_account() {
-        let data = make_consensus_account_data(42, 0, [0; 32], [0; 32]);
-        assert_eq!(parse_height_from_consensus_account(&data), Some(42));
-    }
+        let store = accounts::deserialize_anchor_account::<ConsensusStateStore>(&data).unwrap();
+        let cs = store.into_on_chain().unwrap();
 
-    #[test]
-    fn parse_height_from_short_data_returns_none() {
-        assert_eq!(parse_height_from_consensus_account(&[0; 15]), None);
-    }
-
-    #[test]
-    fn parse_consensus_state_valid() {
-        let root = [0xAA; 32];
-        let nvh = [0xBB; 32];
-        let data = make_consensus_account_data(100, 1_000_000_000, root, nvh);
-        let height = TmHeight::try_from(100u64).unwrap();
-
-        let cs = parse_consensus_state_account(&data, height).unwrap();
-
-        assert_eq!(cs.height, height);
+        assert_eq!(cs.height, TmHeight::try_from(42u64).unwrap());
         assert_eq!(cs.timestamp_nanos, 1_000_000_000u128);
-        assert_eq!(cs.root, root);
-        assert_eq!(cs.next_validators_hash, nvh);
+        assert_eq!(cs.root, [0xAA; 32]);
+        assert_eq!(cs.next_validators_hash, [0xBB; 32]);
     }
 
     #[test]
-    fn parse_consensus_state_too_short() {
+    fn deserialize_consensus_state_store_short_data() {
         let data = vec![0u8; 20];
-        let height = TmHeight::try_from(1u64).unwrap();
-        assert!(parse_consensus_state_account(&data, height).is_err());
+        assert!(accounts::deserialize_anchor_account::<ConsensusStateStore>(&data).is_err());
     }
 
     #[test]

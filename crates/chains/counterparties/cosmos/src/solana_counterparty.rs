@@ -287,9 +287,11 @@ impl<S: CosmosSigner> MisbehaviourDetector<SolanaChain> for CosmosAdapter<S> {
         on_chain: &mercury_cosmos::misbehaviour::OnChainTmConsensusState,
         _client_state: &SolanaClientState,
     ) -> Result<Option<mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence>> {
-        let expected =
-            mercury_cosmos::misbehaviour::expected_consensus_state_at_height(&self.0, on_chain.height)
-                .await?;
+        let expected = mercury_cosmos::misbehaviour::expected_consensus_state_at_height(
+            &self.0,
+            on_chain.height,
+        )
+        .await?;
 
         if expected.matches_fields(on_chain) {
             return Ok(None);

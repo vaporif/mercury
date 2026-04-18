@@ -46,13 +46,7 @@ pub async fn expected_consensus_state_at_height<S: CosmosSigner>(
 
     let commit = chain
         .rpc_guard
-        .guarded(|| async {
-            chain
-                .rpc_client
-                .commit(height)
-                .await
-                .map_err(Into::into)
-        })
+        .guarded(|| async { chain.rpc_client.commit(height).await.map_err(Into::into) })
         .await?;
 
     let header = &commit.signed_header.header;
