@@ -434,7 +434,7 @@ impl<S: CosmosSigner> MisbehaviourDetector<CosmosChain<S>> for EthereumAdapter {
 
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
-    type CounterpartyUpdateHeader = ibc_client_tendermint::types::Header;
+    type CounterpartyUpdateHeader = mercury_cosmos::misbehaviour::OnChainTmConsensusState;
 
     #[instrument(skip_all, name = "eth_query_consensus_heights", fields(chain = %self.chain_label(), client_id = %client_id))]
     async fn query_consensus_state_heights(
@@ -488,6 +488,9 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
             .wrap_err("fetching updateClient transactions")?;
 
         let mut heights = Vec::new();
+        let mut cache = self.1.lock().unwrap();
+        cache.clear();
+
         for tx in txs.into_iter().flatten() {
             let Ok(call) = ICS26Router::updateClientCall::abi_decode(tx.inner.input()) else {
                 continue;
@@ -507,10 +510,21 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
                 continue;
             };
 
-            if let Ok(h) = TmHeight::try_from(output.newHeight.revisionHeight) {
-                heights.push(h);
-            }
+            let Ok(h) = TmHeight::try_from(output.newHeight.revisionHeight) else {
+                continue;
+            };
+
+            let cs = mercury_cosmos::misbehaviour::OnChainTmConsensusState {
+                height: h,
+                timestamp_nanos: output.newConsensusState.timestamp,
+                root: output.newConsensusState.root.into(),
+                next_validators_hash: output.newConsensusState.nextValidatorsHash.into(),
+            };
+            cache.insert(h.value(), cs);
+            heights.push(h);
         }
+
+        drop(cache);
 
         heights.sort_unstable();
         heights.dedup();
@@ -523,14 +537,10 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
     async fn query_update_client_header(
         &self,
         _client_id: &Self::ClientId,
-        _consensus_height: &TmHeight,
-    ) -> Result<Option<ibc_client_tendermint::types::Header>> {
-        // SP1 proofs are zero-knowledge — the original Tendermint header used as private input
-        // cannot be extracted from on-chain data. The misbehaviour worker will skip heights
-        // where the header is unavailable. Misbehaviour evidence must be provided externally
-        // (e.g., from CometBFT's evidence module or an off-chain monitor).
-        tracing::debug!("Tendermint headers hidden in SP1 ZK proofs — returning None");
-        Ok(None)
+        consensus_height: &TmHeight,
+    ) -> Result<Option<mercury_cosmos::misbehaviour::OnChainTmConsensusState>> {
+        let cache = self.1.lock().unwrap();
+        Ok(cache.get(&consensus_height.value()).cloned())
     }
 }
 

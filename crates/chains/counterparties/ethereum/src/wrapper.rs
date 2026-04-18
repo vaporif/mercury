@@ -1,20 +1,33 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use async_trait::async_trait;
 
 use mercury_chain_traits::builders::ClientPayloadBuilder;
 use mercury_core::error::Result;
 
+use mercury_cosmos::misbehaviour::OnChainTmConsensusState;
 use mercury_ethereum::chain::EthereumChain;
 use mercury_ethereum::config::EthereumChainConfig;
 
-#[derive(Clone, Debug)]
-pub struct EthereumAdapter(pub EthereumChain);
+pub type ConsensusStateCache = Arc<Mutex<HashMap<u64, OnChainTmConsensusState>>>;
+
+#[derive(Clone)]
+pub struct EthereumAdapter(pub EthereumChain, pub ConsensusStateCache);
 
 impl EthereumAdapter {
     pub async fn new(
         config: EthereumChainConfig,
         signer: alloy::signers::local::PrivateKeySigner,
     ) -> Result<Self> {
-        EthereumChain::new(config, signer).await.map(Self)
+        let chain = EthereumChain::new(config, signer).await?;
+        Ok(Self(chain, Arc::new(Mutex::new(HashMap::new()))))
+    }
+}
+
+impl std::fmt::Debug for EthereumAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 

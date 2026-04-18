@@ -22,6 +22,67 @@ use crate::client_types::CosmosClientState;
 use crate::keys::CosmosSigner;
 use crate::types::{CosmosMessage, to_any};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OnChainTmConsensusState {
+    pub height: TmHeight,
+    pub timestamp_nanos: u128,
+    pub root: [u8; 32],
+    pub next_validators_hash: [u8; 32],
+}
+
+impl OnChainTmConsensusState {
+    pub fn matches_fields(&self, other: &Self) -> bool {
+        self.timestamp_nanos == other.timestamp_nanos
+            && self.root == other.root
+            && self.next_validators_hash == other.next_validators_hash
+    }
+}
+
+pub async fn expected_consensus_state_at_height<S: CosmosSigner>(
+    chain: &CosmosChain<S>,
+    height: TmHeight,
+) -> Result<OnChainTmConsensusState> {
+    use tendermint_rpc::Client;
+
+    let commit = chain
+        .rpc_guard
+        .guarded(|| async {
+            chain
+                .rpc_client
+                .commit(height)
+                .await
+                .map_err(Into::into)
+        })
+        .await?;
+
+    let header = &commit.signed_header.header;
+
+    let timestamp_nanos = header
+        .time
+        .unix_timestamp_nanos()
+        .try_into()
+        .map_err(|_| eyre::eyre!("timestamp out of u128 range"))?;
+
+    let root: [u8; 32] = header
+        .app_hash
+        .as_bytes()
+        .try_into()
+        .map_err(|_| eyre::eyre!("app_hash is not 32 bytes"))?;
+
+    let next_validators_hash: [u8; 32] = header
+        .next_validators_hash
+        .as_bytes()
+        .try_into()
+        .map_err(|_| eyre::eyre!("next_validators_hash is not 32 bytes"))?;
+
+    Ok(OnChainTmConsensusState {
+        height,
+        timestamp_nanos,
+        root,
+        next_validators_hash,
+    })
+}
+
 #[derive(Clone, Debug)]
 pub struct CosmosMisbehaviourEvidence {
     pub misbehaviour: TmMisbehaviour,

@@ -314,83 +314,34 @@ impl<S: CosmosSigner> PacketMessageBuilder<EthereumChain> for CosmosAdapter<S> {
 
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourDetector<EthereumChain> for CosmosAdapter<S> {
-    type UpdateHeader = ibc_client_tendermint::types::Header;
+    type UpdateHeader = mercury_cosmos::misbehaviour::OnChainTmConsensusState;
     type MisbehaviourEvidence = mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence;
     type CounterpartyClientState = EvmClientState;
 
     #[tracing::instrument(skip_all, name = "cosmos_check_misbehaviour_for_eth")]
     async fn check_for_misbehaviour(
         &self,
-        client_id: &<EthereumChain as mercury_chain_traits::types::ChainTypes>::ClientId,
-        update_header: &ibc_client_tendermint::types::Header,
+        _client_id: &<EthereumChain as mercury_chain_traits::types::ChainTypes>::ClientId,
+        on_chain: &mercury_cosmos::misbehaviour::OnChainTmConsensusState,
         _client_state: &EvmClientState,
     ) -> Result<Option<mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence>> {
-        use ibc_client_tendermint::types::Misbehaviour as TmMisbehaviour;
-        use tendermint::validator::Set as ValidatorSet;
-        use tendermint_rpc::{Client, Paging};
+        let expected =
+            mercury_cosmos::misbehaviour::expected_consensus_state_at_height(&self.0, on_chain.height)
+                .await?;
 
-        let header_height = update_header.signed_header.header.height;
-
-        let (commit_response, validators_response) = tokio::try_join!(
-            async {
-                self.0
-                    .rpc_client
-                    .commit(header_height)
-                    .await
-                    .map_err(eyre::Report::from)
-            },
-            async {
-                self.0
-                    .rpc_client
-                    .validators(header_height, Paging::All)
-                    .await
-                    .map_err(eyre::Report::from)
-            },
-        )?;
-
-        let on_chain_header_hash = commit_response.signed_header.header.hash();
-        let submitted_header_hash = update_header.signed_header.header.hash();
-
-        if on_chain_header_hash == submitted_header_hash {
+        if expected.matches_fields(on_chain) {
             return Ok(None);
         }
 
         tracing::error!(
-            height = %header_height,
-            submitted = %submitted_header_hash,
-            on_chain = %on_chain_header_hash,
-            eth_client = %client_id,
-            "MISBEHAVIOUR DETECTED: conflicting Tendermint headers (Cosmos→Ethereum)"
+            height = %on_chain.height,
+            timestamp_match = %(expected.timestamp_nanos == on_chain.timestamp_nanos),
+            root_match = %(expected.root == on_chain.root),
+            validators_hash_match = %(expected.next_validators_hash == on_chain.next_validators_hash),
+            "MISBEHAVIOUR DETECTED: consensus state mismatch (Cosmos→Ethereum)"
         );
 
-        let proposer = validators_response
-            .validators
-            .iter()
-            .find(|v| v.address == commit_response.signed_header.header.proposer_address)
-            .cloned();
-        let validator_set = ValidatorSet::new(validators_response.validators, proposer);
-
-        let challenging_header = ibc_client_tendermint::types::Header {
-            signed_header: commit_response.signed_header,
-            validator_set,
-            trusted_height: update_header.trusted_height,
-            trusted_next_validator_set: update_header.trusted_next_validator_set.clone(),
-        };
-
-        let ibc_client_id: ibc::core::host::types::identifiers::ClientId = client_id
-            .0
-            .parse()
-            .map_err(|e| eyre::eyre!("invalid client ID for misbehaviour: {e}"))?;
-
-        let misbehaviour =
-            TmMisbehaviour::new(ibc_client_id, update_header.clone(), challenging_header);
-
-        Ok(Some(
-            mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence {
-                misbehaviour,
-                supporting_headers: Vec::new(),
-            },
-        ))
+        Ok(None)
     }
 }
 

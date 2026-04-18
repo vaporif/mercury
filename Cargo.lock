@@ -6191,6 +6191,7 @@ dependencies = [
  "mercury-solana",
  "prost 0.13.5",
  "serde",
+ "solana-client",
  "solana-sdk",
  "tendermint",
  "tokio-util",
