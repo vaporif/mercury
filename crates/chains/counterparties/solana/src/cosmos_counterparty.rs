@@ -31,6 +31,8 @@ use mercury_solana::types::{
 
 use crate::wrapper::SolanaAdapter;
 
+const PAYLOAD_INLINE_THRESHOLD: usize = 300;
+
 fn cosmos_packet_to_msg_packet(packet: &CosmosPacket) -> mercury_solana::ibc_types::MsgPacket {
     mercury_solana::ibc_types::MsgPacket {
         sequence: packet.sequence.0,
@@ -109,6 +111,16 @@ fn build_chunked_packet_message(
     let mut payload_chunk_counts: Vec<u8> = Vec::new();
     let mut chunk_account_metas: Vec<solana_sdk::instruction::AccountMeta> = Vec::new();
 
+    let total_payload_size: usize = msg_packet
+        .payloads
+        .iter()
+        .map(|p| match &p.data {
+            mercury_solana::ibc_types::Delivery::Inline { data } => data.len(),
+            mercury_solana::ibc_types::Delivery::Chunked { .. } => 0,
+        })
+        .sum();
+    let force_chunk_payloads = total_payload_size >= PAYLOAD_INLINE_THRESHOLD;
+
     for (payload_idx, payload) in msg_packet.payloads.iter_mut().enumerate() {
         let p_idx = u8::try_from(payload_idx)
             .map_err(|_| eyre::eyre!("payload index {payload_idx} exceeds u8::MAX"))?;
@@ -121,7 +133,7 @@ fn build_chunked_packet_message(
             }
         };
 
-        if chunking::needs_chunking(&payload_data) {
+        if force_chunk_payloads || chunking::needs_chunking(&payload_data) {
             let (ixs, pdas) = chunking::chunk_payload(&chunk_ctx, p_idx, &payload_data)?;
             let chunk_count = u8::try_from(ixs.len())
                 .map_err(|_| eyre::eyre!("payload chunk count exceeds u8::MAX"))?;
@@ -142,37 +154,23 @@ fn build_chunked_packet_message(
         }
     }
 
-    let proof_needs_chunking = chunking::needs_chunking(proof_bytes);
-    let mut proof_chunk_count = 0u8;
-
-    if proof_needs_chunking {
-        let (proof_ixs, proof_pdas) = chunking::chunk_proof(&chunk_ctx, proof_bytes)?;
-        proof_chunk_count = u8::try_from(proof_ixs.len())
-            .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
-        for pda in &proof_pdas {
-            chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
-        }
-        for ix in proof_ixs {
-            chunk_messages.push(SolanaMessage {
-                instructions: vec![ix],
-            });
-        }
+    let (proof_ixs, proof_pdas) = chunking::chunk_proof(&chunk_ctx, proof_bytes)?;
+    let proof_chunk_count = u8::try_from(proof_ixs.len())
+        .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
+    for pda in &proof_pdas {
+        chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
+    }
+    for ix in proof_ixs {
+        chunk_messages.push(SolanaMessage {
+            instructions: vec![ix],
+        });
     }
 
-    let proof = if proof_needs_chunking {
-        mercury_solana::ibc_types::MsgProof {
-            height: proof_height,
-            data: mercury_solana::ibc_types::Delivery::Chunked {
-                total_chunks: proof_chunk_count,
-            },
-        }
-    } else {
-        mercury_solana::ibc_types::MsgProof {
-            height: proof_height,
-            data: mercury_solana::ibc_types::Delivery::Inline {
-                data: proof_bytes.to_vec(),
-            },
-        }
+    let proof = mercury_solana::ibc_types::MsgProof {
+        height: proof_height,
+        data: mercury_solana::ibc_types::Delivery::Chunked {
+            total_chunks: proof_chunk_count,
+        },
     };
 
     let packet_message = build_packet_ix(msg_packet, proof, chunk_account_metas.clone())?;
