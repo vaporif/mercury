@@ -72,6 +72,7 @@ pub fn initialize_ics07(
         ics07_program_id,
     );
     let (app_state_pda, _) = Ics07Tendermint::app_state_pda(ics07_program_id);
+    let program_data_pda = solana_loader_v3_interface::get_program_data_address(ics07_program_id);
 
     Ok(Instruction {
         program_id: *ics07_program_id,
@@ -81,6 +82,8 @@ pub fn initialize_ics07(
             AccountMeta::new(app_state_pda, false),
             AccountMeta::new(*payer, true),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+            AccountMeta::new_readonly(program_data_pda, false),
+            AccountMeta::new_readonly(*payer, true),
         ],
         data,
     })

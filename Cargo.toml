@@ -89,6 +89,7 @@ solana-transaction-status             = { version = "3" }
 solana-system-interface               = { version = "3" }
 solana-compute-budget-interface       = { version = "3" }
 solana-address-lookup-table-interface = { version = "3" }
+solana-loader-v3-interface            = { version = "6" }
 solana-message                        = { version = "3" }
 solana-transaction                    = { version = "3" }
 bincode                   = { version = "3" }

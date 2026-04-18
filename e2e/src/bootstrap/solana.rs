@@ -8,8 +8,8 @@ use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signer::Signer;
 use solana_sdk::signer::keypair::Keypair;
+use solana_sdk::signer::Signer;
 use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 
@@ -47,19 +47,29 @@ impl SolanaBootstrap {
         let am_id = Self::read_program_id(&fixtures_dir.join("access_manager-keypair.json"))?;
         let app_id = Self::read_program_id(&fixtures_dir.join("test_ibc_app-keypair.json"))?;
 
+        let keypair = Keypair::new();
+        let keypair_path = ledger_dir.path().join("test-keypair.json");
+        let kp_bytes: Vec<u8> = keypair.to_bytes().to_vec();
+        std::fs::write(&keypair_path, serde_json::to_vec(&kp_bytes)?)?;
+        let authority_path = keypair_path.to_string_lossy().to_string();
+
         let mut cmd = Command::new("solana-test-validator");
         cmd.arg("--reset")
             .arg("--quiet")
             .arg("--ledger")
             .arg(ledger_dir.path())
-            .args(["--bpf-program", &ics26_id.to_string()])
+            .args(["--upgradeable-program", &ics26_id.to_string()])
             .arg(fixtures_dir.join("ics26_router.so"))
-            .args(["--bpf-program", &ics07_id.to_string()])
+            .arg(&authority_path)
+            .args(["--upgradeable-program", &ics07_id.to_string()])
             .arg(fixtures_dir.join("ics07_tendermint.so"))
-            .args(["--bpf-program", &am_id.to_string()])
+            .arg(&authority_path)
+            .args(["--upgradeable-program", &am_id.to_string()])
             .arg(fixtures_dir.join("access_manager.so"))
-            .args(["--bpf-program", &app_id.to_string()])
-            .arg(fixtures_dir.join("test_ibc_app.so"));
+            .arg(&authority_path)
+            .args(["--upgradeable-program", &app_id.to_string()])
+            .arg(fixtures_dir.join("test_ibc_app.so"))
+            .arg(&authority_path);
 
         let log_path = ledger_dir.path().join("validator.log");
         let stderr_path = ledger_dir.path().join("validator.stderr");
@@ -84,7 +94,7 @@ impl SolanaBootstrap {
 
         let mut bootstrap = Self {
             rpc_url,
-            keypair: Keypair::new(),
+            keypair,
             program_ids,
             validator_process: process,
             ledger_dir,
@@ -211,6 +221,12 @@ impl SolanaBootstrap {
         })
     }
 
+    fn program_data_pda(program_id: &Pubkey) -> Pubkey {
+        let (pda, _) =
+            Pubkey::find_program_address(&[program_id.as_ref()], &solana_loader_v3_interface::ID);
+        pda
+    }
+
     fn initialize_programs(&self) -> Result<()> {
         const RELAYER_ROLE: u64 = 1;
         const ID_CUSTOMIZER_ROLE: u64 = 6;
@@ -218,7 +234,6 @@ impl SolanaBootstrap {
         let payer = self.keypair.pubkey();
         let ids = &self.program_ids;
 
-        // Initialize access manager
         let (am_pda, _) = AccessManager::pda(&ids.access_manager);
         let am_init_data = accounts::encode_anchor_instruction("initialize", &payer)?;
         self.send_instruction(Instruction {
@@ -228,11 +243,12 @@ impl SolanaBootstrap {
                 AccountMeta::new(payer, true),
                 AccountMeta::new_readonly(solana_system_interface::program::ID, false),
                 AccountMeta::new_readonly(sysvar::instructions::ID, false),
+                AccountMeta::new_readonly(Self::program_data_pda(&ids.access_manager), false),
+                AccountMeta::new_readonly(payer, true),
             ],
             data: am_init_data,
         })?;
 
-        // Initialize ICS26 router
         let (router_state, _) = Ics26Router::router_state_pda(&ids.ics26);
         let router_init_data =
             accounts::encode_anchor_instruction("initialize", &ids.access_manager)?;
@@ -242,16 +258,16 @@ impl SolanaBootstrap {
                 AccountMeta::new(router_state, false),
                 AccountMeta::new(payer, true),
                 AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+                AccountMeta::new_readonly(Self::program_data_pda(&ids.ics26), false),
+                AccountMeta::new_readonly(payer, true),
             ],
             data: router_init_data,
         })?;
 
-        // Grant roles to test keypair
         for role_id in [RELAYER_ROLE, ID_CUSTOMIZER_ROLE] {
             self.grant_role(role_id, payer)?;
         }
 
-        // Initialize IBC app
         let (app_state, _) = IbcApp::state_pda(&ids.ibc_app);
         let app_init_data = accounts::encode_anchor_instruction("initialize", &payer)?;
         self.send_instruction(Instruction {
@@ -264,7 +280,6 @@ impl SolanaBootstrap {
             data: app_init_data,
         })?;
 
-        // Register IBC app on ICS26
         let add_app_ix = instructions::client::add_ibc_app(
             &ids.ics26,
             &payer,
