@@ -33,14 +33,12 @@ pub async fn lookup_alt(
     rpc: &SolanaRpcClient,
     alt_address: &Pubkey,
 ) -> eyre::Result<AddressLookupTableAccount> {
-    tracing::debug!(%alt_address, "looking up address lookup table");
     let account = rpc
         .get_account(alt_address)
         .await?
         .ok_or_else(|| eyre::eyre!("ALT account not found: {alt_address}"))?;
     let table = alt_interface::state::AddressLookupTable::deserialize(&account.data)
         .map_err(|e| eyre::eyre!("failed to deserialize ALT: {e}"))?;
-    tracing::debug!(%alt_address, num_addresses = table.addresses.len(), "ALT loaded");
     Ok(AddressLookupTableAccount {
         key: *alt_address,
         addresses: table.addresses.to_vec(),
