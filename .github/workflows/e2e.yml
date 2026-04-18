@@ -88,7 +88,7 @@ jobs:
         if: steps.sp1-cache.outputs.cache-hit != 'true'
         run: |
           curl -L --retry 3 --retry-delay 5 https://sp1.succinct.xyz | bash
-          ~/.sp1/bin/sp1up --version 5.2.4
+          for i in 1 2 3; do ~/.sp1/bin/sp1up --version 5.2.4 && break || sleep 5; done
 
       - name: Add SP1 to PATH
         run: echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
@@ -99,7 +99,7 @@ jobs:
           key: bun-${{ hashFiles('external/solidity-ibc-eureka/bun.lock') }}
 
       - name: Install Solidity dependencies
-        run: bun install --frozen-lockfile
+        run: for i in 1 2 3; do bun install --frozen-lockfile && break || sleep 5; done
         working-directory: external/solidity-ibc-eureka
 
       - name: Build SP1 programs
@@ -149,6 +149,7 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build-solana:
+    name: Build Solana
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
