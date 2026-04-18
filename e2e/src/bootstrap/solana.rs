@@ -29,6 +29,7 @@ pub struct SolanaBootstrap {
     pub program_ids: SolanaProgramIds,
     validator_process: Child,
     ledger_dir: tempfile::TempDir,
+    _authority_keypair_file: tempfile::NamedTempFile,
 }
 
 impl Drop for SolanaBootstrap {
@@ -48,10 +49,11 @@ impl SolanaBootstrap {
         let app_id = Self::read_program_id(&fixtures_dir.join("test_ibc_app-keypair.json"))?;
 
         let keypair = Keypair::new();
-        let keypair_path = ledger_dir.path().join("test-keypair.json");
+        let keypair_file =
+            tempfile::NamedTempFile::new().wrap_err("failed to create keypair temp file")?;
         let kp_bytes: Vec<u8> = keypair.to_bytes().to_vec();
-        std::fs::write(&keypair_path, serde_json::to_vec(&kp_bytes)?)?;
-        let authority_path = keypair_path.to_string_lossy().to_string();
+        std::fs::write(keypair_file.path(), serde_json::to_vec(&kp_bytes)?)?;
+        let authority_path = keypair_file.path().to_string_lossy().to_string();
 
         let mut cmd = Command::new("solana-test-validator");
         cmd.arg("--reset")
@@ -98,6 +100,7 @@ impl SolanaBootstrap {
             program_ids,
             validator_process: process,
             ledger_dir,
+            _authority_keypair_file: keypair_file,
         };
 
         bootstrap.wait_for_ready()?;
