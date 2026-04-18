@@ -116,7 +116,7 @@ jobs:
           tool: cargo-nextest,cargo-llvm-cov
 
       - name: Generate coverage
-        run: cargo llvm-cov nextest --workspace --exclude e2e --exclude mock-wasm-eth-lc --lcov --output-path lcov.info
+        run: cargo llvm-cov nextest --workspace --exclude mercury-e2e --exclude mock-wasm-eth-lc --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
