@@ -102,6 +102,7 @@ fn build_chunked_packet_message(
         &mercury_solana::ibc_types::Packet,
         &[mercury_solana::ibc_types::PayloadMetadata],
         mercury_solana::ibc_types::ProofMetadata,
+        Vec<solana_sdk::instruction::AccountMeta>,
     ) -> eyre::Result<SolanaMessage>,
 ) -> eyre::Result<ChunkedPacketOutput> {
     let ChunkedPacketParams {
@@ -117,13 +118,14 @@ fn build_chunked_packet_message(
     } = params;
     let mut chunk_messages = Vec::new();
     let mut payload_chunk_counts: Vec<u8> = Vec::new();
+    let mut chunk_account_metas: Vec<solana_sdk::instruction::AccountMeta> = Vec::new();
 
     for (payload_idx, payload) in ibc_packet.payloads.iter().enumerate() {
         let p_idx = u8::try_from(payload_idx)
             .map_err(|_| eyre::eyre!("payload index {payload_idx} exceeds u8::MAX"))?;
 
         if chunking::needs_chunking(&payload.value) {
-            let (ixs, _pdas) = chunking::chunk_payload(
+            let (ixs, pdas) = chunking::chunk_payload(
                 ics26_program_id,
                 payer,
                 client_id,
@@ -136,6 +138,9 @@ fn build_chunked_packet_message(
                 .map_err(|_| eyre::eyre!("payload chunk count exceeds u8::MAX"))?;
             payload_metas[payload_idx].total_chunks = chunk_count;
             payload_chunk_counts.push(chunk_count);
+            for pda in &pdas {
+                chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
+            }
             for ix in ixs {
                 chunk_messages.push(SolanaMessage {
                     instructions: vec![ix],
@@ -146,7 +151,7 @@ fn build_chunked_packet_message(
         }
     }
 
-    let (proof_ixs, _proof_pdas) = chunking::chunk_proof(
+    let (proof_ixs, proof_pdas) = chunking::chunk_proof(
         ics26_program_id,
         payer,
         client_id,
@@ -156,6 +161,9 @@ fn build_chunked_packet_message(
     )?;
     let proof_chunk_count = u8::try_from(proof_ixs.len())
         .map_err(|_| eyre::eyre!("proof chunk count exceeds u8::MAX"))?;
+    for pda in &proof_pdas {
+        chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
+    }
     for ix in proof_ixs {
         chunk_messages.push(SolanaMessage {
             instructions: vec![ix],
@@ -167,7 +175,7 @@ fn build_chunked_packet_message(
         total_chunks: proof_chunk_count,
     };
 
-    let packet_message = build_packet_ix(ibc_packet, payload_metas, proof_meta)?;
+    let packet_message = build_packet_ix(ibc_packet, payload_metas, proof_meta, chunk_account_metas.clone())?;
 
     let has_chunks = !chunk_messages.is_empty();
     let cleanup_message = if has_chunks {
@@ -282,7 +290,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                 proof_bytes,
                 proof_height: height_val,
             },
-            |pkt, metas, proof_meta| {
+            |pkt, metas, proof_meta, chunk_metas| {
                 let msg = mercury_solana::ibc_types::MsgRecvPacket {
                     packet: pkt.clone(),
                     payloads: metas.to_vec(),
@@ -299,7 +307,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                     access_manager_program_id: &access_mgr,
                     app_program_id: &app_program,
                 };
-                let ix = instructions::recv_packet(&params, &msg)?;
+                let ix = instructions::recv_packet(&params, &msg, chunk_metas)?;
                 Ok(SolanaMessage {
                     instructions: instructions::with_compute_budget(ix),
                 })
@@ -352,7 +360,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                 proof_bytes,
                 proof_height: height_val,
             },
-            |pkt, metas, proof_meta| {
+            |pkt, metas, proof_meta, chunk_metas| {
                 let msg = mercury_solana::ibc_types::MsgAckPacket {
                     packet: pkt.clone(),
                     payloads: metas.to_vec(),
@@ -370,7 +378,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                     access_manager_program_id: &access_mgr,
                     app_program_id: &app_program,
                 };
-                let ix = instructions::ack_packet(&params, &msg)?;
+                let ix = instructions::ack_packet(&params, &msg, chunk_metas)?;
                 Ok(SolanaMessage {
                     instructions: instructions::with_compute_budget(ix),
                 })
@@ -421,7 +429,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                 proof_bytes,
                 proof_height: height_val,
             },
-            |pkt, metas, proof_meta| {
+            |pkt, metas, proof_meta, chunk_metas| {
                 let msg = mercury_solana::ibc_types::MsgTimeoutPacket {
                     packet: pkt.clone(),
                     payloads: metas.to_vec(),
@@ -438,7 +446,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
                     access_manager_program_id: &access_mgr,
                     app_program_id: &app_program,
                 };
-                let ix = instructions::timeout_packet(&params, &msg)?;
+                let ix = instructions::timeout_packet(&params, &msg, chunk_metas)?;
                 Ok(SolanaMessage {
                     instructions: instructions::with_compute_budget(ix),
                 })

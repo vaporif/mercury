@@ -37,6 +37,7 @@ pub struct PacketParams<'a> {
 pub fn recv_packet(
     params: &PacketParams<'_>,
     msg: &ibc_types::MsgRecvPacket,
+    chunk_account_metas: Vec<AccountMeta>,
 ) -> eyre::Result<Instruction> {
     let data = accounts::encode_anchor_instruction("recv_packet", msg)?;
 
@@ -53,24 +54,27 @@ pub fn recv_packet(
     let (consensus_state, _) =
         Ics07Tendermint::consensus_state_pda(params.consensus_height, params.ics07_program_id);
 
+    let mut accounts = vec![
+        AccountMeta::new_readonly(router_state, false),
+        AccountMeta::new_readonly(access_manager, false),
+        AccountMeta::new_readonly(ibc_app, false),
+        AccountMeta::new(packet_receipt, false),
+        AccountMeta::new(packet_ack, false),
+        AccountMeta::new_readonly(*params.app_program_id, false),
+        AccountMeta::new(app_state, false),
+        AccountMeta::new(*params.payer, true),
+        AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+        AccountMeta::new_readonly(sysvar::instructions::ID, false),
+        AccountMeta::new_readonly(client_pda, false),
+        AccountMeta::new_readonly(*params.ics07_program_id, false),
+        AccountMeta::new_readonly(client_state, false),
+        AccountMeta::new_readonly(consensus_state, false),
+    ];
+    accounts.extend(chunk_account_metas);
+
     Ok(Instruction {
         program_id: *params.ics26_program_id,
-        accounts: vec![
-            AccountMeta::new_readonly(router_state, false),
-            AccountMeta::new_readonly(access_manager, false),
-            AccountMeta::new_readonly(ibc_app, false),
-            AccountMeta::new(packet_receipt, false),
-            AccountMeta::new(packet_ack, false),
-            AccountMeta::new_readonly(*params.app_program_id, false),
-            AccountMeta::new(app_state, false),
-            AccountMeta::new(*params.payer, true),
-            AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-            AccountMeta::new_readonly(sysvar::instructions::ID, false),
-            AccountMeta::new_readonly(client_pda, false),
-            AccountMeta::new_readonly(*params.ics07_program_id, false),
-            AccountMeta::new_readonly(client_state, false),
-            AccountMeta::new_readonly(consensus_state, false),
-        ],
+        accounts,
         data,
     })
 }
@@ -78,6 +82,7 @@ pub fn recv_packet(
 pub fn ack_packet(
     params: &PacketParams<'_>,
     msg: &ibc_types::MsgAckPacket,
+    chunk_account_metas: Vec<AccountMeta>,
 ) -> eyre::Result<Instruction> {
     let data = accounts::encode_anchor_instruction("ack_packet", msg)?;
 
@@ -95,23 +100,26 @@ pub fn ack_packet(
     let (consensus_state, _) =
         Ics07Tendermint::consensus_state_pda(params.consensus_height, params.ics07_program_id);
 
+    let mut accounts = vec![
+        AccountMeta::new_readonly(router_state, false),
+        AccountMeta::new_readonly(access_manager, false),
+        AccountMeta::new_readonly(ibc_app, false),
+        AccountMeta::new(packet_commitment, false),
+        AccountMeta::new_readonly(*params.app_program_id, false),
+        AccountMeta::new(app_state, false),
+        AccountMeta::new(*params.payer, true),
+        AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+        AccountMeta::new_readonly(sysvar::instructions::ID, false),
+        AccountMeta::new_readonly(client_pda, false),
+        AccountMeta::new_readonly(*params.ics07_program_id, false),
+        AccountMeta::new_readonly(client_state, false),
+        AccountMeta::new_readonly(consensus_state, false),
+    ];
+    accounts.extend(chunk_account_metas);
+
     Ok(Instruction {
         program_id: *params.ics26_program_id,
-        accounts: vec![
-            AccountMeta::new_readonly(router_state, false),
-            AccountMeta::new_readonly(access_manager, false),
-            AccountMeta::new_readonly(ibc_app, false),
-            AccountMeta::new(packet_commitment, false),
-            AccountMeta::new_readonly(*params.app_program_id, false),
-            AccountMeta::new(app_state, false),
-            AccountMeta::new(*params.payer, true),
-            AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-            AccountMeta::new_readonly(sysvar::instructions::ID, false),
-            AccountMeta::new_readonly(client_pda, false),
-            AccountMeta::new_readonly(*params.ics07_program_id, false),
-            AccountMeta::new_readonly(client_state, false),
-            AccountMeta::new_readonly(consensus_state, false),
-        ],
+        accounts,
         data,
     })
 }
@@ -119,6 +127,7 @@ pub fn ack_packet(
 pub fn timeout_packet(
     params: &PacketParams<'_>,
     msg: &ibc_types::MsgTimeoutPacket,
+    chunk_account_metas: Vec<AccountMeta>,
 ) -> eyre::Result<Instruction> {
     let data = accounts::encode_anchor_instruction("timeout_packet", msg)?;
 
@@ -136,23 +145,26 @@ pub fn timeout_packet(
     let (consensus_state, _) =
         Ics07Tendermint::consensus_state_pda(params.consensus_height, params.ics07_program_id);
 
+    let mut accounts = vec![
+        AccountMeta::new_readonly(router_state, false),
+        AccountMeta::new_readonly(access_manager, false),
+        AccountMeta::new_readonly(ibc_app, false),
+        AccountMeta::new(packet_commitment, false),
+        AccountMeta::new_readonly(*params.app_program_id, false),
+        AccountMeta::new(app_state, false),
+        AccountMeta::new(*params.payer, true),
+        AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+        AccountMeta::new_readonly(sysvar::instructions::ID, false),
+        AccountMeta::new_readonly(client_pda, false),
+        AccountMeta::new_readonly(*params.ics07_program_id, false),
+        AccountMeta::new_readonly(client_state, false),
+        AccountMeta::new_readonly(consensus_state, false),
+    ];
+    accounts.extend(chunk_account_metas);
+
     Ok(Instruction {
         program_id: *params.ics26_program_id,
-        accounts: vec![
-            AccountMeta::new_readonly(router_state, false),
-            AccountMeta::new_readonly(access_manager, false),
-            AccountMeta::new_readonly(ibc_app, false),
-            AccountMeta::new(packet_commitment, false),
-            AccountMeta::new_readonly(*params.app_program_id, false),
-            AccountMeta::new(app_state, false),
-            AccountMeta::new(*params.payer, true),
-            AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-            AccountMeta::new_readonly(sysvar::instructions::ID, false),
-            AccountMeta::new_readonly(client_pda, false),
-            AccountMeta::new_readonly(*params.ics07_program_id, false),
-            AccountMeta::new_readonly(client_state, false),
-            AccountMeta::new_readonly(consensus_state, false),
-        ],
+        accounts,
         data,
     })
 }

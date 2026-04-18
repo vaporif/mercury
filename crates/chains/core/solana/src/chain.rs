@@ -581,7 +581,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             access_manager_program_id: &router.access_manager,
             app_program_id: &app_program,
         };
-        let ix = crate::instructions::recv_packet(&params, &msg)?;
+        let ix = crate::instructions::recv_packet(&params, &msg, vec![])?;
 
         Ok(SolanaMessage {
             instructions: crate::instructions::with_compute_budget(ix),
@@ -638,7 +638,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             access_manager_program_id: &router.access_manager,
             app_program_id: &app_program,
         };
-        let ix = crate::instructions::ack_packet(&params, &msg)?;
+        let ix = crate::instructions::ack_packet(&params, &msg, vec![])?;
 
         Ok(SolanaMessage {
             instructions: crate::instructions::with_compute_budget(ix),
@@ -693,7 +693,7 @@ impl PacketMessageBuilder<Self> for SolanaChain {
             access_manager_program_id: &router.access_manager,
             app_program_id: &app_program,
         };
-        let ix = crate::instructions::timeout_packet(&params, &msg)?;
+        let ix = crate::instructions::timeout_packet(&params, &msg, vec![])?;
 
         Ok(SolanaMessage {
             instructions: crate::instructions::with_compute_budget(ix),
