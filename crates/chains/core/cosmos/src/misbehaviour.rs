@@ -37,6 +37,7 @@ pub struct OnChainTmConsensusState {
 }
 
 impl OnChainTmConsensusState {
+    #[must_use]
     pub fn matches_fields(&self, other: &Self) -> bool {
         self.timestamp_nanos == other.timestamp_nanos
             && self.root == other.root
