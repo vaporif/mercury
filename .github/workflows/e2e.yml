@@ -36,7 +36,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: dtolnay/rust-toolchain@1.95.0
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -60,7 +60,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.94.0
+      - uses: dtolnay/rust-toolchain@1.95.0
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -156,7 +156,9 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: solana-developers/github-actions/setup-all@v0.2.5
+      - uses: dtolnay/rust-toolchain@1.95.0
+
+      - uses: solana-developers/github-actions/setup-all@v0.2.7
         with:
           anchor_version: ${{ env.ANCHOR_VERSION }}
           solana_version: ${{ env.SOLANA_VERSION }}

@@ -226,6 +226,44 @@ impl SolanaRpcClient {
             })
             .await
     }
+
+    pub async fn get_program_accounts_with_filter(
+        &self,
+        program_id: &Pubkey,
+        filters: Vec<solana_client::rpc_filter::RpcFilterType>,
+    ) -> eyre::Result<Vec<(Pubkey, Account)>> {
+        use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
+
+        let client = self.client.clone();
+        let pid = *program_id;
+        let ui_accounts = self
+            .guard
+            .guarded(|| async move {
+                let config = RpcProgramAccountsConfig {
+                    filters: Some(filters),
+                    account_config: RpcAccountInfoConfig {
+                        commitment: Some(CommitmentConfig::confirmed()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                client
+                    .get_program_ui_accounts_with_config(&pid, config)
+                    .await
+                    .map_err(|e| eyre::eyre!("get_program_accounts failed: {e}"))
+            })
+            .await?;
+
+        ui_accounts
+            .into_iter()
+            .map(|(pubkey, ui_account)| {
+                let account: Account = ui_account
+                    .decode()
+                    .ok_or_else(|| eyre::eyre!("failed to decode UiAccount for {pubkey}"))?;
+                Ok((pubkey, account))
+            })
+            .collect()
+    }
 }
 
 impl std::fmt::Debug for SolanaRpcClient {

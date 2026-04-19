@@ -17,7 +17,7 @@ use mercury_telemetry::recorder::ClientMetrics;
 
 use crate::workers::DstTxRequest;
 
-const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_secs(300);
+const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_mins(5);
 
 /// Keeps the dst client alive by refreshing it before it expires.
 pub struct ClientRefreshWorker<R: Relay> {

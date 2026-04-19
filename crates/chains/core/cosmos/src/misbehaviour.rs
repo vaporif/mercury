@@ -1,6 +1,10 @@
 use async_trait::async_trait;
+use ibc::core::client::types::Height;
 use ibc::core::host::types::identifiers::ClientId;
-use ibc_client_tendermint::types::{Header as TmIbcHeader, Misbehaviour as TmMisbehaviour};
+use ibc_client_tendermint::types::{
+    ConsensusState as TendermintConsensusState, Header as TmIbcHeader,
+    Misbehaviour as TmMisbehaviour,
+};
 use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::core::client::v1::{
     MsgUpdateClient, QueryConsensusStateHeightsRequest,
@@ -17,15 +21,163 @@ use mercury_chain_traits::queries::MisbehaviourQuery;
 use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::Result;
 
+use crate::builders::{CosmosUpdateClientPayload, find_proposer};
 use crate::chain::CosmosChain;
 use crate::client_types::CosmosClientState;
 use crate::keys::CosmosSigner;
 use crate::types::{CosmosMessage, to_any};
+use mercury_core::MembershipProofs;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OnChainTmConsensusState {
+    pub height: TmHeight,
+    pub timestamp_nanos: u128,
+    pub root: [u8; 32],
+    pub next_validators_hash: [u8; 32],
+}
+
+impl OnChainTmConsensusState {
+    #[must_use]
+    pub fn matches_fields(&self, other: &Self) -> bool {
+        self.timestamp_nanos == other.timestamp_nanos
+            && self.root == other.root
+            && self.next_validators_hash == other.next_validators_hash
+    }
+}
+
+pub async fn expected_consensus_state_at_height<S: CosmosSigner>(
+    chain: &CosmosChain<S>,
+    height: TmHeight,
+) -> Result<OnChainTmConsensusState> {
+    use tendermint_rpc::Client;
+
+    let commit = chain
+        .rpc_guard
+        .guarded(|| async { chain.rpc_client.commit(height).await.map_err(Into::into) })
+        .await?;
+
+    let header = &commit.signed_header.header;
+
+    let timestamp_nanos = header
+        .time
+        .unix_timestamp_nanos()
+        .try_into()
+        .map_err(|_| eyre::eyre!("timestamp out of u128 range"))?;
+
+    let root: [u8; 32] = header
+        .app_hash
+        .as_bytes()
+        .try_into()
+        .map_err(|_| eyre::eyre!("app_hash is not 32 bytes"))?;
+
+    let next_validators_hash: [u8; 32] = header
+        .next_validators_hash
+        .as_bytes()
+        .try_into()
+        .map_err(|_| eyre::eyre!("next_validators_hash is not 32 bytes"))?;
+
+    Ok(OnChainTmConsensusState {
+        height,
+        timestamp_nanos,
+        root,
+        next_validators_hash,
+    })
+}
+
+/// Fetches the correct header at `target_height` so it can be re-submitted to the
+/// counterparty — the contract's `_checkUpdateResult` will see the conflict and freeze.
+pub async fn build_corrective_update_payload<S: CosmosSigner>(
+    chain: &CosmosChain<S>,
+    trusted_height: TmHeight,
+    target_height: TmHeight,
+) -> Result<CosmosUpdateClientPayload> {
+    let (trusted_validators_response, trusted_commit_response) = chain
+        .rpc_guard
+        .guarded_pair(
+            || async {
+                chain
+                    .rpc_client
+                    .validators(trusted_height, Paging::All)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+            || async {
+                chain
+                    .rpc_client
+                    .commit(trusted_height)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+        )
+        .await?;
+
+    let trusted_proposer = find_proposer(
+        &trusted_validators_response.validators,
+        &trusted_commit_response
+            .signed_header
+            .header
+            .proposer_address,
+    );
+    let trusted_consensus_state = Some(TendermintConsensusState::from(
+        trusted_commit_response.signed_header.header,
+    ));
+    let trusted_next_validator_set =
+        ValidatorSet::new(trusted_validators_response.validators, trusted_proposer);
+
+    let ibc_trusted_height = Height::new(chain.chain_id.revision_number(), trusted_height.value())
+        .map_err(|e| eyre::eyre!("{e}"))?;
+
+    let (commit_response, validators_response) = chain
+        .rpc_guard
+        .guarded_pair(
+            || async {
+                chain
+                    .rpc_client
+                    .commit(target_height)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+            || async {
+                chain
+                    .rpc_client
+                    .validators(target_height, Paging::All)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+        )
+        .await?;
+
+    let proposer = find_proposer(
+        &validators_response.validators,
+        &commit_response.signed_header.header.proposer_address,
+    );
+    let validator_set = ValidatorSet::new(validators_response.validators, proposer);
+
+    let header = TmIbcHeader {
+        signed_header: commit_response.signed_header,
+        validator_set,
+        trusted_height: ibc_trusted_height,
+        trusted_next_validator_set,
+    };
+
+    Ok(CosmosUpdateClientPayload {
+        headers: vec![header.into()],
+        trusted_consensus_state,
+        membership_proofs: MembershipProofs::new(),
+    })
+}
 
 #[derive(Clone, Debug)]
-pub struct CosmosMisbehaviourEvidence {
-    pub misbehaviour: TmMisbehaviour,
-    pub supporting_headers: Vec<TmIbcHeader>,
+pub enum CosmosMisbehaviourEvidence {
+    /// Two conflicting signed headers at the same height.
+    Misbehaviour {
+        misbehaviour: TmMisbehaviour,
+        supporting_headers: Vec<TmIbcHeader>,
+    },
+    /// Re-submit the correct header so the contract detects the conflict and freezes.
+    CorrectiveUpdate {
+        payload: crate::builders::CosmosUpdateClientPayload,
+    },
 }
 
 // TODO: break and refactor
@@ -127,7 +279,7 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
         let misbehaviour =
             TmMisbehaviour::new(client_id.clone(), update_header.clone(), challenging_header);
 
-        Ok(Some(CosmosMisbehaviourEvidence {
+        Ok(Some(CosmosMisbehaviourEvidence::Misbehaviour {
             misbehaviour,
             supporting_headers: Vec::new(),
         }))
@@ -144,9 +296,13 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChain<S> {
         client_id: &ClientId,
         evidence: CosmosMisbehaviourEvidence,
     ) -> Result<CosmosMessage> {
+        let CosmosMisbehaviourEvidence::Misbehaviour { misbehaviour, .. } = evidence else {
+            eyre::bail!("corrective update is not applicable for native Tendermint clients");
+        };
+
         let signer = self.signer.account_address()?;
 
-        let misbehaviour_any: Any = evidence.misbehaviour.into();
+        let misbehaviour_any: Any = misbehaviour.into();
 
         let msg = MsgUpdateClient {
             client_id: client_id.to_string(),
@@ -155,6 +311,54 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChain<S> {
         };
 
         Ok(to_any(&msg))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_state(height: u64, ts: u128, root: u8, val_hash: u8) -> OnChainTmConsensusState {
+        OnChainTmConsensusState {
+            height: TmHeight::try_from(height).unwrap(),
+            timestamp_nanos: ts,
+            root: [root; 32],
+            next_validators_hash: [val_hash; 32],
+        }
+    }
+
+    #[test]
+    fn matches_fields_ignores_height() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(99, 1000, 0xAA, 0xBB);
+        assert!(a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_detects_timestamp_diff() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(1, 2000, 0xAA, 0xBB);
+        assert!(!a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_detects_root_diff() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(1, 1000, 0xCC, 0xBB);
+        assert!(!a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_detects_validator_hash_diff() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(1, 1000, 0xAA, 0xCC);
+        assert!(!a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_identical() {
+        let a = make_state(5, 500, 0x11, 0x22);
+        assert!(a.matches_fields(&a));
     }
 }
 

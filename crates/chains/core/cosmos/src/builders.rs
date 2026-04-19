@@ -35,8 +35,8 @@ use crate::keys::CosmosSigner;
 use crate::types::to_any;
 use crate::types::{CosmosMessage, CosmosPacket, MerkleProof, PacketAcknowledgement};
 
-const DEFAULT_TRUSTING_PERIOD: Duration = Duration::from_secs(14 * 24 * 3600);
-const DEFAULT_UNBONDING_PERIOD: Duration = Duration::from_secs(21 * 24 * 3600);
+const DEFAULT_TRUSTING_PERIOD: Duration = Duration::from_hours(14 * 24);
+const DEFAULT_UNBONDING_PERIOD: Duration = Duration::from_hours(21 * 24);
 pub(crate) const DEFAULT_MAX_CLOCK_DRIFT: Duration = Duration::from_secs(40);
 
 #[derive(Clone, Debug, Default)]
@@ -290,7 +290,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
     }
 }
 
-fn find_proposer(
+pub(crate) fn find_proposer(
     validators: &[ValidatorInfo],
     proposer_address: &account::Id,
 ) -> Option<ValidatorInfo> {

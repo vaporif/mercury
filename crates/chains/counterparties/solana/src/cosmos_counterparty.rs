@@ -713,21 +713,70 @@ impl<S: CosmosSigner> MisbehaviourDetector<CosmosChain<S>> for SolanaAdapter {
 
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for SolanaAdapter {
-    type CounterpartyUpdateHeader = ibc_client_tendermint::types::Header;
+    type CounterpartyUpdateHeader = mercury_cosmos::misbehaviour::OnChainTmConsensusState;
 
     async fn query_consensus_state_heights(
         &self,
         _client_id: &SolanaClientId,
     ) -> Result<Vec<TmHeight>> {
-        Ok(Vec::new())
+        use solana_client::rpc_filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType};
+
+        let ics07_program_id = self.0.ics07_program_id.ok_or_else(|| {
+            eyre::eyre!("ics07_program_id not configured — required for misbehaviour scan")
+        })?;
+
+        let discriminator = accounts::anchor_account_discriminator("ConsensusStateStore");
+
+        let filter_accounts = self
+            .0
+            .rpc
+            .get_program_accounts_with_filter(
+                &ics07_program_id,
+                vec![RpcFilterType::Memcmp(Memcmp::new(
+                    0,
+                    MemcmpEncodedBytes::Bytes(discriminator.to_vec()),
+                ))],
+            )
+            .await?;
+
+        let mut heights = Vec::new();
+        for (_pubkey, account) in &filter_accounts {
+            let Ok(store) =
+                accounts::deserialize_anchor_account::<ConsensusStateStore>(&account.data)
+            else {
+                continue;
+            };
+            if let Ok(h) = TmHeight::try_from(store.height) {
+                heights.push(h);
+            }
+        }
+
+        heights.sort_unstable_by(|a, b| b.cmp(a));
+
+        tracing::debug!(
+            count = heights.len(),
+            "found Solana consensus state heights"
+        );
+        Ok(heights)
     }
 
     async fn query_update_client_header(
         &self,
         _client_id: &SolanaClientId,
-        _consensus_height: &TmHeight,
-    ) -> Result<Option<ibc_client_tendermint::types::Header>> {
-        Ok(None)
+        consensus_height: &TmHeight,
+    ) -> Result<Option<mercury_cosmos::misbehaviour::OnChainTmConsensusState>> {
+        let ics07_program_id = self
+            .0
+            .ics07_program_id
+            .ok_or_else(|| eyre::eyre!("ics07_program_id not configured"))?;
+
+        let height = consensus_height.value();
+        let (pda, _bump) =
+            accounts::Ics07Tendermint::consensus_state_pda(height, &ics07_program_id);
+
+        let store: Option<ConsensusStateStore> = accounts::fetch_account(&self.0.rpc, &pda).await?;
+
+        Ok(store.and_then(ConsensusStateStore::into_on_chain))
     }
 }
 
@@ -744,13 +793,176 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for SolanaAdapt
     }
 }
 
+#[derive(borsh::BorshDeserialize)]
+struct ConsensusStateStore {
+    height: u64,
+    state: accounts::OnChainConsensusState,
+}
+
+impl ConsensusStateStore {
+    fn into_on_chain(self) -> Option<mercury_cosmos::misbehaviour::OnChainTmConsensusState> {
+        let height = TmHeight::try_from(self.height).ok()?;
+        Some(mercury_cosmos::misbehaviour::OnChainTmConsensusState {
+            height,
+            timestamp_nanos: u128::from(self.state.timestamp),
+            root: self.state.root,
+            next_validators_hash: self.state.next_validators_hash,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use mercury_cosmos::builders::CosmosCreateClientPayload;
+    use mercury_cosmos::misbehaviour::OnChainTmConsensusState;
 
     #[test]
     fn payload_without_counterparty_client_id_is_none_by_default() {
         let p = CosmosCreateClientPayload::default();
         assert!(p.counterparty_client_id.is_none());
+    }
+
+    #[test]
+    fn deserialize_consensus_state_store() {
+        let mut data = Vec::new();
+        let discriminator = accounts::anchor_account_discriminator("ConsensusStateStore");
+        data.extend_from_slice(&discriminator);
+        data.extend_from_slice(&42u64.to_le_bytes());
+        data.extend_from_slice(&1_000_000_000u64.to_le_bytes());
+        data.extend_from_slice(&[0xAA; 32]);
+        data.extend_from_slice(&[0xBB; 32]);
+
+        let store = accounts::deserialize_anchor_account::<ConsensusStateStore>(&data).unwrap();
+        let cs = store.into_on_chain().unwrap();
+
+        assert_eq!(cs.height, TmHeight::try_from(42u64).unwrap());
+        assert_eq!(cs.timestamp_nanos, 1_000_000_000u128);
+        assert_eq!(cs.root, [0xAA; 32]);
+        assert_eq!(cs.next_validators_hash, [0xBB; 32]);
+    }
+
+    #[test]
+    fn deserialize_consensus_state_store_short_data() {
+        let data = vec![0u8; 20];
+        assert!(accounts::deserialize_anchor_account::<ConsensusStateStore>(&data).is_err());
+    }
+
+    #[test]
+    fn wrap_cleanup_message_empty_returns_none() {
+        assert!(wrap_cleanup_message(vec![]).is_none());
+    }
+
+    #[test]
+    fn wrap_cleanup_message_single_ix_wraps_with_budget() {
+        let ix = solana_sdk::instruction::Instruction::new_with_bytes(
+            solana_sdk::pubkey::Pubkey::new_unique(),
+            &[1, 2, 3],
+            vec![],
+        );
+        let msg = wrap_cleanup_message(vec![ix]).unwrap();
+        // with_compute_budget adds 2 budget instructions before the actual ix
+        assert_eq!(msg.instructions.len(), 3);
+    }
+
+    #[test]
+    fn wrap_cleanup_message_multiple_ixs() {
+        let make_ix = || {
+            solana_sdk::instruction::Instruction::new_with_bytes(
+                solana_sdk::pubkey::Pubkey::new_unique(),
+                &[],
+                vec![],
+            )
+        };
+        let msg = wrap_cleanup_message(vec![make_ix(), make_ix()]).unwrap();
+        // 2 budget + first ix + second ix
+        assert_eq!(msg.instructions.len(), 4);
+    }
+
+    #[test]
+    fn flatten_chunked_output_no_chunks() {
+        let packet_msg = SolanaMessage {
+            instructions: vec![solana_sdk::instruction::Instruction::new_with_bytes(
+                solana_sdk::pubkey::Pubkey::new_unique(),
+                &[],
+                vec![],
+            )],
+        };
+        let output = ChunkedPacketOutput {
+            chunk_messages: vec![],
+            packet_message: packet_msg,
+            cleanup_message: None,
+        };
+        let result = flatten_chunked_output(output);
+        assert_eq!(result.instructions.len(), 1);
+    }
+
+    #[test]
+    fn flatten_chunked_output_with_chunks_and_cleanup() {
+        let make_msg = |n: usize| SolanaMessage {
+            instructions: (0..n)
+                .map(|_| {
+                    solana_sdk::instruction::Instruction::new_with_bytes(
+                        solana_sdk::pubkey::Pubkey::new_unique(),
+                        &[],
+                        vec![],
+                    )
+                })
+                .collect(),
+        };
+        let output = ChunkedPacketOutput {
+            chunk_messages: vec![make_msg(2), make_msg(1)],
+            packet_message: make_msg(1),
+            cleanup_message: Some(make_msg(3)),
+        };
+        let result = flatten_chunked_output(output);
+        // 2 + 1 (chunks) + 1 (packet) + 3 (cleanup) = 7
+        assert_eq!(result.instructions.len(), 7);
+    }
+
+    #[test]
+    fn cosmos_packet_to_msg_packet_roundtrip() {
+        use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+        use mercury_cosmos::types::{PacketPayload, RawClientId};
+
+        let packet = CosmosPacket {
+            source_client_id: RawClientId("src-client".into()),
+            dest_client_id: RawClientId("dst-client".into()),
+            sequence: PacketSequence(42),
+            timeout_timestamp: TimeoutTimestamp(1_000_000),
+            payloads: vec![PacketPayload {
+                source_port: Port("transfer".into()),
+                dest_port: Port("transfer".into()),
+                version: "v1".into(),
+                encoding: "proto3".into(),
+                data: vec![0xDE, 0xAD],
+            }],
+        };
+
+        let msg = cosmos_packet_to_msg_packet(&packet);
+        assert_eq!(msg.sequence, 42);
+        assert_eq!(msg.source_client, "src-client");
+        assert_eq!(msg.dest_client, "dst-client");
+        assert_eq!(msg.timeout_timestamp, 1_000_000);
+        assert_eq!(msg.payloads.len(), 1);
+        assert_eq!(msg.payloads[0].source_port, "transfer");
+        assert_eq!(msg.payloads[0].dest_port, "transfer");
+        assert_eq!(msg.payloads[0].version, "v1");
+        assert_eq!(msg.payloads[0].encoding, "proto3");
+    }
+
+    #[test]
+    fn consensus_state_matches_ignores_height() {
+        let a = OnChainTmConsensusState {
+            height: TmHeight::try_from(1u64).unwrap(),
+            timestamp_nanos: 1000,
+            root: [0xAA; 32],
+            next_validators_hash: [0xBB; 32],
+        };
+        let b = OnChainTmConsensusState {
+            height: TmHeight::try_from(99u64).unwrap(),
+            ..a.clone()
+        };
+        assert!(a.matches_fields(&b));
     }
 }

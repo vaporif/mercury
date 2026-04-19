@@ -14,7 +14,7 @@ use mercury_chain_traits::relay::Relay;
 use mercury_chain_traits::types::ChainTypes;
 
 const DST_CATCHUP_POLL_INTERVAL: Duration = Duration::from_secs(5);
-const DST_CATCHUP_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const DST_CATCHUP_TIMEOUT: Duration = Duration::from_mins(15);
 
 /// Polls dst chain until its timestamp catches up to `required_ts`.
 pub(crate) async fn wait_for_dst_timestamp<R: Relay>(

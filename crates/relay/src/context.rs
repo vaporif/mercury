@@ -30,7 +30,7 @@ use crate::workers::packet_worker::PacketWorker;
 use crate::workers::tx_worker::{SrcTxWorker, TxWorker};
 
 const CHANNEL_BUFFER: usize = 256;
-const MAX_RESTART_BACKOFF: Duration = Duration::from_secs(60);
+const MAX_RESTART_BACKOFF: Duration = Duration::from_mins(1);
 const INITIAL_RESTART_BACKOFF: Duration = Duration::from_secs(1);
 
 /// Configuration for optional relay workers.
