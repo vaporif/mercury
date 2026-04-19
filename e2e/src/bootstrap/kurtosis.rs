@@ -7,7 +7,7 @@ use tokio::sync::OnceCell;
 use tracing::info;
 use uuid::Uuid;
 
-const FINALIZATION_TIMEOUT: Duration = Duration::from_secs(300);
+const FINALIZATION_TIMEOUT: Duration = Duration::from_mins(5);
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const KURTOSIS_CHAIN_ID: u64 = 3_151_908;
 

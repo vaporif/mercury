@@ -16,7 +16,7 @@ const IMAGE: &str = "ghcr.io/cosmos/ibc-go-wasm-simd";
 const IMAGE_TAG: &str = "main";
 const RPC_PORT: u16 = 26657;
 const GRPC_PORT: u16 = 9090;
-const READINESS_TIMEOUT: Duration = Duration::from_secs(60);
+const READINESS_TIMEOUT: Duration = Duration::from_mins(1);
 const READINESS_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const READINESS_WARNING_THRESHOLD: Duration = Duration::from_secs(15);
 
@@ -393,7 +393,7 @@ pub async fn store_wasm_light_client(
         ))
         .await?;
 
-    poll_proposal_status(handle, 1, "PROPOSAL_STATUS_PASSED", Duration::from_secs(60))
+    poll_proposal_status(handle, 1, "PROPOSAL_STATUS_PASSED", Duration::from_mins(1))
         .await
         .wrap_err("waiting for proposal to pass")?;
 
