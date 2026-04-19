@@ -118,7 +118,7 @@ impl<R: Relay> EventWatcher<R> {
         metrics: EventMetrics,
     ) {
         let mut backoff = Duration::from_secs(1);
-        let max_backoff = Duration::from_secs(300);
+        let max_backoff = Duration::from_mins(5);
         let mut attempt = 0u64;
 
         loop {

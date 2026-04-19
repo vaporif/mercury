@@ -283,7 +283,7 @@ pub fn extract_signatures_from_header(
         ));
     }
 
-    sig_data.sort_by(|a, b| b.0.cmp(&a.0));
+    sig_data.sort_by_key(|b| std::cmp::Reverse(b.0));
     sig_data.into_iter().map(|(_, s)| s).collect()
 }
 
