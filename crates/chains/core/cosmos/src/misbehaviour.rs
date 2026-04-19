@@ -314,6 +314,54 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChain<S> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_state(height: u64, ts: u128, root: u8, val_hash: u8) -> OnChainTmConsensusState {
+        OnChainTmConsensusState {
+            height: TmHeight::try_from(height).unwrap(),
+            timestamp_nanos: ts,
+            root: [root; 32],
+            next_validators_hash: [val_hash; 32],
+        }
+    }
+
+    #[test]
+    fn matches_fields_ignores_height() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(99, 1000, 0xAA, 0xBB);
+        assert!(a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_detects_timestamp_diff() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(1, 2000, 0xAA, 0xBB);
+        assert!(!a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_detects_root_diff() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(1, 1000, 0xCC, 0xBB);
+        assert!(!a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_detects_validator_hash_diff() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(1, 1000, 0xAA, 0xCC);
+        assert!(!a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_identical() {
+        let a = make_state(5, 500, 0x11, 0x22);
+        assert!(a.matches_fields(&a));
+    }
+}
+
 /// Maximum number of consensus state heights to fetch per query.
 const CONSENSUS_HEIGHTS_LIMIT: u64 = 1000;
 

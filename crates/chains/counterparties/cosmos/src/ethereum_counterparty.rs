@@ -35,6 +35,8 @@ use prost::Message as _;
 
 use crate::wrapper::CosmosAdapter;
 
+const BEACON_TRUSTING_PERIOD: Duration = Duration::from_hours(24);
+
 impl<S: CosmosSigner> CosmosAdapter<S> {
     const fn effective_proof_height(&self, proof_height: &EvmHeight) -> u64 {
         if self.0.config.mock_proofs {
@@ -96,9 +98,6 @@ impl<S: CosmosSigner> ClientQuery<EthereumChain> for CosmosAdapter<S> {
     }
 
     fn trusting_period(client_state: &Self::ClientState) -> Option<Duration> {
-        /// Beacon sync committee period is ~27 hours.
-        const BEACON_TRUSTING_PERIOD: Duration = Duration::from_secs(24 * 3600);
-
         match client_state {
             CosmosClientState::Wasm(_) => Some(BEACON_TRUSTING_PERIOD),
             CosmosClientState::Tendermint(_) => {

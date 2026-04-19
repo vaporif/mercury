@@ -32,6 +32,8 @@ use prost::Message as _;
 
 use crate::wrapper::CosmosAdapter;
 
+const SOLANA_TRUSTING_PERIOD: Duration = Duration::from_hours(24);
+
 #[async_trait]
 impl<S: CosmosSigner> ClientQuery<SolanaChain> for CosmosAdapter<S> {
     async fn query_client_state(
@@ -56,8 +58,6 @@ impl<S: CosmosSigner> ClientQuery<SolanaChain> for CosmosAdapter<S> {
     }
 
     fn trusting_period(client_state: &Self::ClientState) -> Option<Duration> {
-        const SOLANA_TRUSTING_PERIOD: Duration = Duration::from_secs(24 * 3600);
-
         match client_state {
             CosmosClientState::Wasm(_) => Some(SOLANA_TRUSTING_PERIOD),
             CosmosClientState::Tendermint(_) => {

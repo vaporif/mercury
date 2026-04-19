@@ -849,6 +849,109 @@ mod tests {
     }
 
     #[test]
+    fn wrap_cleanup_message_empty_returns_none() {
+        assert!(wrap_cleanup_message(vec![]).is_none());
+    }
+
+    #[test]
+    fn wrap_cleanup_message_single_ix_wraps_with_budget() {
+        let ix = solana_sdk::instruction::Instruction::new_with_bytes(
+            solana_sdk::pubkey::Pubkey::new_unique(),
+            &[1, 2, 3],
+            vec![],
+        );
+        let msg = wrap_cleanup_message(vec![ix]).unwrap();
+        // with_compute_budget adds 2 budget instructions before the actual ix
+        assert_eq!(msg.instructions.len(), 3);
+    }
+
+    #[test]
+    fn wrap_cleanup_message_multiple_ixs() {
+        let make_ix = || {
+            solana_sdk::instruction::Instruction::new_with_bytes(
+                solana_sdk::pubkey::Pubkey::new_unique(),
+                &[],
+                vec![],
+            )
+        };
+        let msg = wrap_cleanup_message(vec![make_ix(), make_ix()]).unwrap();
+        // 2 budget + first ix + second ix
+        assert_eq!(msg.instructions.len(), 4);
+    }
+
+    #[test]
+    fn flatten_chunked_output_no_chunks() {
+        let packet_msg = SolanaMessage {
+            instructions: vec![solana_sdk::instruction::Instruction::new_with_bytes(
+                solana_sdk::pubkey::Pubkey::new_unique(),
+                &[],
+                vec![],
+            )],
+        };
+        let output = ChunkedPacketOutput {
+            chunk_messages: vec![],
+            packet_message: packet_msg,
+            cleanup_message: None,
+        };
+        let result = flatten_chunked_output(output);
+        assert_eq!(result.instructions.len(), 1);
+    }
+
+    #[test]
+    fn flatten_chunked_output_with_chunks_and_cleanup() {
+        let make_msg = |n: usize| SolanaMessage {
+            instructions: (0..n)
+                .map(|_| {
+                    solana_sdk::instruction::Instruction::new_with_bytes(
+                        solana_sdk::pubkey::Pubkey::new_unique(),
+                        &[],
+                        vec![],
+                    )
+                })
+                .collect(),
+        };
+        let output = ChunkedPacketOutput {
+            chunk_messages: vec![make_msg(2), make_msg(1)],
+            packet_message: make_msg(1),
+            cleanup_message: Some(make_msg(3)),
+        };
+        let result = flatten_chunked_output(output);
+        // 2 + 1 (chunks) + 1 (packet) + 3 (cleanup) = 7
+        assert_eq!(result.instructions.len(), 7);
+    }
+
+    #[test]
+    fn cosmos_packet_to_msg_packet_roundtrip() {
+        use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+        use mercury_cosmos::types::{PacketPayload, RawClientId};
+
+        let packet = CosmosPacket {
+            source_client_id: RawClientId("src-client".into()),
+            dest_client_id: RawClientId("dst-client".into()),
+            sequence: PacketSequence(42),
+            timeout_timestamp: TimeoutTimestamp(1_000_000),
+            payloads: vec![PacketPayload {
+                source_port: Port("transfer".into()),
+                dest_port: Port("transfer".into()),
+                version: "v1".into(),
+                encoding: "proto3".into(),
+                data: vec![0xDE, 0xAD],
+            }],
+        };
+
+        let msg = cosmos_packet_to_msg_packet(&packet);
+        assert_eq!(msg.sequence, 42);
+        assert_eq!(msg.source_client, "src-client");
+        assert_eq!(msg.dest_client, "dst-client");
+        assert_eq!(msg.timeout_timestamp, 1_000_000);
+        assert_eq!(msg.payloads.len(), 1);
+        assert_eq!(msg.payloads[0].source_port, "transfer");
+        assert_eq!(msg.payloads[0].dest_port, "transfer");
+        assert_eq!(msg.payloads[0].version, "v1");
+        assert_eq!(msg.payloads[0].encoding, "proto3");
+    }
+
+    #[test]
     fn consensus_state_matches_ignores_height() {
         let a = OnChainTmConsensusState {
             height: TmHeight::try_from(1u64).unwrap(),
