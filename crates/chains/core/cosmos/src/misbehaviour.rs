@@ -22,11 +22,11 @@ use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::Result;
 
 use crate::builders::{CosmosUpdateClientPayload, find_proposer};
-use mercury_core::MembershipProofs;
 use crate::chain::CosmosChain;
 use crate::client_types::CosmosClientState;
 use crate::keys::CosmosSigner;
 use crate::types::{CosmosMessage, to_any};
+use mercury_core::MembershipProofs;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OnChainTmConsensusState {
@@ -123,9 +123,8 @@ pub async fn build_corrective_update_payload<S: CosmosSigner>(
     let trusted_next_validator_set =
         ValidatorSet::new(trusted_validators_response.validators, trusted_proposer);
 
-    let ibc_trusted_height =
-        Height::new(chain.chain_id.revision_number(), trusted_height.value())
-            .map_err(|e| eyre::eyre!("{e}"))?;
+    let ibc_trusted_height = Height::new(chain.chain_id.revision_number(), trusted_height.value())
+        .map_err(|e| eyre::eyre!("{e}"))?;
 
     let (commit_response, validators_response) = chain
         .rpc_guard

@@ -345,9 +345,8 @@ impl<S: CosmosSigner> MisbehaviourDetector<EthereumChain> for CosmosAdapter<S> {
 
         let decoded = mercury_ethereum::queries::decode_client_state(&client_state.0)
             .ok_or_else(|| eyre::eyre!("failed to decode EvmClientState for trusted height"))?;
-        let trusted_height = tendermint::block::Height::try_from(
-            decoded.latestHeight.revisionHeight,
-        )?;
+        let trusted_height =
+            tendermint::block::Height::try_from(decoded.latestHeight.revisionHeight)?;
 
         let payload = mercury_cosmos::misbehaviour::build_corrective_update_payload(
             &self.0,

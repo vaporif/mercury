@@ -557,11 +557,17 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for EthereumAda
         match evidence {
             mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence::CorrectiveUpdate {
                 payload,
-            } => self.build_corrective_update_message(client_id, payload).await,
+            } => {
+                self.build_corrective_update_message(client_id, payload)
+                    .await
+            }
             mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence::Misbehaviour {
                 misbehaviour,
                 ..
-            } => self.build_sp1_misbehaviour_message(client_id, misbehaviour).await,
+            } => {
+                self.build_sp1_misbehaviour_message(client_id, misbehaviour)
+                    .await
+            }
         }
     }
 }

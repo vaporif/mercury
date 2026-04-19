@@ -236,7 +236,8 @@ impl SolanaRpcClient {
 
         let client = self.client.clone();
         let pid = *program_id;
-        self.guard
+        let ui_accounts = self
+            .guard
             .guarded(|| async move {
                 let config = RpcProgramAccountsConfig {
                     filters: Some(filters),
@@ -247,11 +248,21 @@ impl SolanaRpcClient {
                     ..Default::default()
                 };
                 client
-                    .get_program_accounts_with_config(&pid, config)
+                    .get_program_ui_accounts_with_config(&pid, config)
                     .await
                     .map_err(|e| eyre::eyre!("get_program_accounts failed: {e}"))
             })
-            .await
+            .await?;
+
+        ui_accounts
+            .into_iter()
+            .map(|(pubkey, ui_account)| {
+                let account: Account = ui_account
+                    .decode()
+                    .ok_or_else(|| eyre::eyre!("failed to decode UiAccount for {pubkey}"))?;
+                Ok((pubkey, account))
+            })
+            .collect()
     }
 }
 
