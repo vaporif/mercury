@@ -12,8 +12,9 @@ workspace = true
 [dependencies]
 mercury-core = { workspace = true }
 mercury-chain-traits = { workspace = true }
-mercury-cosmos-counterparties = { workspace = true, features = ["ethereum-beacon"] }
+mercury-cosmos-counterparties = { workspace = true, features = ["ethereum-beacon", "solana"] }
 mercury-relay = { workspace = true }
+mercury-chain-cache = { workspace = true }
 
 testcontainers = { workspace = true }
 tokio = { workspace = true }
