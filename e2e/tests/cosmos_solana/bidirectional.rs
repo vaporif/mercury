@@ -69,8 +69,7 @@ async fn bidirectional_relay() -> Result<()> {
         .map_err(|e| eyre::eyre!("parse cosmos client id: {e}"))?;
     let solana_client_id = SolanaClientId(harness.solana_tendermint_client_id.clone());
 
-    let cosmos_cached: CosmosCached =
-        CachedChain::new(CosmosAdapter(harness.cosmos_chain.clone()));
+    let cosmos_cached: CosmosCached = CachedChain::new(CosmosAdapter(harness.cosmos_chain.clone()));
     let solana_cached: SolanaCached = CachedChain::new(harness.solana_adapter.clone());
 
     let relay_cs = Arc::new(RelayContext {
@@ -151,7 +150,10 @@ async fn bidirectional_relay() -> Result<()> {
         !commitment_account.data.is_empty(),
         "PacketCommitment PDA should have data"
     );
-    info!(?commitment_pda, "Solana->Cosmos: packet commitment PDA exists");
+    info!(
+        ?commitment_pda,
+        "Solana->Cosmos: packet commitment PDA exists"
+    );
 
     poll_until_async(
         "packet receipt on Cosmos (Solana->Cosmos)",
@@ -232,10 +234,7 @@ async fn send_ics20_packet_from_cosmos(harness: &CosmosSolanaHarness) -> Result<
     Ok(())
 }
 
-async fn send_packet_from_solana(
-    harness: &CosmosSolanaHarness,
-    rpc: &RpcClient,
-) -> Result<()> {
+async fn send_packet_from_solana(harness: &CosmosSolanaHarness, rpc: &RpcClient) -> Result<()> {
     let payer = harness.solana_bootstrap.keypair.pubkey();
     let ics26 = harness.solana_bootstrap.program_ids.ics26;
     let ics07 = harness.solana_bootstrap.program_ids.ics07;
@@ -296,9 +295,7 @@ async fn send_packet_from_solana(
         data,
     };
 
-    let solana_rpc = mercury_solana::rpc::SolanaRpcClient::new(
-        &harness.solana_adapter.0.config,
-    );
+    let solana_rpc = mercury_solana::rpc::SolanaRpcClient::new(&harness.solana_adapter.0.config);
     let sig = mercury_solana::tx::send_transaction_skip_preflight(
         &solana_rpc,
         &harness.solana_bootstrap.keypair,
@@ -311,11 +308,7 @@ async fn send_packet_from_solana(
     Ok(())
 }
 
-async fn poll_until(
-    label: &str,
-    timeout: Duration,
-    mut f: impl FnMut() -> bool,
-) -> Result<()> {
+async fn poll_until(label: &str, timeout: Duration, mut f: impl FnMut() -> bool) -> Result<()> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         if f() {
