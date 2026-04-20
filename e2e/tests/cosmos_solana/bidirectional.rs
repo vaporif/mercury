@@ -311,7 +311,6 @@ async fn send_packet_from_solana(
     Ok(())
 }
 
-/// Poll a synchronous predicate until it returns `true` or a timeout elapses.
 async fn poll_until(
     label: &str,
     timeout: Duration,
@@ -329,7 +328,6 @@ async fn poll_until(
     }
 }
 
-/// Poll an async predicate until it returns `true` or a timeout elapses.
 async fn poll_until_async<F, Fut>(label: &str, timeout: Duration, mut f: F) -> Result<()>
 where
     F: FnMut() -> Fut,
