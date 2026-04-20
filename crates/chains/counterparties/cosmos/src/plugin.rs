@@ -149,50 +149,62 @@ impl ChainPlugin for CosmosPlugin {
     ) -> eyre::Result<String> {
         let c = downcast_cosmos(chain)?;
 
-        let msg;
-
         #[cfg(feature = "ethereum-beacon")]
         if let Some(eth_payload) =
             payload.downcast_ref::<mercury_ethereum::builders::CreateClientPayload>()
         {
-            msg = ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_create_client_message(
+            let msg = ClientMessageBuilder::<mercury_ethereum::chain::EthereumChain>::build_create_client_message(
                 c,
                 eth_payload.clone(),
             )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
-        } else if let Some(cosmos_payload) = payload.downcast_ref::<CosmosCreateClientPayload>() {
-            msg =
-                ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_message(
-                    c,
-                    cosmos_payload.clone(),
-                )
+            let responses = c
+                .inner()
+                .0
+                .send_messages_with_responses(vec![msg])
                 .await
                 .map_err(|e| eyre::eyre!("{e}"))?;
-        } else {
-            eyre::bail!("unsupported reference chain payload type for cosmos host");
+            return Ok(extract_cosmos_client_id(&responses)?.to_string());
         }
 
-        #[cfg(not(feature = "ethereum-beacon"))]
-        if let Some(cosmos_payload) = payload.downcast_ref::<CosmosCreateClientPayload>() {
-            msg =
-                ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_message(
-                    c,
-                    cosmos_payload.clone(),
-                )
-                .await
-                .map_err(|e| eyre::eyre!("{e}"))?;
-        } else {
-            eyre::bail!("unsupported reference chain payload type for cosmos host");
-        }
-
-        let responses = c
-            .inner()
-            .0
-            .send_messages_with_responses(vec![msg])
+        #[cfg(feature = "solana")]
+        if let Some(solana_payload) =
+            payload.downcast_ref::<mercury_solana::types::SolanaCreateClientPayload>()
+        {
+            let msg = ClientMessageBuilder::<mercury_solana::chain::SolanaChain>::build_create_client_message(
+                c,
+                solana_payload.clone(),
+            )
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
-        Ok(extract_cosmos_client_id(&responses)?.to_string())
+            let responses = c
+                .inner()
+                .0
+                .send_messages_with_responses(vec![msg])
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+            return Ok(extract_cosmos_client_id(&responses)?.to_string());
+        }
+
+        if let Some(cosmos_payload) = payload.downcast_ref::<CosmosCreateClientPayload>() {
+            let msg =
+                ClientMessageBuilder::<CosmosChain<Secp256k1KeyPair>>::build_create_client_message(
+                    c,
+                    cosmos_payload.clone(),
+                )
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+            let responses = c
+                .inner()
+                .0
+                .send_messages_with_responses(vec![msg])
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+            return Ok(extract_cosmos_client_id(&responses)?.to_string());
+        }
+
+        eyre::bail!("unsupported reference chain payload type for cosmos host")
     }
 
     async fn query_client_state_info(
@@ -286,6 +298,26 @@ impl ChainPlugin for CosmosPlugin {
                     c,
                     &parsed_id,
                     eth_payload.clone(),
+                )
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+            c.inner()
+                .0
+                .send_messages(output.messages)
+                .await
+                .map_err(|e| eyre::eyre!("{e}"))?;
+            return Ok(());
+        }
+
+        #[cfg(feature = "solana")]
+        if let Some(solana_payload) =
+            payload.downcast_ref::<mercury_solana::types::SolanaUpdateClientPayload>()
+        {
+            let output =
+                ClientMessageBuilder::<mercury_solana::chain::SolanaChain>::build_update_client_message(
+                    c,
+                    &parsed_id,
+                    solana_payload.clone(),
                 )
                 .await
                 .map_err(|e| eyre::eyre!("{e}"))?;

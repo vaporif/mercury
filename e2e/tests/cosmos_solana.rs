@@ -7,6 +7,9 @@ mod bootstrap;
 #[path = "cosmos_solana/transfer.rs"]
 mod transfer;
 
+#[path = "cosmos_solana/bidirectional.rs"]
+mod bidirectional;
+
 static INIT_TRACING: Once = Once::new();
 
 fn init_tracing() {
