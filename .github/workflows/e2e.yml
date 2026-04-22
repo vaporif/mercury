@@ -160,7 +160,7 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Build Solana programs
-        run: nix develop --command bash -c "cd external/solidity-ibc-eureka/programs/solana && anchor build"
+        run: nix develop .#solana --command bash -c "cd external/solidity-ibc-eureka/programs/solana && anchor build"
 
       - name: Prepare Solana program fixtures
         run: |
