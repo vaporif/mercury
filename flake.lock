@@ -137,6 +137,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-agave": {
+      "locked": {
+        "lastModified": 1762111121,
+        "narHash": "sha256-4vhDuZ7OZaZmKKrnDpxLZZpGIJvAeMtK6FKLJYUtAdw=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "b3d51a0365f6695e7dd5cdf3e180604530ed33b4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "b3d51a0365f6695e7dd5cdf3e180604530ed33b4",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "anchor": "anchor",
@@ -144,6 +160,7 @@
         "ethereum-nix": "ethereum-nix",
         "fenix": "fenix",
         "nixpkgs": "nixpkgs",
+        "nixpkgs-agave": "nixpkgs-agave",
         "solidity-ibc-eureka": "solidity-ibc-eureka",
         "sp1": "sp1"
       }
