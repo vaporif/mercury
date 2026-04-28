@@ -23,7 +23,7 @@
   inherit (lib) optionals;
   inherit (stdenv) hostPlatform isLinux;
 
-  version = "3.1.6";
+  version = "2.3.13";
 
   rustForAgave = rust-bin.stable."1.86.0".default.override {
     extensions = ["rust-src"];
@@ -40,11 +40,11 @@ in
       owner = "anza-xyz";
       repo = "agave";
       rev = "v${version}";
-      hash = "sha256-pIvShCRy1OQcFwSkXZ/lLF+2LoAd2wyAQfyyUtj9La0=";
+      hash = "sha256-RSucqvbshaaby4fALhAQJtZztwsRdA+X7yRnoBxQvsg=";
       fetchSubmodules = true;
     };
 
-    cargoHash = "sha256-eendPKd1oZmVqWAGWxm+AayLDm5w9J6/gSEPUXJZj88=";
+    cargoHash = "sha256-yTS++bUu+4wmbXXZkU4eDq4sGNzls1euptJoY6OYZOM=";
 
     cargoBuildFlags = map (n: "--bin=${n}") solanaPkgs;
 

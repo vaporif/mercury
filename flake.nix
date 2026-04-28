@@ -25,11 +25,15 @@
       url = "github:nix-community/ethereum.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Pinned nixpkgs for agave build — newer nixpkgs produces a
+    # solana-test-validator that crashes with SIGTRAP on macOS ARM64.
+    nixpkgs-agave.url = "github:nixos/nixpkgs/b3d51a0365f6695e7dd5cdf3e180604530ed33b4";
   };
 
   outputs = {
     self,
     nixpkgs,
+    nixpkgs-agave,
     fenix,
     crane,
     solidity-ibc-eureka,
@@ -47,7 +51,7 @@
         };
       in
         f {
-          inherit pkgs;
+          inherit pkgs system;
           fenixPkgs = fenix.packages.${system};
           craneLib =
             (crane.mkLib pkgs).overrideToolchain
@@ -57,6 +61,7 @@
     # Per-system build context shared by packages, checks, and devShells.
     perSystem = forAllSystems ({
       pkgs,
+      system,
       fenixPkgs,
       craneLib,
     }: let
@@ -184,8 +189,9 @@
         mainProgram = "mercury-relayer";
       };
 
-      agave = pkgs.callPackage ./nix/agave.nix {
-        rust-bin = anchor.inputs.rust-overlay.lib.mkRustBin {} pkgs.buildPackages;
+      pkgsAgave = import nixpkgs-agave {inherit system;};
+      agave = pkgsAgave.callPackage ./nix/agave.nix {
+        rust-bin = anchor.inputs.rust-overlay.lib.mkRustBin {} pkgsAgave.buildPackages;
       };
 
       toolchain = fenixPkgs.combine [
