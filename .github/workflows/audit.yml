@@ -30,7 +30,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: dtolnay/rust-toolchain@1.100.0
 
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
