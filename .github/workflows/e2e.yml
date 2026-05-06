@@ -24,7 +24,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  SOLANA_VERSION: "2.3.13"
+  SOLANA_VERSION: "3.1.14"
   ANCHOR_VERSION: "0.32.1"
 
 jobs:

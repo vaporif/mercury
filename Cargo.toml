@@ -84,15 +84,15 @@ ibc-core-client-types = { version = "0.57", default-features = false }
 ibc-core-commitment-types = { version = "0.57", default-features = false }
 
 solana-client                         = { version = "3" }
-solana-sdk                            = { version = "3" }
+solana-sdk                            = { version = "4" }
 solana-commitment-config              = { version = "3" }
 solana-transaction-status             = { version = "3" }
 solana-system-interface               = { version = "3" }
 solana-compute-budget-interface       = { version = "3" }
 solana-address-lookup-table-interface = { version = "3" }
-solana-loader-v3-interface            = { version = "6" }
-solana-message                        = { version = "3" }
-solana-transaction                    = { version = "3" }
+solana-loader-v3-interface            = { version = "8" }
+solana-message                        = { version = "4" }
+solana-transaction                    = { version = "4" }
 bincode                   = { version = "3" }
 anchor-lang               = { version = "0.32.1" }
 anchor-client             = { version = "0.32.1" }
@@ -107,8 +107,8 @@ tonic = { version = "0.13", features = [
   "transport",
 ] }
 secp256k1 = { version = "0.31", features = ["serde"] }
-sha2 = "0.10"
-ripemd = "0.1"
+sha2 = "0.11"
+ripemd = "0.2"
 bech32 = "0.11"
 hex = "0.4"
 globset = "0.4"
