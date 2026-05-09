@@ -24,6 +24,8 @@ ignore = [
   "RUSTSEC-2026-0098",
   # rustls-webpki wildcard DNS name constraints bypass — pinned by rustls 0.21/0.22 (reqwest 0.11, tungstenite 0.21), waiting on upstream
   "RUSTSEC-2026-0099",
+  # rustls-webpki reachable panic in CRL parsing — residual on 0.101.7/0.102.8 pinned by rustls 0.21/0.22 (reqwest 0.11, tungstenite 0.21); 0.103 line bumped to 0.103.13
+  "RUSTSEC-2026-0104",
 ]
 
 [licenses]
