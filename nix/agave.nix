@@ -68,6 +68,9 @@ in
 
     LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
 
+    # Bundled RocksDB 9.9 relies on <cstdint> being pulled in transitively, which GCC 15's libstdc++ no longer does
+    CXXFLAGS = lib.optionalString isLinux "-include cstdint";
+
     # Bundled RocksDB omits <cstdint>, which GCC 13+ no longer pulls in transitively.
     env = lib.optionalAttrs isLinux {
       CXXFLAGS = "-include cstdint";
