@@ -43,7 +43,7 @@ build-solana-fixtures force="true":
         fi
     fi
     mkdir -p "$OUT"
-    (cd "$SRC" && anchor build)
+    (cd "$SRC" && anchor build --no-idl)
     for prog in "${PROGS[@]}"; do
         cp "$SRC/target/sbf-solana-solana/release/${prog}.so" "$OUT/${prog}.so"
         cp "external/solidity-ibc-eureka/solana-keypairs/localnet/${prog}-keypair.json" "$OUT/${prog}-keypair.json"

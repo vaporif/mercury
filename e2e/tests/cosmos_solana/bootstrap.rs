@@ -105,7 +105,8 @@ async fn build_cosmos_chain(handle: &CosmosDockerHandle) -> Result<CosmosChain<S
         max_tx_size: None,
         tx_size_gas_per_byte: None,
         wasm_checksum: None,
-        mock_proofs: false,
+        // Cosmos tracks Solana with the dummy wasm LC; Solana has no state proofs yet.
+        mock_proofs: true,
         rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
         rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
         merkle_prefix: mercury_core::MerklePrefix::ibc_default(),
