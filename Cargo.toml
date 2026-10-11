@@ -106,13 +106,13 @@ tonic = { version = "0.13", features = [
   "channel",
   "transport",
 ] }
-secp256k1 = { version = "0.31", features = ["serde"] }
-sha2 = "0.10"
-ripemd = "0.1"
-bech32 = "0.11"
+secp256k1 = { version = "0.33", features = ["serde"] }
+sha2 = "0.11"
+ripemd = "0.2"
+bech32 = "0.12"
 hex = "0.4"
 globset = "0.4"
-toml = "0.8"
+toml = "1"
 zeroize = "1"
 url = "2"
 alloy = { version = "1", default-features = false, features = [
@@ -128,10 +128,10 @@ alloy = { version = "1", default-features = false, features = [
   "signers",
   "sol-types",
 ] }
-testcontainers = "0.27"
-reqwest = { version = "0.12", default-features = false, features = [
+testcontainers = "0.28"
+reqwest = { version = "0.13", default-features = false, features = [
   "json",
-  "rustls-tls",
+  "rustls",
   "http2",
   "charset",
 ] }
@@ -145,11 +145,11 @@ sp1-sdk = { version = "5.0", default-features = false, features = ["network"] }
 sp1-prover = { version = "5.0", default-features = false }
 ibc-eureka-solidity-types = { git = "https://github.com/cosmos/solidity-ibc-eureka", rev = "cf652f3b09f532ef54a06469e617e50136be5637", features = ["rpc"] }
 governor = "0.10.4"
-opentelemetry = { version = "0.31", features = ["metrics"] }
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "metrics", "trace", "spec_unstable_metrics_views"] }
-opentelemetry-otlp = { version = "0.31", features = ["http-proto", "metrics", "trace", "reqwest-client"] }
-tracing-opentelemetry = "0.32"
-opentelemetry-system-metrics = "0.31"
+opentelemetry = { version = "0.32", features = ["metrics"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "metrics", "trace", "spec_unstable_metrics_views"] }
+opentelemetry-otlp = { version = "0.32", features = ["http-proto", "metrics", "trace", "reqwest-client"] }
+tracing-opentelemetry = "0.33"
+opentelemetry-system-metrics = "0.32"
 mercury-telemetry = { path = "crates/telemetry" }
 
 [profile.dev]

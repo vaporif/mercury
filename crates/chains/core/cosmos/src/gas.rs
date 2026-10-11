@@ -72,7 +72,7 @@ async fn grpc_unary<Req, Resp>(
     channel: tonic::transport::Channel,
     path: &str,
     request: tonic::Request<Req>,
-) -> core::result::Result<tonic::Response<Resp>, tonic::Status>
+) -> Result<Resp>
 where
     Req: Message + Send + Sync + 'static,
     Resp: Message + Default + Send + Sync + 'static,
@@ -81,12 +81,13 @@ where
     client
         .ready()
         .await
-        .map_err(|e| tonic::Status::unknown(format!("service not ready: {e}")))?;
+        .map_err(|e| eyre::eyre!("service not ready: {e}"))?;
     let path: tonic::codegen::http::uri::PathAndQuery = path
         .parse()
-        .map_err(|e| tonic::Status::internal(format!("invalid path: {e}")))?;
+        .map_err(|e| eyre::eyre!("invalid path: {e}"))?;
     let codec = ProstMessageCodec::<Req, Resp>::default();
-    client.unary(request, path, codec).await
+    let response = client.unary(request, path, codec).await?;
+    Ok(response.into_inner())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -148,8 +149,6 @@ async fn query_osmosis_base_fee(
                 request,
             )
             .await
-            .map(tonic::Response::into_inner)
-            .map_err(Into::into)
         })
         .await?;
 
@@ -172,8 +171,6 @@ async fn query_feemarket_price(
                 request,
             )
             .await
-            .map(tonic::Response::into_inner)
-            .map_err(Into::into)
         })
         .await?;
 
