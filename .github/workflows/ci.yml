@@ -32,7 +32,10 @@ jobs:
           submodules: recursive
 
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: cachix/cachix-action@v16
+        with:
+          name: cosmos-mercury
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Checks
         run: nix flake check
@@ -45,14 +48,14 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.99.0
+      - uses: ./.github/actions/nix-shell
         with:
-          components: clippy
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: just clippy
 
   test:
     name: Test
@@ -62,16 +65,14 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.99.0
+      - uses: ./.github/actions/nix-shell
+        with:
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-
       - name: Test
-        run: cargo nextest run --workspace
+        run: just test
 
   build:
     name: Build ${{ matrix.system }}
@@ -88,7 +89,10 @@ jobs:
           submodules: recursive
 
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: cachix/cachix-action@v16
+        with:
+          name: cosmos-mercury
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Build
         run: nix build
@@ -101,18 +105,14 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.99.0
+      - uses: ./.github/actions/nix-shell
         with:
-          components: llvm-tools-preview
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest,cargo-llvm-cov
-
       - name: Generate coverage
-        run: cargo llvm-cov nextest --workspace --exclude mercury-e2e --exclude mock-wasm-eth-lc --lcov --output-path lcov.info
+        run: just coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
