@@ -8,8 +8,8 @@ use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_sdk::instruction::{AccountMeta, Instruction};
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::signer::Signer;
+use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::sysvar;
 use solana_sdk::transaction::Transaction;
 

@@ -174,7 +174,10 @@ mod tests {
         )
     }
 
-    fn event(disc: &[u8; ANCHOR_DISCRIMINATOR_LEN], body: &impl borsh::BorshSerialize) -> SolanaEvent {
+    fn event(
+        disc: &[u8; ANCHOR_DISCRIMINATOR_LEN],
+        body: &impl borsh::BorshSerialize,
+    ) -> SolanaEvent {
         let mut data = disc.to_vec();
         data.extend(borsh::to_vec(body).unwrap());
         SolanaEvent {
@@ -196,7 +199,12 @@ mod tests {
 
     #[test]
     fn decodes_send_packet_event() {
-        let body = ("07-tendermint-0".to_string(), 7u64, wire_packet(), 1_700_000_000u64);
+        let body = (
+            "07-tendermint-0".to_string(),
+            7u64,
+            wire_packet(),
+            1_700_000_000u64,
+        );
         let decoded = try_decode_send_packet(&event(&SEND_PACKET_DISC, &body)).unwrap();
         assert_packet(&decoded.packet);
     }
@@ -213,7 +221,12 @@ mod tests {
 
     #[test]
     fn rejects_mismatched_discriminator() {
-        let body = ("07-tendermint-0".to_string(), 7u64, wire_packet(), 1_700_000_000u64);
+        let body = (
+            "07-tendermint-0".to_string(),
+            7u64,
+            wire_packet(),
+            1_700_000_000u64,
+        );
         assert!(try_decode_send_packet(&event(&WRITE_ACK_DISC, &body)).is_none());
     }
 

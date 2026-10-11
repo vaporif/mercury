@@ -178,8 +178,10 @@ async fn bidirectional_relay() -> Result<()> {
     .await?;
     info!("Solana->Cosmos: packet receipt exists on Cosmos");
 
+    // Same teardown as `RelayHandle`: awaiting the workers can block if one ignores cancellation.
     token.cancel();
-    let _ = tokio::join!(join_cs, join_sc);
+    join_cs.abort();
+    join_sc.abort();
     info!("bidirectional_relay: all assertions passed");
 
     Ok(())
