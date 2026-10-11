@@ -68,6 +68,11 @@ in
 
     LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
 
+    # Bundled RocksDB omits <cstdint>, which GCC 13+ no longer pulls in transitively.
+    env = lib.optionalAttrs isLinux {
+      CXXFLAGS = "-include cstdint";
+    };
+
     BINDGEN_EXTRA_CLANG_ARGS = toString (
       [
         "-isystem ${llvmPackages.libclang.lib}/lib/clang/${lib.getVersion llvmPackages.clang}/include"
