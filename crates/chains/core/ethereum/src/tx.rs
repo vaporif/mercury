@@ -174,10 +174,11 @@ impl MessageSender for EthereumChain {
 ///
 /// Precision loss on the `u64 → f64` path is acceptable: real gas values
 /// are well below 2^53, so the f64 mantissa covers them exactly.
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_precision_loss
+    clippy::cast_precision_loss,
+    reason = "values stay well below 2^53"
 )]
 fn mul_ceil_u64(base: u64, multiplier: f64) -> u64 {
     let result = (base as f64 * multiplier).ceil();
@@ -189,10 +190,11 @@ fn mul_ceil_u64(base: u64, multiplier: f64) -> u64 {
 }
 
 /// Same as [`mul_ceil_u64`] but for `u128` (used for wei-denominated fees).
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_precision_loss
+    clippy::cast_precision_loss,
+    reason = "values stay well below 2^53"
 )]
 fn mul_ceil_u128(base: u128, multiplier: f64) -> u128 {
     let result = (base as f64 * multiplier).ceil();

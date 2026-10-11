@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::RwLock;
+use std::sync::{PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 pub struct TtlCell<V> {
@@ -14,14 +14,14 @@ impl<V> TtlCell<V> {
     }
 
     pub fn set(&self, value: V) {
-        let mut cache = self.inner.write().expect("poisoned lock");
+        let mut cache = self.inner.write().unwrap_or_else(PoisonError::into_inner);
         *cache = Some((value, Instant::now()));
     }
 }
 
 impl<V: Clone> TtlCell<V> {
     pub fn get(&self, ttl: Duration) -> Option<V> {
-        let cache = self.inner.read().expect("poisoned lock");
+        let cache = self.inner.read().unwrap_or_else(PoisonError::into_inner);
         match *cache {
             Some((ref value, ts)) if ts.elapsed() < ttl => Some(value.clone()),
             _ => None,
@@ -51,7 +51,7 @@ impl<V> BoundedCache<V> {
     }
 
     pub fn insert(&self, key: String, value: V) {
-        let mut inner = self.inner.write().expect("poisoned lock");
+        let mut inner = self.inner.write().unwrap_or_else(PoisonError::into_inner);
 
         if let Some(existing) = inner.entries.get_mut(&key) {
             *existing = value;
@@ -71,7 +71,7 @@ impl<V> BoundedCache<V> {
 
 impl<V: Clone> BoundedCache<V> {
     pub fn get(&self, key: &str) -> Option<V> {
-        let inner = self.inner.read().expect("poisoned lock");
+        let inner = self.inner.read().unwrap_or_else(PoisonError::into_inner);
         inner.entries.get(key).cloned()
     }
 }

@@ -688,6 +688,7 @@ impl<S: CosmosSigner> ClientQuery<CosmosChain<S>> for SolanaAdapter {
         <SolanaChain as ClientQuery<SolanaChain>>::trusting_period(client_state)
     }
 
+    #[expect(clippy::expect_used, reason = "trait method is infallible")]
     fn client_latest_height(client_state: &SolanaClientState) -> TmHeight {
         let h = <SolanaChain as ClientQuery<SolanaChain>>::client_latest_height(client_state);
         TmHeight::try_from(h.0).expect("height conversion")

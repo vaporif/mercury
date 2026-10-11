@@ -58,10 +58,11 @@ pub struct CosmosNonce {
 }
 
 fn adjust_gas(gas_used: u64, multiplier: f64, max_gas: Option<u64>) -> u64 {
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        clippy::cast_precision_loss
+        clippy::cast_precision_loss,
+        reason = "values stay well below 2^53"
     )]
     let adjusted = (gas_used as f64 * multiplier).ceil() as u64;
     match max_gas {
@@ -78,10 +79,11 @@ fn adjust_gas(gas_used: u64, multiplier: f64, max_gas: Option<u64>) -> u64 {
     }
 }
 
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_precision_loss
+    clippy::cast_precision_loss,
+    reason = "values stay well below 2^53"
 )]
 fn calculate_fee_amount(gas_limit: u64, gas_price: f64) -> u64 {
     (gas_limit as f64 * gas_price).ceil() as u64
@@ -201,7 +203,10 @@ async fn build_tx_bytes(
         granter: fee_granter.unwrap_or_default().to_string(),
     };
 
-    #[allow(deprecated)]
+    #[expect(
+        deprecated,
+        reason = "protobuf struct still requires the deprecated field"
+    )]
     let auth_info = AuthInfo {
         signer_infos: vec![signer_info],
         fee: Some(fee_proto),
@@ -304,13 +309,12 @@ impl<S: CosmosSigner> CosmosChain<S> {
             .config
             .tx_size_gas_per_byte
             .unwrap_or(DEFAULT_TX_SIZE_GAS_PER_BYTE);
-        #[allow(clippy::cast_possible_truncation)]
         let tx_size_gas = (tx_bytes.len() as u64).saturating_mul(gas_per_byte);
 
         let gas_used = self
             .rpc_guard
             .guarded(|| async {
-                #[allow(deprecated)]
+                #[expect(deprecated, reason = "proto struct still has the deprecated tx field")]
                 let request = tonic::Request::new(SimulateRequest {
                     tx: None,
                     tx_bytes,
@@ -545,14 +549,15 @@ impl<S: CosmosSigner> CosmosChain<S> {
             .config
             .max_tx_size
             .unwrap_or(crate::config::DEFAULT_MAX_TX_SIZE);
-        let batches = split_batches(messages, max_msg_num, max_tx_size);
+        let mut batches = split_batches(messages, max_msg_num, max_tx_size);
 
         if batches.is_empty() {
             return Ok(vec![]);
         }
 
-        if batches.len() == 1 {
-            let batch = batches.into_iter().next().expect("checked len");
+        if batches.len() == 1
+            && let Some(batch) = batches.pop()
+        {
             return self.send_single_batch(batch).await;
         }
 
@@ -621,7 +626,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
             let sem = semaphore.clone();
             let chain = self.clone();
             submit_futures.push(async move {
-                let _permit = sem.acquire().await.expect("semaphore not closed");
+                let _permit = sem.acquire().await.ok();
                 let result = chain.submit_tx(&chain.signer, &nonce_i, &fee, &batch).await;
                 (i, batch, result)
             });
@@ -693,7 +698,7 @@ impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
             .config
             .max_tx_size
             .unwrap_or(crate::config::DEFAULT_MAX_TX_SIZE);
-        let batches = split_batches(messages, max_msg_num, max_tx_size);
+        let mut batches = split_batches(messages, max_msg_num, max_tx_size);
 
         if batches.is_empty() {
             return Ok(TxReceipt {
@@ -702,8 +707,9 @@ impl<S: CosmosSigner> MessageSender for CosmosChain<S> {
             });
         }
 
-        if batches.len() == 1 {
-            let batch = batches.into_iter().next().expect("checked len");
+        if batches.len() == 1
+            && let Some(batch) = batches.pop()
+        {
             self.send_single_batch(batch).await?;
         } else {
             self.send_parallel_batches(batches).await?;

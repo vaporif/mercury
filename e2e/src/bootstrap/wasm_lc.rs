@@ -8,14 +8,20 @@ use tracing::info;
 static WASM_PATH: OnceLock<PathBuf> = OnceLock::new();
 static MOCK_WASM_PATH: OnceLock<PathBuf> = OnceLock::new();
 
-#[allow(clippy::missing_panics_doc)]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "panics only on broken invariants"
+)]
 pub fn build_real_wasm_lc() -> &'static Path {
     WASM_PATH
         .get_or_init(|| do_build().expect("failed to build real wasm light client"))
         .as_path()
 }
 
-#[allow(clippy::missing_panics_doc)]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "panics only on broken invariants"
+)]
 pub fn build_mock_wasm_lc() -> &'static Path {
     MOCK_WASM_PATH
         .get_or_init(|| do_build_mock().expect("failed to build mock wasm light client"))

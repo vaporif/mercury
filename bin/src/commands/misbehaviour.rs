@@ -34,8 +34,8 @@ impl MisbehaviourCmd {
             .connect(&chain_cfg.raw, config_dir)
             .await?;
 
-        todo!(
-            "implement misbehaviour detection for chain '{}'",
+        eyre::bail!(
+            "misbehaviour detection for chain '{}' is not implemented yet",
             self.chain
         )
     }

@@ -147,7 +147,10 @@ where
         }
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "linear setup flow reads clearer as one function"
+    )]
     async fn run_pipeline(
         self: &Arc<Self>,
         token: &CancellationToken,

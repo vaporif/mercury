@@ -43,7 +43,10 @@ pub struct CosmosEthTestContext {
 }
 
 impl CosmosEthTestContext {
-    #[allow(clippy::future_not_send, clippy::too_many_lines)]
+    #[expect(
+        clippy::future_not_send,
+        reason = "testcontainers futures are not Send"
+    )]
     pub async fn setup() -> Result<Self> {
         let mock_path = crate::bootstrap::wasm_lc::build_mock_wasm_lc();
         let (cosmos_handle, _wasm_checksum, cosmos_chain) =
@@ -126,7 +129,6 @@ impl CosmosEthTestContext {
         )
     }
 
-    #[allow(clippy::future_not_send)]
     pub async fn send_cosmos_to_eth_transfer(&self, amount: u64, denom: &str) -> Result<()> {
         submit_cosmos_to_eth_transfer(
             &self.cosmos_handle,
@@ -139,7 +141,6 @@ impl CosmosEthTestContext {
         .await
     }
 
-    #[allow(clippy::future_not_send)]
     pub async fn send_eth_to_cosmos_transfer(&self, amount: u64, denom: &str) -> Result<()> {
         submit_eth_to_cosmos_transfer(
             &self.anvil_handle.rpc_endpoint,
@@ -153,7 +154,6 @@ impl CosmosEthTestContext {
         .await
     }
 
-    #[allow(clippy::future_not_send)]
     pub async fn query_ibcerc20_balance(&self, denom: &str, holder: Address) -> Result<U256> {
         query_erc20_balance(
             &self.anvil_handle.rpc_endpoint,
@@ -164,7 +164,6 @@ impl CosmosEthTestContext {
         .await
     }
 
-    #[allow(clippy::future_not_send)]
     pub async fn assert_eventual_eth_balance(
         &self,
         denom: &str,
@@ -183,12 +182,18 @@ impl CosmosEthTestContext {
         .await
     }
 
-    #[allow(clippy::future_not_send)]
+    #[expect(
+        clippy::future_not_send,
+        reason = "testcontainers futures are not Send"
+    )]
     pub async fn query_cosmos_balance(&self, address: &str, denom: &str) -> Result<u64> {
         query_cosmos_bank_balance(&self.cosmos_handle, address, denom).await
     }
 
-    #[allow(clippy::future_not_send)]
+    #[expect(
+        clippy::future_not_send,
+        reason = "testcontainers futures are not Send"
+    )]
     pub async fn assert_eventual_cosmos_balance(
         &self,
         address: &str,
@@ -243,7 +248,6 @@ pub fn start_cross_chain_relay(
     })
 }
 
-#[allow(clippy::future_not_send)]
 pub async fn submit_cosmos_to_eth_transfer(
     cosmos_handle: &CosmosDockerHandle,
     client_id_on_cosmos: &ClientId,
@@ -306,7 +310,6 @@ pub async fn submit_cosmos_to_eth_transfer(
     Ok(())
 }
 
-#[allow(clippy::future_not_send)]
 pub async fn submit_eth_to_cosmos_transfer(
     el_rpc_url: &str,
     ics20_transfer: Address,
@@ -368,7 +371,6 @@ pub async fn submit_eth_to_cosmos_transfer(
     Ok(())
 }
 
-#[allow(clippy::future_not_send)]
 pub async fn query_erc20_balance(
     el_rpc_url: &str,
     ics20_transfer: Address,
@@ -390,7 +392,6 @@ pub async fn query_erc20_balance(
     Ok(erc20.balanceOf(holder).call().await?)
 }
 
-#[allow(clippy::future_not_send)]
 pub async fn poll_eth_balance(
     el_rpc_url: &str,
     ics20_transfer: Address,
@@ -438,7 +439,10 @@ pub async fn poll_eth_balance(
     }
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 pub async fn query_cosmos_bank_balance(
     cosmos_handle: &CosmosDockerHandle,
     address: &str,
@@ -467,7 +471,10 @@ pub async fn query_cosmos_bank_balance(
     Ok(0)
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 pub async fn poll_cosmos_balance(
     cosmos_handle: &CosmosDockerHandle,
     address: &str,
@@ -512,7 +519,6 @@ pub async fn poll_cosmos_balance(
     }
 }
 
-#[allow(clippy::future_not_send)]
 pub async fn build_sp1_client_state(
     cosmos_handle: &CosmosDockerHandle,
 ) -> Result<(Vec<u8>, alloy::primitives::B256)> {
@@ -562,7 +568,7 @@ pub async fn build_sp1_client_state(
         trustingPeriod: trusting_period,
     };
 
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss, reason = "value is non-negative")]
     let ts_nanos = header.time.unix_timestamp_nanos() as u128;
 
     let consensus_state = SolConsensusState {
@@ -577,7 +583,10 @@ pub async fn build_sp1_client_state(
     Ok((client_state_abi, consensus_state_hash))
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 pub async fn bootstrap_cosmos(
     wasm_lc_path: &Path,
     mock_proofs: bool,
@@ -662,7 +671,6 @@ pub async fn build_cosmos_chain_with_user(
     .map_err(|e| eyre::eyre!("{e}"))
 }
 
-#[allow(clippy::future_not_send)]
 pub async fn create_ibc_clients(
     cosmos_chain: &CosmosAdapter<Secp256k1KeyPair>,
     eth_chain: &EthereumAdapter,

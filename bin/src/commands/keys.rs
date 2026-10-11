@@ -15,12 +15,12 @@ pub enum KeysCmd {
 }
 
 impl KeysCmd {
-    pub async fn run(self) -> eyre::Result<()> {
+    pub fn run(self) -> eyre::Result<()> {
         match self {
-            Self::Add(cmd) => cmd.run().await,
-            Self::Delete(cmd) => cmd.run().await,
-            Self::List(cmd) => cmd.run().await,
-            Self::Balance(cmd) => cmd.run().await,
+            Self::Add(cmd) => cmd.run(),
+            Self::Delete(cmd) => cmd.run(),
+            Self::List(cmd) => cmd.run(),
+            Self::Balance(cmd) => cmd.run(),
         }
     }
 }
@@ -42,11 +42,11 @@ pub struct KeysAddCmd {
 }
 
 impl KeysAddCmd {
-    pub async fn run(self) -> eyre::Result<()> {
+    pub fn run(self) -> eyre::Result<()> {
         let registry = crate::registry::build_registry();
         let _cfg = crate::config::load_config(&self.config, &registry)?;
 
-        todo!("implement keys add for chain '{}'", self.chain)
+        eyre::bail!("keys add for chain '{}' is not implemented yet", self.chain)
     }
 }
 
@@ -64,11 +64,14 @@ pub struct KeysDeleteCmd {
 }
 
 impl KeysDeleteCmd {
-    pub async fn run(self) -> eyre::Result<()> {
+    pub fn run(self) -> eyre::Result<()> {
         let registry = crate::registry::build_registry();
         let _cfg = crate::config::load_config(&self.config, &registry)?;
 
-        todo!("implement keys delete for chain '{}'", self.chain)
+        eyre::bail!(
+            "keys delete for chain '{}' is not implemented yet",
+            self.chain
+        )
     }
 }
 
@@ -83,11 +86,14 @@ pub struct KeysListCmd {
 }
 
 impl KeysListCmd {
-    pub async fn run(self) -> eyre::Result<()> {
+    pub fn run(self) -> eyre::Result<()> {
         let registry = crate::registry::build_registry();
         let _cfg = crate::config::load_config(&self.config, &registry)?;
 
-        todo!("implement keys list for chain '{}'", self.chain)
+        eyre::bail!(
+            "keys list for chain '{}' is not implemented yet",
+            self.chain
+        )
     }
 }
 
@@ -105,10 +111,13 @@ pub struct KeysBalanceCmd {
 }
 
 impl KeysBalanceCmd {
-    pub async fn run(self) -> eyre::Result<()> {
+    pub fn run(self) -> eyre::Result<()> {
         let registry = crate::registry::build_registry();
         let _cfg = crate::config::load_config(&self.config, &registry)?;
 
-        todo!("implement keys balance for chain '{}'", self.chain)
+        eyre::bail!(
+            "keys balance for chain '{}' is not implemented yet",
+            self.chain
+        )
     }
 }

@@ -120,7 +120,10 @@ pub struct CosmosDockerHandle {
 
 impl CosmosDockerHandle {
     /// Execute a shell command inside the container and return stdout.
-    #[allow(clippy::future_not_send)]
+    #[expect(
+        clippy::future_not_send,
+        reason = "testcontainers futures are not Send"
+    )]
     pub async fn exec_cmd(&self, cmd: &str) -> Result<String> {
         exec_in_container(&self.container, cmd).await
     }
@@ -248,7 +251,10 @@ async fn poll_until_ready(rpc_endpoint: &str, grpc_endpoint: &str) -> Result<()>
     }
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 async fn extract_wallet(container: &ContainerAsync<GenericImage>, name: &str) -> Result<Wallet> {
     let hex_key = exec_in_container(container, &format!("cat /keys/{name}.hex"))
         .await
@@ -264,7 +270,10 @@ async fn extract_wallet(container: &ContainerAsync<GenericImage>, name: &str) ->
     })
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 async fn exec_in_container(container: &ContainerAsync<GenericImage>, cmd: &str) -> Result<String> {
     let mut result = container
         .exec(ExecCommand::new(["sh", "-c", cmd]))
@@ -285,7 +294,10 @@ async fn exec_in_container(container: &ContainerAsync<GenericImage>, cmd: &str) 
 }
 
 /// Poll a governance proposal until it reaches the expected status.
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 async fn poll_proposal_status(
     handle: &CosmosDockerHandle,
     proposal_id: u64,
@@ -324,7 +336,11 @@ async fn poll_proposal_status(
 }
 
 /// Store a Wasm light client on the Cosmos chain via governance and return its checksum.
-#[allow(clippy::future_not_send, clippy::missing_panics_doc)]
+#[expect(
+    clippy::future_not_send,
+    clippy::missing_panics_doc,
+    reason = "testcontainers futures are not Send"
+)]
 pub async fn store_wasm_light_client(
     handle: &CosmosDockerHandle,
     wasm_gz_path: &Path,
@@ -409,7 +425,10 @@ pub async fn store_wasm_light_client(
     Ok(checksum)
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Result<String> {
     let mock_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
         "../external/solidity-ibc-eureka/e2e/interchaintestv8/wasm/cw_dummy_light_client.wasm.gz",
@@ -417,7 +436,10 @@ pub async fn store_dummy_wasm_light_client(handle: &CosmosDockerHandle) -> Resul
     store_wasm_light_client(handle, &mock_path).await
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 pub async fn create_dummy_wasm_client(
     handle: &CosmosDockerHandle,
     wasm_checksum: &str,

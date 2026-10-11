@@ -26,7 +26,10 @@ fn init_tracing() {
     });
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 async fn setup_context() -> Result<TestContext> {
     let bootstrap_a = CosmosDockerBootstrap::new("mercury-a");
     let bootstrap_b = CosmosDockerBootstrap::new("mercury-b");

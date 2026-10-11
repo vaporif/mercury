@@ -149,17 +149,17 @@ pub fn pre_verify_signature(
 /// # Panics
 /// If the message length exceeds `u16::MAX`.
 #[must_use]
+#[expect(clippy::expect_used, reason = "documented panic on oversized message")]
 pub fn build_ed25519_instruction(sig: &crate::ibc_types::SignatureData) -> Instruction {
     let num_signatures: u16 = 1;
-    let header_size: usize = 2 + 2 + 14;
-    let signature_offset = u16::try_from(header_size).expect("header_size fits in u16");
+    let signature_offset: u16 = 2 + 2 + 14;
     let pubkey_offset = signature_offset + 64;
     let message_offset = pubkey_offset + 32;
     let message_size = u16::try_from(sig.msg.len()).expect("message length fits in u16");
 
     let current_ix: u16 = 0xFFFF;
 
-    let mut data = Vec::with_capacity(header_size + 64 + 32 + sig.msg.len());
+    let mut data = Vec::with_capacity(usize::from(signature_offset) + 64 + 32 + sig.msg.len());
     data.extend_from_slice(&num_signatures.to_le_bytes());
     data.extend_from_slice(&0u16.to_le_bytes());
     data.extend_from_slice(&signature_offset.to_le_bytes());
@@ -250,10 +250,12 @@ pub fn extract_signatures_from_header(
 
         let pubkey_bytes: [u8; 32] = pk.as_bytes().try_into().unwrap_or([0u8; 32]);
 
-        let validator_index = tendermint::vote::ValidatorIndex::try_from(
-            u32::try_from(idx).expect("validator index fits in u32"),
-        )
-        .expect("validator index overflow");
+        let Some(validator_index) = u32::try_from(idx)
+            .ok()
+            .and_then(|i| tendermint::vote::ValidatorIndex::try_from(i).ok())
+        else {
+            continue;
+        };
         let vote = Vote {
             vote_type: tendermint::vote::Type::Precommit,
             height: commit.height,

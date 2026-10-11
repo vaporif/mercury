@@ -80,7 +80,7 @@ where
     /// - `message_proof_height` -- dst IBC message height (slot for beacon), `None` reuses `proof_height`
     /// - `payload` -- headers, `None` if already up to date
     #[instrument(skip_all, name = "build_dst_update_client", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity, reason = "return type mirrors chain associated types")]
     async fn build_dst_update_client_payload(
         &self,
     ) -> Result<(
@@ -399,7 +399,7 @@ where
     }
 
     #[instrument(skip_all, name = "build_timeout", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity, reason = "return type mirrors chain associated types")]
     async fn build_timeout_messages(
         &self,
         timed_out: Vec<PendingSend<SendEvent<R>>>,
@@ -461,20 +461,18 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
-    let mut last_err = None;
-    for attempt in 0..PROOF_FETCH_MAX_RETRIES {
+    let mut attempt = 1;
+    loop {
         match f().await {
             Ok(v) => return Ok(v),
-            Err(e) => {
-                if attempt + 1 < PROOF_FETCH_MAX_RETRIES {
-                    debug!(attempt = attempt + 1, error = %e, "proof fetch failed, retrying");
-                    tokio::time::sleep(PROOF_FETCH_RETRY_DELAY).await;
-                }
-                last_err = Some(e);
+            Err(e) if attempt < PROOF_FETCH_MAX_RETRIES => {
+                debug!(attempt, error = %e, "proof fetch failed, retrying");
+                tokio::time::sleep(PROOF_FETCH_RETRY_DELAY).await;
+                attempt += 1;
             }
+            Err(e) => return Err(e),
         }
     }
-    Err(last_err.expect("loop always executes at least once"))
 }
 
 #[async_trait]

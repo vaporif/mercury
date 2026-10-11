@@ -62,7 +62,7 @@ pub struct Sp1Instance<C: SP1ProverComponents> {
 }
 
 impl<C: SP1ProverComponents> Sp1Instance<C> {
-    #[allow(clippy::similar_names)]
+    #[expect(clippy::similar_names, reason = "names mirror domain terminology")]
     pub fn from_prover(prover: Sp1Prover<C>, config: &Sp1ProverConfig) -> eyre::Result<Self> {
         let uc_elf_path = config.elf_dir.join("sp1-ics07-tendermint-update-client");
         let uc_elf_bytes = std::fs::read(&uc_elf_path)
@@ -376,7 +376,10 @@ impl EthereumChain {
             .await
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "linear setup flow reads clearer as one function"
+    )]
     pub async fn build_update_client_message_sp1<C: SP1ProverComponents + 'static>(
         &self,
         client_id: &EvmClientId,

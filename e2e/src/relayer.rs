@@ -168,7 +168,6 @@ impl TestContext {
         })
     }
 
-    #[allow(clippy::missing_panics_doc)]
     pub fn start_relay_binary(&self) -> Result<SubprocessHandle> {
         let config_dir = tempfile::tempdir().wrap_err("creating temp dir")?;
         let config_path = config_dir.path().join("relayer.toml");
@@ -283,7 +282,10 @@ dst_client_id = "{client_b}"
 }
 
 #[must_use]
-#[allow(clippy::missing_panics_doc)]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "panics only on broken invariants"
+)]
 pub fn find_or_build_binary() -> String {
     std::env::var("MERCURY_RELAYER_BIN").unwrap_or_else(|_| {
         let output = Command::new("cargo")

@@ -37,7 +37,10 @@ pub struct BeaconLcTestContext {
 static SHARED_CONTRACTS: OnceCell<DeployedContracts> = OnceCell::const_new();
 
 impl BeaconLcTestContext {
-    #[allow(clippy::future_not_send, clippy::too_many_lines)]
+    #[expect(
+        clippy::future_not_send,
+        reason = "testcontainers futures are not Send"
+    )]
     pub async fn setup() -> Result<Self> {
         let kurtosis = crate::bootstrap::kurtosis::get_or_init_kurtosis().await?;
 
@@ -141,7 +144,6 @@ impl BeaconLcTestContext {
         )
     }
 
-    #[allow(clippy::future_not_send)]
     pub async fn send_cosmos_to_eth_transfer(&self, amount: u64, denom: &str) -> Result<()> {
         submit_cosmos_to_eth_transfer(
             &self.cosmos_handle,
@@ -154,7 +156,6 @@ impl BeaconLcTestContext {
         .await
     }
 
-    #[allow(clippy::future_not_send)]
     pub async fn send_eth_to_cosmos_transfer(&self, amount: u64, denom: &str) -> Result<()> {
         submit_eth_to_cosmos_transfer(
             &self.el_rpc_url,
@@ -168,12 +169,10 @@ impl BeaconLcTestContext {
         .await
     }
 
-    #[allow(clippy::future_not_send)]
     pub async fn query_ibcerc20_balance(&self, denom: &str, holder: Address) -> Result<U256> {
         query_erc20_balance(&self.el_rpc_url, self.ics20_transfer, denom, holder).await
     }
 
-    #[allow(clippy::future_not_send)]
     pub async fn assert_eventual_eth_balance(
         &self,
         denom: &str,
@@ -192,12 +191,18 @@ impl BeaconLcTestContext {
         .await
     }
 
-    #[allow(clippy::future_not_send)]
+    #[expect(
+        clippy::future_not_send,
+        reason = "testcontainers futures are not Send"
+    )]
     pub async fn query_cosmos_balance(&self, address: &str, denom: &str) -> Result<u64> {
         query_cosmos_bank_balance(&self.cosmos_handle, address, denom).await
     }
 
-    #[allow(clippy::future_not_send)]
+    #[expect(
+        clippy::future_not_send,
+        reason = "testcontainers futures are not Send"
+    )]
     pub async fn assert_eventual_cosmos_balance(
         &self,
         address: &str,
@@ -209,7 +214,6 @@ impl BeaconLcTestContext {
     }
 }
 
-#[allow(clippy::future_not_send)]
 async fn fund_eth_user_wallet(kurtosis: &KurtosisHandle) -> Result<AnvilWallet> {
     use alloy::network::TransactionBuilder;
     use alloy::primitives::U256;

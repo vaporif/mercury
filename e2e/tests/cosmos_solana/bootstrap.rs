@@ -27,7 +27,10 @@ pub struct CosmosSolanaHarness {
     pub solana_tendermint_client_id: String,
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 pub async fn set_up_cosmos_solana(fixtures_dir: &Path) -> Result<CosmosSolanaHarness> {
     let cosmos_bootstrap = CosmosDockerBootstrap::new("mercury-cosmos-solana");
     let cosmos_handle = cosmos_bootstrap.start().await?;
