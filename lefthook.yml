@@ -1,0 +1,26 @@
+# Git hooks via lefthook. Install with `lefthook install` (done automatically in the nix dev shell).
+
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.rs"
+      run: cargo fmt --all -- --check
+    typos:
+      run: typos --force-exclude {staged_files}
+    taplo:
+      glob: "*.toml"
+      run: taplo check {staged_files}
+    actionlint:
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: actionlint {staged_files}
+
+pre-push:
+  parallel: true
+  commands:
+    fmt:
+      run: cargo fmt --all -- --check
+    clippy:
+      run: cargo clippy --workspace -- -D warnings
+    test:
+      run: cargo nextest run --workspace

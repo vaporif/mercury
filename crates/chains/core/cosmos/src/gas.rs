@@ -82,9 +82,8 @@ where
         .ready()
         .await
         .map_err(|e| eyre::eyre!("service not ready: {e}"))?;
-    let path: tonic::codegen::http::uri::PathAndQuery = path
-        .parse()
-        .map_err(|e| eyre::eyre!("invalid path: {e}"))?;
+    let path: tonic::codegen::http::uri::PathAndQuery =
+        path.parse().map_err(|e| eyre::eyre!("invalid path: {e}"))?;
     let codec = ProstMessageCodec::<Req, Resp>::default();
     let response = client.unary(request, path, codec).await?;
     Ok(response.into_inner())

@@ -224,6 +224,7 @@
           [
             toolchain
             pkgs.just
+            pkgs.lefthook
             pkgs.taplo
             pkgs.typos
             pkgs.actionlint
@@ -252,6 +253,10 @@
             pkgs.podman
             (pkgs.writeShellScriptBin "docker" ''exec podman "$@"'')
           ];
+
+        shellHook = ''
+          lefthook install >/dev/null 2>&1 || true
+        '';
 
         env = {
           RUST_BACKTRACE = "1";
