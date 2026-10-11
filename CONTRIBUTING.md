@@ -50,15 +50,23 @@ git config submodule.recurse true
 A `justfile` wraps all common commands:
 
 ```bash
-just check        # Run all checks (typos, TOML lint, fmt, clippy, test)
-just test         # Run unit tests
+just              # List all recipes (with aliases)
+just check        # Run all checks (typos, TOML lint, actionlint, fmt, clippy, test)
+just test [filter]  # Run unit tests, optionally filtered
 just clippy       # Run clippy
+just clippy-fix   # Apply clippy suggestions
+just build        # Build the workspace
+just run <args>   # Run the relayer binary
+just deny         # Dependency audit (cargo-deny)
+just coverage     # Coverage report (lcov.info), same as CI
 just fmt          # Format check
 just fmt-fix      # Auto-format everything (Rust, TOML, Nix)
 just e2e          # Run E2E tests (requires container runtime)
 just check-typos  # Spell check
 just check-toml   # TOML lint
 ```
+
+Short aliases: `c` check, `t` test, `b` build, `r` run, `l` clippy, `lf` clippy-fix, `f` fmt-fix, `e` e2e, `d` deny.
 
 ### Git hooks
 
