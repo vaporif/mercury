@@ -65,7 +65,7 @@ just check-toml   # TOML lint
 Hooks are managed by [lefthook](https://lefthook.dev) (`lefthook.yml`). The Nix dev shell installs them automatically; otherwise run `lefthook install` once.
 
 - **pre-commit** (parallel, staged files only): `cargo fmt --check`, `typos`, `taplo check`, `actionlint`
-- **pre-push** (parallel): `cargo fmt --check`, `clippy -D warnings`, `cargo nextest run`
+- **pre-push** (sequential, stops at first failure): `cargo fmt --check` → `clippy -D warnings` → `cargo nextest run`
 
 Skip in an emergency with `LEFTHOOK=0 git push`.
 
