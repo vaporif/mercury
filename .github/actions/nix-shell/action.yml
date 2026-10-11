@@ -8,7 +8,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: DeterminateSystems/nix-installer-action@main
+    - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
     - uses: cachix/cachix-action@v16
       with:
@@ -17,6 +17,6 @@ runs:
         # Skip per-commit crane artifacts (vendored deps, deps build, the relayer itself); cache toolchains only.
         pushFilter: "(mercury-|vendor-cargo|cargo-package-|cargo-git)"
 
-    - uses: nicknovitski/nix-develop@v1
+    - uses: nicknovitski/nix-develop@9be7cfb4b10451d3390a75dc18ad0465bed4932a # v1.2.1
       with:
         arguments: .#ci

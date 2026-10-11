@@ -144,6 +144,10 @@ fmt-fix:
 nix-check:
     nix flake check
 
+# Build the relayer nix package (same as CI "Build" job)
+build-nix:
+    nix build
+
 # Sync git submodules
 submodules:
     git submodule update --init --recursive

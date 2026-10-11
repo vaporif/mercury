@@ -31,16 +31,12 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: cachix/cachix-action@v16
+      - uses: ./.github/actions/nix-shell
         with:
-          name: cosmos-mercury
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          # Skip per-commit crane artifacts (vendored deps, deps build, the relayer itself); cache toolchains only.
-          pushFilter: "(mercury-|vendor-cargo|cargo-package-|cargo-git)"
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Checks
-        run: nix flake check
+        run: just nix-check
 
   clippy:
     name: Clippy
@@ -90,16 +86,12 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: cachix/cachix-action@v16
+      - uses: ./.github/actions/nix-shell
         with:
-          name: cosmos-mercury
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          # Skip per-commit crane artifacts (vendored deps, deps build, the relayer itself); cache toolchains only.
-          pushFilter: "(mercury-|vendor-cargo|cargo-package-|cargo-git)"
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Build
-        run: nix build
+        run: just build-nix
 
   coverage:
     name: Coverage
