@@ -14,6 +14,8 @@ runs:
       with:
         name: cosmos-mercury
         authToken: ${{ inputs.cachix-auth-token }}
+        # Skip per-commit crane artifacts (vendored deps, deps build, the relayer itself); cache toolchains only.
+        pushFilter: "(mercury-|vendor-cargo|cargo-package-|cargo-git)"
 
     - uses: nicknovitski/nix-develop@v1
       with:

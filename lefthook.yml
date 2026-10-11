@@ -14,6 +14,9 @@ pre-commit:
     actionlint:
       glob: ".github/workflows/*.{yml,yaml}"
       run: actionlint {staged_files}
+    versions:
+      glob: "{nix/agave.nix,.github/workflows/e2e.yml}"
+      run: just check-versions
 
 # Sequential and fail-fast: clippy and nextest contend for the same target/ lock,
 # so parallel buys little; cheapest checks run first.

@@ -13,7 +13,7 @@ default:
     @just --list
 
 # Run all checks
-check: check-typos check-toml check-actions fmt clippy test
+check: check-typos check-toml check-actions check-versions fmt clippy test
 
 # Check for typos
 check-typos:
@@ -34,6 +34,17 @@ clippy:
 # Apply clippy suggestions
 clippy-fix:
     cargo clippy --workspace --fix --allow-dirty --allow-staged -- -D warnings
+
+# Ensure CI's Solana version matches the nix dev shell's agave
+check-versions:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nix=$(sed -n 's/^ *version = "\(.*\)";/\1/p' nix/agave.nix | head -1)
+    ci=$(sed -n 's/^ *SOLANA_VERSION: "\(.*\)"/\1/p' .github/workflows/e2e.yml)
+    if [ "$nix" != "$ci" ]; then
+        echo "Solana version mismatch: nix/agave.nix=$nix, e2e.yml SOLANA_VERSION=$ci" >&2
+        exit 1
+    fi
 
 # Lint GitHub Actions workflows
 check-actions:

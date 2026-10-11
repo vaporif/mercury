@@ -24,7 +24,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  SOLANA_VERSION: "2.3.13"
+  # Must match nix/agave.nix (enforced by `just check-versions`)
+  SOLANA_VERSION: "3.1.6"
 
 jobs:
   build-relayer:

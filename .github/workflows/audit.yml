@@ -30,10 +30,9 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.99.0
-
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+      - uses: ./.github/actions/nix-shell
+        with:
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Deny
-        run: cargo deny check
+        run: just deny

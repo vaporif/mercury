@@ -36,6 +36,8 @@ jobs:
         with:
           name: cosmos-mercury
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Skip per-commit crane artifacts (vendored deps, deps build, the relayer itself); cache toolchains only.
+          pushFilter: "(mercury-|vendor-cargo|cargo-package-|cargo-git)"
 
       - name: Checks
         run: nix flake check
@@ -93,6 +95,8 @@ jobs:
         with:
           name: cosmos-mercury
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Skip per-commit crane artifacts (vendored deps, deps build, the relayer itself); cache toolchains only.
+          pushFilter: "(mercury-|vendor-cargo|cargo-package-|cargo-git)"
 
       - name: Build
         run: nix build
