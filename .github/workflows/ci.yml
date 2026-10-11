@@ -82,10 +82,6 @@ jobs:
         include:
           - system: x86_64-linux
             os: ubuntu-latest
-          - system: x86_64-darwin
-            os: macos-latest
-          - system: aarch64-darwin
-            os: macos-latest
     steps:
       - uses: actions/checkout@v6
         with:

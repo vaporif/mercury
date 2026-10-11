@@ -204,6 +204,43 @@ fn extract_latest_slot(client_state_bytes: &[u8]) -> u64 {
         .map_or(0, u64::from_le_bytes)
 }
 
+/// Placeholder proof sent when `mock_proofs` is enabled; ibc-go rejects empty proofs
+/// before the (dummy) light client ever sees them.
+const MOCK_PROOF: &[u8] = b"mock";
+
+impl<S: CosmosSigner> CosmosAdapter<S> {
+    /// Solana has no state proofs yet, so packet proofs are only usable against a mock
+    /// light client. Returns the proof bytes and proof height to put in the message.
+    fn solana_proof(
+        &self,
+        proof: SolanaCommitmentProof,
+        proof_height: SolanaHeight,
+        revision: u64,
+    ) -> Result<(Vec<u8>, ProtoHeight)> {
+        if self.0.config.mock_proofs {
+            return Ok((
+                MOCK_PROOF.to_vec(),
+                ProtoHeight {
+                    revision_number: 0,
+                    revision_height: 0,
+                },
+            ));
+        }
+        if proof.0.is_empty() {
+            eyre::bail!(
+                "Solana packet proofs are not supported; enable `mock_proofs` for a dummy light client"
+            );
+        }
+        Ok((
+            proof.0,
+            ProtoHeight {
+                revision_number: revision,
+                revision_height: proof_height.into(),
+            },
+        ))
+    }
+}
+
 #[async_trait]
 impl<S: CosmosSigner> PacketMessageBuilder<SolanaChain> for CosmosAdapter<S> {
     async fn build_receive_packet_message(
@@ -213,13 +250,11 @@ impl<S: CosmosSigner> PacketMessageBuilder<SolanaChain> for CosmosAdapter<S> {
         proof_height: SolanaHeight,
         revision: u64,
     ) -> Result<CosmosMessage> {
+        let (proof_commitment, proof_height) = self.solana_proof(proof, proof_height, revision)?;
         let msg = MsgRecvPacket {
             packet: Some(solana_packet_to_v2(packet)),
-            proof_commitment: proof.0,
-            proof_height: Some(ProtoHeight {
-                revision_number: revision,
-                revision_height: proof_height.into(),
-            }),
+            proof_commitment,
+            proof_height: Some(proof_height),
             signer: self.0.signer.account_address()?,
         };
         Ok(to_any(&msg))
@@ -240,14 +275,12 @@ impl<S: CosmosSigner> PacketMessageBuilder<SolanaChain> for CosmosAdapter<S> {
                     app_acknowledgements: vec![ack.0.clone()],
                 }
             });
+        let (proof_acked, proof_height) = self.solana_proof(proof, proof_height, revision)?;
         let msg = MsgAcknowledgement {
             packet: Some(solana_packet_to_v2(packet)),
             acknowledgement: Some(acknowledgement),
-            proof_acked: proof.0,
-            proof_height: Some(ProtoHeight {
-                revision_number: revision,
-                revision_height: proof_height.into(),
-            }),
+            proof_acked,
+            proof_height: Some(proof_height),
             signer: self.0.signer.account_address()?,
         };
         Ok(to_any(&msg))
@@ -261,13 +294,11 @@ impl<S: CosmosSigner> PacketMessageBuilder<SolanaChain> for CosmosAdapter<S> {
         revision: u64,
     ) -> Result<CosmosMessage> {
         use mercury_cosmos::builders::cosmos_packet_to_v2;
+        let (proof_unreceived, proof_height) = self.solana_proof(proof, proof_height, revision)?;
         let msg = MsgTimeout {
             packet: Some(cosmos_packet_to_v2(packet)),
-            proof_unreceived: proof.0,
-            proof_height: Some(ProtoHeight {
-                revision_number: revision,
-                revision_height: proof_height.into(),
-            }),
+            proof_unreceived,
+            proof_height: Some(proof_height),
             signer: self.0.signer.account_address()?,
         };
         Ok(to_any(&msg))

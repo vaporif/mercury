@@ -169,7 +169,11 @@ impl SolanaBootstrap {
     }
 
     fn airdrop(&self) -> Result<()> {
-        let client = RpcClient::new_with_timeout(self.rpc_url.clone(), Duration::from_secs(10));
+        let client = RpcClient::new_with_timeout_and_commitment(
+            self.rpc_url.clone(),
+            Duration::from_secs(10),
+            CommitmentConfig::confirmed(),
+        );
         let amount = 100 * solana_sdk::native_token::LAMPORTS_PER_SOL;
         tracing::debug!(amount, pubkey = %self.keypair.pubkey(), "requesting airdrop");
         let sig = client.request_airdrop(&self.keypair.pubkey(), amount)?;
