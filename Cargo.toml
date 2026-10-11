@@ -41,6 +41,17 @@ multiple_crate_versions = "allow"
 missing_errors_doc = "allow"
 return_self_not_must_use = "allow"
 branches_sharing_code = "allow"
+# Restriction lints enforcing CONTRIBUTING.md conventions
+mod_module_files = "warn"
+dbg_macro = "warn"
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+todo = "warn"
+unimplemented = "warn"
 
 [workspace.dependencies]
 async-trait = "0.1"
