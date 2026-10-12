@@ -151,8 +151,9 @@ pub fn pre_verify_signature(
 #[must_use]
 #[expect(clippy::expect_used, reason = "documented panic on oversized message")]
 pub fn build_ed25519_instruction(sig: &crate::ibc_types::SignatureData) -> Instruction {
+    // u8 signature count + u8 padding, then 14 bytes of offsets (Solana Ed25519 precompile layout).
     let num_signatures: u16 = 1;
-    let signature_offset: u16 = 2 + 2 + 14;
+    let signature_offset: u16 = 2 + 14;
     let pubkey_offset = signature_offset + 64;
     let message_offset = pubkey_offset + 32;
     let message_size = u16::try_from(sig.msg.len()).expect("message length fits in u16");
@@ -161,7 +162,6 @@ pub fn build_ed25519_instruction(sig: &crate::ibc_types::SignatureData) -> Instr
 
     let mut data = Vec::with_capacity(usize::from(signature_offset) + 64 + 32 + sig.msg.len());
     data.extend_from_slice(&num_signatures.to_le_bytes());
-    data.extend_from_slice(&0u16.to_le_bytes());
     data.extend_from_slice(&signature_offset.to_le_bytes());
     data.extend_from_slice(&current_ix.to_le_bytes());
     data.extend_from_slice(&pubkey_offset.to_le_bytes());
@@ -387,4 +387,40 @@ pub fn initialize_ics07(
         ],
         data,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ed25519_instruction_layout() {
+        let sig = crate::ibc_types::SignatureData {
+            signature_hash: [0u8; 32],
+            pubkey: [2u8; 32],
+            msg: b"hello".to_vec(),
+            signature: [1u8; 64],
+        };
+
+        let ix = build_ed25519_instruction(&sig);
+
+        assert_eq!(ix.program_id, solana_sdk::ed25519_program::ID);
+        assert_eq!(ix.accounts, vec![]);
+        assert_eq!(ix.data.len(), 16 + 64 + 32 + sig.msg.len());
+
+        let read_u16 = |at: usize| u16::from_le_bytes([ix.data[at], ix.data[at + 1]]);
+        assert_eq!(ix.data[0], 1, "num signatures");
+        assert_eq!(ix.data[1], 0, "padding");
+        assert_eq!(read_u16(2), 16, "signature offset");
+        assert_eq!(read_u16(4), u16::MAX, "signature ix index");
+        assert_eq!(read_u16(6), 16 + 64, "pubkey offset");
+        assert_eq!(read_u16(8), u16::MAX, "pubkey ix index");
+        assert_eq!(read_u16(10), 16 + 64 + 32, "message offset");
+        assert_eq!(read_u16(12), 5, "message size");
+        assert_eq!(read_u16(14), u16::MAX, "message ix index");
+
+        assert_eq!(&ix.data[16..80], &sig.signature);
+        assert_eq!(&ix.data[80..112], &sig.pubkey);
+        assert_eq!(&ix.data[112..], b"hello");
+    }
 }
