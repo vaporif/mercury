@@ -1,9 +1,4 @@
 {
-  nixConfig = {
-    extra-substituters = ["https://cosmos-mercury.cachix.org"];
-    extra-trusted-public-keys = ["cosmos-mercury.cachix.org-1:FInxTbY/ddx7Vg1G7TiruYvtApZRsrlLwx0DbEBiKMQ="];
-  };
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     fenix = {
@@ -205,41 +200,6 @@
         ])
         fenixPkgs.targets.wasm32-unknown-unknown.stable.rust-std
       ];
-      # Everything CI build jobs need. The local shell extends this, so both stay in sync.
-      ciPackages =
-        [
-          toolchain
-          pkgs.just
-          pkgs.cmake
-          pkgs.pkg-config
-          pkgs.taplo
-          pkgs.typos
-          pkgs.actionlint
-          pkgs.cargo-nextest
-          pkgs.cargo-deny
-          pkgs.cargo-llvm-cov
-          pkgs.protobuf
-          pkgs.foundry
-          pkgs.bun
-          pkgs.binaryen
-        ]
-        ++ (with pkgs.sp1."v5.2.4"; [
-          cargo-prove
-          sp1-rust-toolchain
-        ])
-        ++ (with pkgs.anchor."0.32.1"; [
-          anchor-cli
-          solana-rust
-        ])
-        ++ [agave]
-        ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-          pkgs.apple-sdk_15
-        ];
-
-      shellEnv = {
-        RUST_BACKTRACE = "1";
-        RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
-      };
     in {
       packages.default = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts meta;});
 
@@ -259,28 +219,44 @@
         '';
       };
 
-      devShells.ci = pkgs.mkShell {
-        packages = ciPackages;
-        env = shellEnv;
-      };
-
       devShells.default = pkgs.mkShell {
         packages =
-          ciPackages
-          ++ [
-            pkgs.lefthook
+          [
+            toolchain
+            pkgs.just
+            pkgs.taplo
+            pkgs.typos
+            pkgs.actionlint
+            pkgs.cargo-nextest
+            pkgs.cargo-deny
+            pkgs.cargo-llvm-cov
+            pkgs.protobuf
+            pkgs.foundry
+            pkgs.bun
+            pkgs.binaryen
             ethereum-nix.packages.${pkgs.stdenv.hostPlatform.system}.kurtosis
+          ]
+          ++ (with pkgs.sp1."v5.2.4"; [
+            cargo-prove
+            sp1-rust-toolchain
+          ])
+          ++ (with pkgs.anchor."0.32.1"; [
+            anchor-cli
+            solana-rust
+          ])
+          ++ [agave]
+          ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.apple-sdk_15
           ]
           ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             pkgs.podman
             (pkgs.writeShellScriptBin "docker" ''exec podman "$@"'')
           ];
 
-        shellHook = ''
-          lefthook install >/dev/null 2>&1 || true
-        '';
-
-        env = shellEnv;
+        env = {
+          RUST_BACKTRACE = "1";
+          RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
+        };
       };
     });
   in {

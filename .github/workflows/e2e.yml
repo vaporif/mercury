@@ -24,8 +24,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Must match nix/agave.nix (enforced by `just check-versions`)
-  SOLANA_VERSION: "3.1.6"
+  SOLANA_VERSION: "2.3.13"
+  ANCHOR_VERSION: "0.32.1"
 
 jobs:
   build-relayer:
@@ -36,16 +36,14 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: ./.github/actions/nix-shell
-        with:
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: dtolnay/rust-toolchain@1.99.0
 
       - uses: Swatinem/rust-cache@v2
         with:
           key: relayer-build
 
       - name: Build relayer binary
-        run: just build-release
+        run: cargo build -p mercury-cli --release
 
       - uses: actions/upload-artifact@v7
         with:
@@ -62,13 +60,38 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: ./.github/actions/nix-shell
-        with:
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: dtolnay/rust-toolchain@1.99.0
 
       - uses: Swatinem/rust-cache@v2
         with:
           key: e2e-build
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          cache: true
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/cache@v5
+        id: sp1-cache
+        with:
+          path: |
+              ~/.sp1
+              ~/.rustup/toolchains/succinct
+          key: sp1-5.2.4
+
+      - name: Install SP1 toolchain
+        if: steps.sp1-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -L --retry 3 --retry-delay 5 https://sp1.succinct.xyz | bash
+          for i in 1 2 3; do ~/.sp1/bin/sp1up --version 5.2.4 && break || sleep 5; done
+
+      - name: Add SP1 to PATH
+        run: echo "$HOME/.sp1/bin" >> "$GITHUB_PATH"
 
       - uses: actions/cache@v5
         with:
@@ -76,17 +99,33 @@ jobs:
           key: bun-${{ hashFiles('external/solidity-ibc-eureka/bun.lock') }}
 
       - name: Install Solidity dependencies
-        run: for i in 1 2 3; do bun install --frozen-lockfile && break; [ "$i" = 3 ] && exit 1; sleep 5; done
+        run: for i in 1 2 3; do bun install --frozen-lockfile && break || sleep 5; done
         working-directory: external/solidity-ibc-eureka
 
       - name: Build SP1 programs
-        run: just build-sp1-programs
+        run: cargo prove build
+        working-directory: external/solidity-ibc-eureka/programs/sp1-programs
+        env:
+          CARGO_PROFILE_RELEASE_TRIM_PATHS: "false"
+
+      - name: Install binaryen (wasm-opt)
+        run: |
+          curl -fsSL --retry 3 --retry-delay 5 https://github.com/WebAssembly/binaryen/releases/download/version_126/binaryen-version_126-x86_64-linux.tar.gz \
+            | sudo tar -xz -C /usr/local --strip-components=1
 
       - name: Build mock WASM light client
-        run: just build-mock-wasm-lc
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build --target wasm32-unknown-unknown --release -p mock-wasm-eth-lc
+          wasm-opt --llvm-memory-copy-fill-lowering -Os \
+            target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.wasm \
+            -o target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm
+          gzip -kf target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm
+          cp target/wasm32-unknown-unknown/release/mock_wasm_eth_lc.optimized.wasm.gz \
+            e2e/mock-wasm-eth-lc/mock_wasm_eth_lc.wasm.gz
 
       - name: Build and archive tests
-        run: just e2e-archive
+        run: cargo nextest archive --archive-file mercury-e2e.tar.zst --package mercury-e2e
 
       - uses: actions/upload-artifact@v7
         with:
@@ -106,7 +145,7 @@ jobs:
       - name: Generate matrix
         id: matrix
         run: |
-          matrix=$(just e2e-matrix)
+          matrix=$(python3 .github/scripts/generate-e2e-matrix.py mercury-e2e.tar.zst e2e-matrix.toml)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build-solana:
@@ -117,9 +156,14 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: ./.github/actions/nix-shell
+      - uses: dtolnay/rust-toolchain@1.99.0
+
+      - uses: solana-developers/github-actions/setup-all@v0.2.7
         with:
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          anchor_version: ${{ env.ANCHOR_VERSION }}
+          solana_version: ${{ env.SOLANA_VERSION }}
+
+      - uses: arduino/setup-protoc@v3
 
       - uses: Swatinem/rust-cache@v2
         with:

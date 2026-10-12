@@ -31,12 +31,11 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: ./.github/actions/nix-shell
-        with:
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Checks
-        run: just nix-check
+        run: nix flake check
 
   clippy:
     name: Clippy
@@ -46,14 +45,14 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: ./.github/actions/nix-shell
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Clippy
-        run: just clippy
+        run: cargo clippy --workspace -- -D warnings
 
   test:
     name: Test
@@ -63,14 +62,16 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: ./.github/actions/nix-shell
-        with:
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: dtolnay/rust-toolchain@1.99.0
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
       - name: Test
-        run: just test
+        run: cargo nextest run --workspace
 
   build:
     name: Build ${{ matrix.system }}
@@ -86,12 +87,11 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: ./.github/actions/nix-shell
-        with:
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Build
-        run: just build-nix
+        run: nix build
 
   coverage:
     name: Coverage
@@ -101,14 +101,18 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: ./.github/actions/nix-shell
+      - uses: dtolnay/rust-toolchain@1.99.0
         with:
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          components: llvm-tools-preview
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+
       - name: Generate coverage
-        run: just coverage
+        run: cargo llvm-cov nextest --workspace --exclude mercury-e2e --exclude mock-wasm-eth-lc --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

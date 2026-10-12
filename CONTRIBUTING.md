@@ -14,7 +14,7 @@ nix develop
 nix build
 ```
 
-The dev shell provides the stable Rust toolchain (cargo, clippy, rustfmt, rust-analyzer), plus `cargo-nextest`, `taplo`, `typos`, `just`, `actionlint`, and `lefthook`.
+The dev shell provides the stable Rust toolchain (cargo, clippy, rustfmt, rust-analyzer), plus `cargo-nextest`, `taplo`, `typos`, `just`, and `actionlint`.
 
 ### Without Nix
 
@@ -28,7 +28,6 @@ You'll also need these tools (provided automatically by the Nix dev shell):
 - [taplo](https://taplo.tamasfe.dev) - TOML formatter/linter
 - [typos](https://github.com/crate-ci/typos) - spell checker
 - [actionlint](https://github.com/rhysd/actionlint) - GitHub Actions linter
-- [lefthook](https://lefthook.dev) - git hooks manager
 - A container runtime - required for E2E tests. Any OCI-compatible runtime works: [Docker](https://docs.docker.com/get-docker/), [Podman](https://podman.io), [OrbStack](https://orbstack.dev) (macOS), [colima](https://github.com/abiosoft/colima), [nerdctl](https://github.com/containerd/nerdctl)
 
 ## Cloning
@@ -50,32 +49,15 @@ git config submodule.recurse true
 A `justfile` wraps all common commands:
 
 ```bash
-just              # List all recipes (with aliases)
-just check        # Run all checks (typos, TOML lint, actionlint, fmt, clippy, test)
-just test [filter]  # Run unit tests, optionally filtered
+just check        # Run all checks (typos, TOML lint, fmt, clippy, test)
+just test         # Run unit tests
 just clippy       # Run clippy
-just clippy-fix   # Apply clippy suggestions
-just build        # Build the workspace
-just run <args>   # Run the relayer binary
-just deny         # Dependency audit (cargo-deny)
-just coverage     # Coverage report (lcov.info), same as CI
 just fmt          # Format check
 just fmt-fix      # Auto-format everything (Rust, TOML, Nix)
 just e2e          # Run E2E tests (requires container runtime)
 just check-typos  # Spell check
 just check-toml   # TOML lint
 ```
-
-Short aliases: `c` check, `t` test, `b` build, `r` run, `l` clippy, `lf` clippy-fix, `f` fmt-fix, `e` e2e, `d` deny.
-
-### Git hooks
-
-Hooks are managed by [lefthook](https://lefthook.dev) (`lefthook.yml`). The Nix dev shell installs them automatically; otherwise run `lefthook install` once.
-
-- **pre-commit** (parallel, staged files only): `cargo fmt --check`, `typos`, `taplo check`, `actionlint`
-- **pre-push** (sequential, stops at first failure): `cargo fmt --check` → `clippy -D warnings` → `cargo nextest run`
-
-Skip in an emergency with `LEFTHOOK=0 git push`.
 
 ## Code style
 
