@@ -149,35 +149,18 @@ pub fn pre_verify_signature(
 /// # Panics
 /// If the message length exceeds `u16::MAX`.
 #[must_use]
-#[expect(clippy::expect_used, reason = "documented panic on oversized message")]
 pub fn build_ed25519_instruction(sig: &crate::ibc_types::SignatureData) -> Instruction {
-    let num_signatures: u16 = 1;
-    let signature_offset: u16 = 2 + 2 + 14;
-    let pubkey_offset = signature_offset + 64;
-    let message_offset = pubkey_offset + 32;
-    let message_size = u16::try_from(sig.msg.len()).expect("message length fits in u16");
-
-    let current_ix: u16 = 0xFFFF;
-
-    let mut data = Vec::with_capacity(usize::from(signature_offset) + 64 + 32 + sig.msg.len());
-    data.extend_from_slice(&num_signatures.to_le_bytes());
-    data.extend_from_slice(&0u16.to_le_bytes());
-    data.extend_from_slice(&signature_offset.to_le_bytes());
-    data.extend_from_slice(&current_ix.to_le_bytes());
-    data.extend_from_slice(&pubkey_offset.to_le_bytes());
-    data.extend_from_slice(&current_ix.to_le_bytes());
-    data.extend_from_slice(&message_offset.to_le_bytes());
-    data.extend_from_slice(&message_size.to_le_bytes());
-    data.extend_from_slice(&current_ix.to_le_bytes());
-    data.extend_from_slice(&sig.signature);
-    data.extend_from_slice(&sig.pubkey);
-    data.extend_from_slice(&sig.msg);
-
-    Instruction {
-        program_id: solana_sdk::ed25519_program::ID,
-        accounts: vec![],
-        data,
-    }
+    // The SDK builder truncates the length with `as u16`; reject oversized messages instead.
+    assert!(
+        u16::try_from(sig.msg.len()).is_ok(),
+        "message length {} exceeds u16::MAX",
+        sig.msg.len()
+    );
+    solana_ed25519_program::new_ed25519_instruction_with_signature(
+        &sig.msg,
+        &sig.signature,
+        &sig.pubkey,
+    )
 }
 
 /// Ed25519 verify + on-chain record.
@@ -387,4 +370,56 @@ pub fn initialize_ics07(
         ],
         data,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ed25519_instruction_layout() {
+        use solana_ed25519_program::{DATA_START, SIGNATURE_OFFSETS_START};
+
+        let sig = crate::ibc_types::SignatureData {
+            signature_hash: [0u8; 32],
+            pubkey: [2u8; 32],
+            msg: b"hello".to_vec(),
+            signature: [1u8; 64],
+        };
+
+        let ix = build_ed25519_instruction(&sig);
+
+        assert_eq!(ix.program_id, solana_sdk::ed25519_program::ID);
+        assert_eq!(ix.accounts, vec![]);
+        assert_eq!(ix.data.len(), DATA_START + 64 + 32 + sig.msg.len());
+        assert_eq!(ix.data[0], 1, "num signatures");
+
+        // Offsets as read by the ed25519 precompile and ics07 pre_verify_signatures.
+        let read_u16 = |field: usize| {
+            let at = SIGNATURE_OFFSETS_START + field * 2;
+            usize::from(u16::from_le_bytes([ix.data[at], ix.data[at + 1]]))
+        };
+        let (sig_off, pk_off, msg_off, msg_len) =
+            (read_u16(0), read_u16(2), read_u16(4), read_u16(5));
+        for ix_index in [read_u16(1), read_u16(3), read_u16(6)] {
+            assert_eq!(ix_index, usize::from(u16::MAX), "data must be inline");
+        }
+
+        assert_eq!(&ix.data[sig_off..sig_off + 64], &sig.signature);
+        assert_eq!(&ix.data[pk_off..pk_off + 32], &sig.pubkey);
+        assert_eq!(msg_len, sig.msg.len());
+        assert_eq!(&ix.data[msg_off..msg_off + msg_len], b"hello");
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds u16::MAX")]
+    fn ed25519_instruction_rejects_oversized_message() {
+        let sig = crate::ibc_types::SignatureData {
+            signature_hash: [0u8; 32],
+            pubkey: [0u8; 32],
+            msg: vec![0u8; usize::from(u16::MAX) + 1],
+            signature: [0u8; 64],
+        };
+        let _ = build_ed25519_instruction(&sig);
+    }
 }

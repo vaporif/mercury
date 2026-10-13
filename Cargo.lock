@@ -6460,6 +6460,7 @@ dependencies = [
  "solana-client",
  "solana-commitment-config",
  "solana-compute-budget-interface",
+ "solana-ed25519-program",
  "solana-loader-v3-interface",
  "solana-message",
  "solana-sdk",
@@ -9836,6 +9837,18 @@ dependencies = [
  "sha2 0.11.0",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "solana-ed25519-program"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1419197f1c06abf760043f6d64ba9d79a03ad5a43f18c7586471937122094da"
+dependencies = [
+ "bytemuck",
+ "bytemuck_derive",
+ "solana-instruction 3.5.1",
+ "solana-sdk-ids",
 ]
 
 [[package]]
