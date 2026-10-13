@@ -28,11 +28,14 @@ use ibc_proto::ibc::lightclients::wasm::v1::{
     ClientMessage as WasmClientMessage, ClientState as WasmClientState,
     ConsensusState as WasmConsensusState,
 };
+use mercury_attestor::proto::lightclient as attestations;
+use mercury_attestor::{CommitmentType, abi_encode_packet};
 use prost::Message as _;
 
 use crate::wrapper::CosmosAdapter;
 
 const SOLANA_TRUSTING_PERIOD: Duration = Duration::from_hours(24);
+const NANOS_PER_SECOND: u64 = 1_000_000_000;
 
 #[async_trait]
 impl<S: CosmosSigner> ClientQuery<SolanaChain> for CosmosAdapter<S> {
@@ -60,6 +63,8 @@ impl<S: CosmosSigner> ClientQuery<SolanaChain> for CosmosAdapter<S> {
     fn trusting_period(client_state: &Self::ClientState) -> Option<Duration> {
         match client_state {
             CosmosClientState::Wasm(_) => Some(SOLANA_TRUSTING_PERIOD),
+            // Attested state doesn't expire.
+            CosmosClientState::Attestations(_) => None,
             CosmosClientState::Tendermint(_) => {
                 tracing::warn!("unexpected Tendermint client state for Solana counterparty");
                 None
@@ -76,6 +81,7 @@ impl<S: CosmosSigner> ClientQuery<SolanaChain> for CosmosAdapter<S> {
                 },
                 |h| SolanaHeight(h.revision_height),
             ),
+            CosmosClientState::Attestations(cs) => SolanaHeight(cs.latest_height),
             CosmosClientState::Tendermint(_) => {
                 tracing::warn!("unexpected Tendermint client state for Solana counterparty");
                 SolanaHeight(0)
@@ -95,16 +101,48 @@ impl<S: CosmosSigner> ClientMessageBuilder<SolanaChain> for CosmosAdapter<S> {
     ) -> Result<CosmosMessage> {
         let signer = self.0.signer.account_address()?;
 
+        let (client_state, consensus_state) = match payload {
+            SolanaCreateClientPayload::Dummy {
+                client_state,
+                consensus_state,
+            } => (client_state, consensus_state),
+            SolanaCreateClientPayload::Attested {
+                attestor_addresses,
+                min_required_sigs,
+                height,
+                timestamp_secs,
+            } => {
+                let client_state = attestations::ClientState {
+                    attestor_addresses,
+                    min_required_sigs,
+                    latest_height: height,
+                    is_frozen: false,
+                };
+                let consensus_state = attestations::ConsensusState {
+                    timestamp: timestamp_secs.saturating_mul(NANOS_PER_SECOND),
+                };
+                let msg = MsgCreateClient {
+                    client_state: Some(any(attestations::CLIENT_STATE_TYPE_URL, &client_state)),
+                    consensus_state: Some(any(
+                        attestations::CONSENSUS_STATE_TYPE_URL,
+                        &consensus_state,
+                    )),
+                    signer,
+                };
+                return Ok(to_any(&msg));
+            }
+        };
+
         let checksum_hex = self.0.config.wasm_checksum.as_ref().ok_or_else(|| {
             eyre::eyre!("wasm_checksum not configured — required for Solana light client creation")
         })?;
         let checksum =
             hex::decode(checksum_hex).map_err(|e| eyre::eyre!("decoding wasm_checksum: {e}"))?;
 
-        let latest_slot = extract_latest_slot(&payload.client_state);
+        let latest_slot = extract_latest_slot(&client_state);
 
         let wasm_client_state = WasmClientState {
-            data: payload.client_state,
+            data: client_state,
             checksum,
             latest_height: Some(ProtoHeight {
                 revision_number: 0,
@@ -113,7 +151,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<SolanaChain> for CosmosAdapter<S> {
         };
 
         let wasm_consensus_state = WasmConsensusState {
-            data: payload.consensus_state,
+            data: consensus_state,
         };
 
         let msg = MsgCreateClient {
@@ -138,8 +176,19 @@ impl<S: CosmosSigner> ClientMessageBuilder<SolanaChain> for CosmosAdapter<S> {
     ) -> Result<UpdateClientOutput<CosmosMessage>> {
         let signer = self.0.signer.account_address()?;
 
-        let messages = payload
-            .headers
+        let headers = match payload {
+            SolanaUpdateClientPayload::Dummy { headers } => headers,
+            SolanaUpdateClientPayload::Attested { proof, .. } => {
+                let msg = MsgUpdateClient {
+                    client_id: client_id.to_string(),
+                    client_message: Some(any(attestations::ATTESTATION_PROOF_TYPE_URL, &proof)),
+                    signer,
+                };
+                return Ok(UpdateClientOutput::messages_only(vec![to_any(&msg)]));
+            }
+        };
+
+        let messages = headers
             .into_iter()
             .map(|header_bytes| {
                 let wasm_client_message = WasmClientMessage { data: header_bytes };
@@ -209,11 +258,14 @@ fn extract_latest_slot(client_state_bytes: &[u8]) -> u64 {
 const MOCK_PROOF: &[u8] = b"mock";
 
 impl<S: CosmosSigner> CosmosAdapter<S> {
-    /// Solana has no state proofs yet, so packet proofs are only usable against a mock
-    /// light client. Returns the proof bytes and proof height to put in the message.
-    fn solana_proof(
+    /// Solana has no state proofs, so a packet is proven either with a mock proof
+    /// (dummy light client) or with an attestation fetched here, where the full
+    /// packet is known. Returns the proof bytes and proof height for the message.
+    async fn solana_proof(
         &self,
         proof: SolanaCommitmentProof,
+        packet: &V2Packet,
+        commitment_type: CommitmentType,
         proof_height: SolanaHeight,
         revision: u64,
     ) -> Result<(Vec<u8>, ProtoHeight)> {
@@ -226,18 +278,33 @@ impl<S: CosmosSigner> CosmosAdapter<S> {
                 },
             ));
         }
-        if proof.0.is_empty() {
+        let SolanaCommitmentProof::Attested(aggregator) = proof else {
             eyre::bail!(
-                "Solana packet proofs are not supported; enable `mock_proofs` for a dummy light client"
+                "Solana packet proofs need attestors; configure `attestation` on the Solana chain \
+                 or enable `mock_proofs` for a dummy light client"
             );
-        }
+        };
+        let attestation = aggregator
+            .packet_attestation(
+                vec![abi_encode_packet(packet)],
+                proof_height.0,
+                commitment_type,
+            )
+            .await?;
         Ok((
-            proof.0,
+            attestation.into_proof().encode_to_vec(),
             ProtoHeight {
                 revision_number: revision,
                 revision_height: proof_height.into(),
             },
         ))
+    }
+}
+
+fn any(type_url: &str, msg: &impl prost::Message) -> ibc_proto::google::protobuf::Any {
+    ibc_proto::google::protobuf::Any {
+        type_url: type_url.to_string(),
+        value: msg.encode_to_vec(),
     }
 }
 
@@ -250,9 +317,18 @@ impl<S: CosmosSigner> PacketMessageBuilder<SolanaChain> for CosmosAdapter<S> {
         proof_height: SolanaHeight,
         revision: u64,
     ) -> Result<CosmosMessage> {
-        let (proof_commitment, proof_height) = self.solana_proof(proof, proof_height, revision)?;
+        let packet = solana_packet_to_v2(packet);
+        let (proof_commitment, proof_height) = self
+            .solana_proof(
+                proof,
+                &packet,
+                CommitmentType::Packet,
+                proof_height,
+                revision,
+            )
+            .await?;
         let msg = MsgRecvPacket {
-            packet: Some(solana_packet_to_v2(packet)),
+            packet: Some(packet),
             proof_commitment,
             proof_height: Some(proof_height),
             signer: self.0.signer.account_address()?,
@@ -275,9 +351,12 @@ impl<S: CosmosSigner> PacketMessageBuilder<SolanaChain> for CosmosAdapter<S> {
                     app_acknowledgements: vec![ack.0.clone()],
                 }
             });
-        let (proof_acked, proof_height) = self.solana_proof(proof, proof_height, revision)?;
+        let packet = solana_packet_to_v2(packet);
+        let (proof_acked, proof_height) = self
+            .solana_proof(proof, &packet, CommitmentType::Ack, proof_height, revision)
+            .await?;
         let msg = MsgAcknowledgement {
-            packet: Some(solana_packet_to_v2(packet)),
+            packet: Some(packet),
             acknowledgement: Some(acknowledgement),
             proof_acked,
             proof_height: Some(proof_height),
@@ -294,9 +373,18 @@ impl<S: CosmosSigner> PacketMessageBuilder<SolanaChain> for CosmosAdapter<S> {
         revision: u64,
     ) -> Result<CosmosMessage> {
         use mercury_cosmos::builders::cosmos_packet_to_v2;
-        let (proof_unreceived, proof_height) = self.solana_proof(proof, proof_height, revision)?;
+        let packet = cosmos_packet_to_v2(packet);
+        let (proof_unreceived, proof_height) = self
+            .solana_proof(
+                proof,
+                &packet,
+                CommitmentType::Receipt,
+                proof_height,
+                revision,
+            )
+            .await?;
         let msg = MsgTimeout {
-            packet: Some(cosmos_packet_to_v2(packet)),
+            packet: Some(packet),
             proof_unreceived,
             proof_height: Some(proof_height),
             signer: self.0.signer.account_address()?,

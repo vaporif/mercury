@@ -2,9 +2,13 @@ use ibc_client_tendermint::types::ClientState as TendermintClientState;
 use ibc_client_tendermint::types::ConsensusState as TendermintConsensusState;
 use ibc_proto::ibc::lightclients::wasm::v1::ClientState as WasmClientState;
 use ibc_proto::ibc::lightclients::wasm::v1::ConsensusState as WasmConsensusState;
+use mercury_attestor::proto::lightclient::{
+    ClientState as AttestationsClientState, ConsensusState as AttestationsConsensusState,
+};
 
 /// Client state on a Cosmos chain. Tendermint for native IBC, Wasm for
-/// `CosmWasm` light clients (Beacon, Solana, etc.).
+/// `CosmWasm` light clients (Beacon, Solana, etc.), Attestations for ibc-go's
+/// attestor-backed client.
 ///
 /// Adding a variant causes compile errors in all bridge crates —
 /// see `docs/adding-a-chain.md`.
@@ -12,12 +16,14 @@ use ibc_proto::ibc::lightclients::wasm::v1::ConsensusState as WasmConsensusState
 pub enum CosmosClientState {
     Tendermint(TendermintClientState),
     Wasm(WasmClientState),
+    Attestations(AttestationsClientState),
 }
 
 #[derive(Clone, Debug)]
 pub enum CosmosConsensusState {
     Tendermint(TendermintConsensusState),
     Wasm(WasmConsensusState),
+    Attestations(AttestationsConsensusState),
 }
 
 impl CosmosClientState {
@@ -37,3 +43,6 @@ pub const WASM_CLIENT_STATE_TYPE_URL: &str = "ibc.lightclients.wasm.v1.ClientSta
 pub const TENDERMINT_CONSENSUS_STATE_TYPE_URL: &str =
     "ibc.lightclients.tendermint.v1.ConsensusState";
 pub const WASM_CONSENSUS_STATE_TYPE_URL: &str = "ibc.lightclients.wasm.v1.ConsensusState";
+pub const ATTESTATIONS_CLIENT_STATE_TYPE_URL: &str = "ibc.lightclients.attestations.v1.ClientState";
+pub const ATTESTATIONS_CONSENSUS_STATE_TYPE_URL: &str =
+    "ibc.lightclients.attestations.v1.ConsensusState";

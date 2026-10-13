@@ -36,7 +36,7 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
 
     let harness = set_up_cosmos_solana(&fixtures_dir).await?;
     info!(
-        cosmos_client = %harness.cosmos_wasm_client_id,
+        cosmos_client = %harness.cosmos_client_id,
         solana_client = %harness.solana_tendermint_client_id,
         "handshake complete",
     );
@@ -97,7 +97,7 @@ async fn cosmos_to_solana_transfer() -> Result<()> {
     assert_consensus_state_stored(&rpc, &harness, target_height.value())?;
 
     let cosmos_client_id: ibc::core::host::types::identifiers::ClientId = harness
-        .cosmos_wasm_client_id
+        .cosmos_client_id
         .parse()
         .map_err(|e| eyre::eyre!("parse client id: {e}"))?;
 
@@ -201,7 +201,7 @@ async fn send_ics20_packet(
         + 30 * 60;
 
     let msg = MsgSendPacket {
-        source_client: harness.cosmos_wasm_client_id.clone(),
+        source_client: harness.cosmos_client_id.clone(),
         timeout_timestamp: timeout,
         payloads: vec![Payload {
             source_port: "transfer".to_string(),

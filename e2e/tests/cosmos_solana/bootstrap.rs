@@ -8,22 +8,29 @@ use mercury_cosmos_counterparties::builders::CosmosCreateClientPayload;
 use mercury_cosmos_counterparties::chain::CosmosChain;
 use mercury_cosmos_counterparties::config::{CosmosChainConfig, GasPrice};
 use mercury_cosmos_counterparties::keys::Secp256k1KeyPair;
-use mercury_e2e::bootstrap::cosmos_docker::{
-    CosmosDockerBootstrap, CosmosDockerHandle, create_dummy_wasm_client,
-    store_dummy_wasm_light_client,
-};
+use mercury_cosmos_counterparties::plugin::extract_cosmos_client_id;
+use mercury_cosmos_counterparties::wrapper::CosmosAdapter;
+use mercury_e2e::bootstrap::attestor::{SolanaAttestors, start_solana_attestors};
+use mercury_e2e::bootstrap::cosmos_docker::{CosmosDockerBootstrap, CosmosDockerHandle};
 use mercury_e2e::bootstrap::solana::SolanaBootstrap;
 use mercury_e2e::bootstrap::traits::{ChainBootstrap, ChainHandle, Wallet};
-use mercury_solana::config::SolanaChainConfig;
+use mercury_solana::chain::SolanaChain;
+use mercury_solana::config::{AttestationConfig, SolanaChainConfig};
 use mercury_solana_counterparties::SolanaAdapter;
 use tracing::info;
+
+const ATTESTOR_COUNT: usize = 1;
+const MIN_REQUIRED_SIGS: u32 = 1;
 
 pub struct CosmosSolanaHarness {
     pub cosmos_handle: CosmosDockerHandle,
     pub cosmos_chain: CosmosChain<Secp256k1KeyPair>,
     pub solana_bootstrap: SolanaBootstrap,
     pub solana_adapter: SolanaAdapter,
-    pub cosmos_wasm_client_id: String,
+    /// Kept so the attestor containers live as long as the harness.
+    pub _attestors: SolanaAttestors,
+    /// `attestations` client on Cosmos tracking Solana.
+    pub cosmos_client_id: String,
     pub solana_tendermint_client_id: String,
 }
 
@@ -36,17 +43,23 @@ pub async fn set_up_cosmos_solana(fixtures_dir: &Path) -> Result<CosmosSolanaHar
     let cosmos_handle = cosmos_bootstrap.start().await?;
     let solana_bootstrap = SolanaBootstrap::start(fixtures_dir)?;
 
-    let cosmos_chain = build_cosmos_chain(&cosmos_handle).await?;
-    let solana_adapter = build_solana_adapter(&solana_bootstrap).await?;
+    let attestors = start_solana_attestors(
+        ATTESTOR_COUNT,
+        &solana_bootstrap.rpc_url,
+        &solana_bootstrap.program_ids.ics26.to_string(),
+    )
+    .await?;
 
-    let wasm_checksum = store_dummy_wasm_light_client(&cosmos_handle).await?;
-    let cosmos_wasm_client_id = create_dummy_wasm_client(&cosmos_handle, &wasm_checksum).await?;
+    let cosmos_chain = build_cosmos_chain(&cosmos_handle).await?;
+    let solana_adapter = build_solana_adapter(&solana_bootstrap, &attestors).await?;
+
+    let cosmos_client_id = create_attestations_client(&cosmos_chain, &solana_adapter).await?;
 
     let mut payload: CosmosCreateClientPayload =
         <CosmosChain<Secp256k1KeyPair> as ClientPayloadBuilder<SolanaAdapter>>::build_create_client_payload(&cosmos_chain)
             .await
             .map_err(|e| eyre::eyre!("{e}"))?;
-    payload.counterparty_client_id = Some(cosmos_wasm_client_id.clone());
+    payload.counterparty_client_id = Some(cosmos_client_id.clone());
     payload.counterparty_merkle_prefix = Some(cosmos_chain.config.merkle_prefix.clone());
     let create_msg =
         <SolanaAdapter as ClientMessageBuilder<CosmosChain<Secp256k1KeyPair>>>::build_create_client_message(
@@ -64,7 +77,7 @@ pub async fn set_up_cosmos_solana(fixtures_dir: &Path) -> Result<CosmosSolanaHar
 
     register_counterparty_on_cosmos(
         &cosmos_chain,
-        &cosmos_wasm_client_id,
+        &cosmos_client_id,
         &solana_tendermint_client_id,
     )
     .await?;
@@ -74,9 +87,33 @@ pub async fn set_up_cosmos_solana(fixtures_dir: &Path) -> Result<CosmosSolanaHar
         cosmos_chain,
         solana_bootstrap,
         solana_adapter,
-        cosmos_wasm_client_id,
+        _attestors: attestors,
+        cosmos_client_id,
         solana_tendermint_client_id,
     })
+}
+
+/// Creates the `attestations` light client on Cosmos from attested Solana state.
+async fn create_attestations_client(
+    cosmos: &CosmosChain<Secp256k1KeyPair>,
+    solana: &SolanaAdapter,
+) -> Result<String> {
+    let payload = <SolanaAdapter as ClientPayloadBuilder<CosmosChain<Secp256k1KeyPair>>>::build_create_client_payload(solana)
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+    let msg = <CosmosAdapter<Secp256k1KeyPair> as ClientMessageBuilder<SolanaChain>>::build_create_client_message(
+        &CosmosAdapter(cosmos.clone()),
+        payload,
+    )
+    .await
+    .map_err(|e| eyre::eyre!("{e}"))?;
+    let responses = cosmos
+        .send_messages_with_responses(vec![msg])
+        .await
+        .map_err(|e| eyre::eyre!("{e}"))?;
+    let client_id = extract_cosmos_client_id(&responses)?.to_string();
+    info!(%client_id, "created attestations client on Cosmos");
+    Ok(client_id)
 }
 
 async fn build_cosmos_chain(handle: &CosmosDockerHandle) -> Result<CosmosChain<Secp256k1KeyPair>> {
@@ -108,8 +145,7 @@ async fn build_cosmos_chain(handle: &CosmosDockerHandle) -> Result<CosmosChain<S
         max_tx_size: None,
         tx_size_gas_per_byte: None,
         wasm_checksum: None,
-        // Cosmos tracks Solana with the dummy wasm LC; Solana has no state proofs yet.
-        mock_proofs: true,
+        mock_proofs: false,
         rpc_timeout_secs: mercury_core::rpc_guard::default_timeout_secs(),
         rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
         merkle_prefix: mercury_core::MerklePrefix::ibc_default(),
@@ -119,7 +155,10 @@ async fn build_cosmos_chain(handle: &CosmosDockerHandle) -> Result<CosmosChain<S
         .map_err(|e| eyre::eyre!("{e}"))
 }
 
-async fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapter> {
+async fn build_solana_adapter(
+    bootstrap: &SolanaBootstrap,
+    attestors: &SolanaAttestors,
+) -> Result<SolanaAdapter> {
     use mercury_solana::accounts::{AccessManager, Ics07Tendermint};
     use mercury_solana::alt;
     use solana_sdk::signer::Signer;
@@ -140,6 +179,12 @@ async fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapt
         rpc_rate_limit: mercury_core::rpc_guard::default_rate_limit(),
         alt_address: None,
         skip_pre_verify_threshold: None,
+        attestation: Some(AttestationConfig {
+            endpoints: attestors.endpoints.clone(),
+            attestor_addresses: attestors.addresses.clone(),
+            min_required_sigs: MIN_REQUIRED_SIGS,
+            timeout_secs: 30,
+        }),
     };
     let rpc = mercury_solana::rpc::SolanaRpcClient::new(&base_config);
     let payer = bootstrap.keypair.pubkey();
@@ -190,12 +235,12 @@ async fn build_solana_adapter(bootstrap: &SolanaBootstrap) -> Result<SolanaAdapt
 
 async fn register_counterparty_on_cosmos(
     cosmos: &CosmosChain<Secp256k1KeyPair>,
-    cosmos_wasm_client_id: &str,
+    cosmos_client_id: &str,
     solana_tendermint_client_id: &str,
 ) -> Result<()> {
     use ibc::core::host::types::identifiers::ClientId;
 
-    let local_client_id: ClientId = cosmos_wasm_client_id
+    let local_client_id: ClientId = cosmos_client_id
         .parse()
         .map_err(|e| eyre::eyre!("parse cosmos client id: {e}"))?;
     let counterparty_client_id: ClientId = solana_tendermint_client_id
@@ -208,7 +253,9 @@ async fn register_counterparty_on_cosmos(
         cosmos,
         &local_client_id,
         &counterparty_client_id,
-        mercury_core::MerklePrefix::ibc_default(),
+        // Solana commitments have no store prefix; the attestations client
+        // requires a single-element path.
+        mercury_core::MerklePrefix(vec![Vec::new()]),
     )
     .await
     .map_err(|e| eyre::eyre!("{e}"))?;
@@ -219,7 +266,7 @@ async fn register_counterparty_on_cosmos(
         .map_err(|e| eyre::eyre!("{e}"))?;
 
     info!(
-        cosmos_client = %cosmos_wasm_client_id,
+        cosmos_client = %cosmos_client_id,
         solana_client = %solana_tendermint_client_id,
         "registered counterparty on Cosmos"
     );

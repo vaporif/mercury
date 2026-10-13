@@ -61,13 +61,13 @@ async fn bidirectional_relay() -> Result<()> {
     let fixtures_dir = super::solana_fixtures_dir()?;
     let harness = set_up_cosmos_solana(&fixtures_dir).await?;
     info!(
-        cosmos_client = %harness.cosmos_wasm_client_id,
+        cosmos_client = %harness.cosmos_client_id,
         solana_client = %harness.solana_tendermint_client_id,
         "handshake complete",
     );
 
     let cosmos_client_id: ClientId = harness
-        .cosmos_wasm_client_id
+        .cosmos_client_id
         .parse()
         .map_err(|e| eyre::eyre!("parse cosmos client id: {e}"))?;
     let solana_client_id = SolanaClientId(harness.solana_tendermint_client_id.clone());
@@ -181,6 +181,18 @@ async fn bidirectional_relay() -> Result<()> {
     .await?;
     info!("Solana->Cosmos: packet receipt exists on Cosmos");
 
+    // The router zeroes the commitment value on ack; the account stays.
+    poll_until(
+        "packet commitment zeroed on Solana (Solana->Cosmos ack)",
+        Duration::from_secs(90),
+        || {
+            rpc.get_account(&commitment_pda)
+                .is_ok_and(|a| a.data.get(8..).is_some_and(|v| v.iter().all(|&b| b == 0)))
+        },
+    )
+    .await?;
+    info!("Solana->Cosmos: ack relayed back, packet commitment zeroed on Solana");
+
     // Same teardown as `RelayHandle`: awaiting the workers can block if one ignores cancellation.
     token.cancel();
     join_cs.abort();
@@ -212,7 +224,7 @@ async fn send_ics20_packet_from_cosmos(harness: &CosmosSolanaHarness) -> Result<
         + 30 * 60;
 
     let msg = MsgSendPacket {
-        source_client: harness.cosmos_wasm_client_id.clone(),
+        source_client: harness.cosmos_client_id.clone(),
         timeout_timestamp: timeout,
         payloads: vec![Payload {
             source_port: "transfer".to_string(),

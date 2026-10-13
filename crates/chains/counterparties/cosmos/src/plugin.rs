@@ -240,6 +240,14 @@ impl ChainPlugin for CosmosPlugin {
                 client_type: "wasm".to_string(),
                 chain_id: String::new(),
             },
+            CosmosClientState::Attestations(cs) => ClientStateInfo {
+                client_id: client_id.to_string(),
+                latest_height: cs.latest_height,
+                trusting_period: None,
+                frozen: cs.is_frozen,
+                client_type: "attestations".to_string(),
+                chain_id: String::new(),
+            },
         })
     }
 

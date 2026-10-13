@@ -1,0 +1,24 @@
+[package]
+name = "mercury-attestor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+alloy-sol-types = { workspace = true }
+eyre = { workspace = true }
+futures = { workspace = true }
+ibc-proto = { workspace = true }
+prost = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }

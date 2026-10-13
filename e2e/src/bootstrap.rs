@@ -5,6 +5,7 @@ use std::sync::Once;
 use tracing::info;
 
 pub mod anvil;
+pub mod attestor;
 pub mod cosmos_docker;
 pub mod kurtosis;
 pub mod solana;

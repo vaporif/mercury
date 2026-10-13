@@ -18,8 +18,9 @@ use crate::events::ENCODED_PACKET_HEX;
 
 use crate::chain::CosmosChain;
 use crate::client_types::{
-    CosmosClientState, CosmosConsensusState, TENDERMINT_CLIENT_STATE_TYPE_URL,
-    TENDERMINT_CONSENSUS_STATE_TYPE_URL, WASM_CLIENT_STATE_TYPE_URL, WASM_CONSENSUS_STATE_TYPE_URL,
+    ATTESTATIONS_CLIENT_STATE_TYPE_URL, ATTESTATIONS_CONSENSUS_STATE_TYPE_URL, CosmosClientState,
+    CosmosConsensusState, TENDERMINT_CLIENT_STATE_TYPE_URL, TENDERMINT_CONSENSUS_STATE_TYPE_URL,
+    WASM_CLIENT_STATE_TYPE_URL, WASM_CONSENSUS_STATE_TYPE_URL,
 };
 use crate::keys::CosmosSigner;
 use crate::types::{
@@ -116,6 +117,12 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
                 )?;
                 CosmosClientState::Wasm(cs)
             }
+            ATTESTATIONS_CLIENT_STATE_TYPE_URL => {
+                let cs = mercury_attestor::proto::lightclient::ClientState::decode(
+                    any.value.as_slice(),
+                )?;
+                CosmosClientState::Attestations(cs)
+            }
             other => {
                 return Err(QueryError::UnsupportedType {
                     type_url: other.to_string(),
@@ -180,6 +187,12 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
                 )?;
                 CosmosConsensusState::Wasm(cs)
             }
+            ATTESTATIONS_CONSENSUS_STATE_TYPE_URL => {
+                let cs = mercury_attestor::proto::lightclient::ConsensusState::decode(
+                    any.value.as_slice(),
+                )?;
+                CosmosConsensusState::Attestations(cs)
+            }
             other => {
                 return Err(QueryError::UnsupportedType {
                     type_url: other.to_string(),
@@ -193,7 +206,7 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
     fn trusting_period(client_state: &Self::ClientState) -> Option<std::time::Duration> {
         match client_state {
             CosmosClientState::Tendermint(cs) => Some(cs.trusting_period),
-            CosmosClientState::Wasm(_) => None,
+            CosmosClientState::Wasm(_) | CosmosClientState::Attestations(_) => None,
         }
     }
 
@@ -216,6 +229,9 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
                     warn!("WASM client state has revision_height 0, clamping to 1");
                 }
                 TmHeight::try_from(h.revision_height.max(1)).expect("nonzero after .max(1)")
+            }
+            CosmosClientState::Attestations(cs) => {
+                TmHeight::try_from(cs.latest_height.max(1)).expect("nonzero after .max(1)")
             }
         }
     }

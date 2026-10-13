@@ -85,10 +85,14 @@ pub trait RelayPacketBuilder: Relay {
         message_proof_height: Option<&<Self::SrcChain as ChainTypes>::Height>,
     ) -> PacketBuildResult<<Self::DstChain as ChainTypes>::Message>;
 
+    /// Build timeout messages. `proof_height` queries the receipt on the
+    /// destination chain; `message_proof_height` overrides the height in the
+    /// IBC message sent back to the source.
     async fn build_timeout_packet_messages(
         &self,
         packet: &<Self::SrcChain as IbcTypes>::Packet,
         proof_height: &<Self::DstChain as ChainTypes>::Height,
+        message_proof_height: Option<&<Self::DstChain as ChainTypes>::Height>,
     ) -> Result<Vec<<Self::SrcChain as ChainTypes>::Message>>;
 }
 

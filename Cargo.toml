@@ -5,6 +5,7 @@ members = [
   "crates/core",
   "crates/chain-traits",
   "crates/chain-cache",
+  "crates/attestor",
   "crates/chains/core/cosmos",
   "crates/chains/core/ethereum",
   "crates/chains/counterparties/cosmos",
@@ -72,6 +73,7 @@ axum = "0.8"
 mercury-core = { path = "crates/core" }
 mercury-chain-traits = { path = "crates/chain-traits" }
 mercury-chain-cache = { path = "crates/chain-cache" }
+mercury-attestor = { path = "crates/attestor" }
 mercury-cosmos = { path = "crates/chains/core/cosmos" }
 mercury-cosmos-counterparties = { path = "crates/chains/counterparties/cosmos" }
 mercury-ethereum = { path = "crates/chains/core/ethereum" }
@@ -140,6 +142,7 @@ alloy = { version = "1", default-features = false, features = [
   "signers",
   "sol-types",
 ] }
+alloy-sol-types = "1"
 testcontainers = "0.28"
 reqwest = { version = "0.13", default-features = false, features = [
   "json",

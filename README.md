@@ -24,7 +24,7 @@ Early development. Not tested against live chains yet, so use at your own risk. 
 | Feature | Cosmos↔Cosmos | Cosmos↔EVM | Cosmos↔Solana |
 |---------|:---:|:---:|:---:|
 | Basic transfer | E2E | E2E | E2E |
-| Bidirectional transfer | E2E | E2E | Untested |
+| Bidirectional transfer | E2E | E2E | E2E |
 | Packet timeout | E2E | Untested | Untested |
 | Near-expiry packet timeout | E2E | Untested | Untested |
 | Client refresh | E2E | Untested | Untested |

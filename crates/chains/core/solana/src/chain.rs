@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mercury_attestor::Aggregator;
 use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, MisbehaviourDetector, MisbehaviourMessageBuilder,
     PacketMessageBuilder, UpdateClientOutput,
@@ -22,7 +23,7 @@ use crate::accounts::{
     self, Ics07Tendermint, Ics26Router, OnChainClientState, OnChainCommitment,
     deserialize_anchor_account, fetch_account, resolve_ics07_program_id,
 };
-use crate::config::SolanaChainConfig;
+use crate::config::{AttestationConfig, SolanaChainConfig};
 use crate::events;
 use crate::rpc::SolanaRpcClient;
 use crate::tx;
@@ -42,6 +43,8 @@ pub struct SolanaChain {
     pub ics26_program_id: Pubkey,
     pub ics07_program_id: Option<Pubkey>,
     pub alt_cache: Option<solana_message::AddressLookupTableAccount>,
+    /// Set when `config.attestation` is configured.
+    pub attestor: Option<Arc<Aggregator>>,
     label: mercury_core::ChainLabel,
 }
 
@@ -60,6 +63,18 @@ impl SolanaChain {
             .map(|id| id.parse::<Pubkey>())
             .transpose()
             .map_err(|e| eyre::eyre!("invalid ics07_program_id: {e}"))?;
+        let attestor = config
+            .attestation
+            .as_ref()
+            .map(|a| {
+                Aggregator::new(
+                    &a.endpoints,
+                    a.min_required_sigs as usize,
+                    Duration::from_secs(a.timeout_secs),
+                )
+                .map(Arc::new)
+            })
+            .transpose()?;
         let label = mercury_core::ChainLabel::new("solana");
         Ok(Self {
             config,
@@ -68,6 +83,7 @@ impl SolanaChain {
             ics26_program_id,
             ics07_program_id,
             alt_cache: None,
+            attestor,
             label,
         })
     }
@@ -108,6 +124,49 @@ impl SolanaChain {
             }
         }
         Ok(sequences)
+    }
+
+    fn commitment_proof(&self) -> SolanaCommitmentProof {
+        self.attestor
+            .clone()
+            .map_or(SolanaCommitmentProof::None, SolanaCommitmentProof::Attested)
+    }
+
+    fn require_attestor(&self) -> Result<(&Aggregator, &AttestationConfig)> {
+        match (&self.attestor, &self.config.attestation) {
+            (Some(aggregator), Some(config)) => Ok((aggregator, config)),
+            _ => eyre::bail!("attestation is not configured for this Solana chain"),
+        }
+    }
+
+    async fn build_attested_create_client_payload(&self) -> Result<SolanaCreateClientPayload> {
+        let (aggregator, config) = self.require_attestor()?;
+        let height = aggregator.latest_height().await?;
+        let state = aggregator.state_attestation(height).await?;
+        let timestamp_secs = state
+            .timestamp
+            .ok_or_else(|| eyre::eyre!("state attestation at {height} has no timestamp"))?;
+        Ok(SolanaCreateClientPayload::Attested {
+            attestor_addresses: config.attestor_addresses.clone(),
+            min_required_sigs: config.min_required_sigs,
+            height,
+            timestamp_secs,
+        })
+    }
+
+    async fn build_attested_update_client_payload(&self) -> Result<SolanaUpdateClientPayload> {
+        let (aggregator, _) = self.require_attestor()?;
+        let height = aggregator.latest_height().await?;
+        let state = aggregator.state_attestation(height).await?;
+        tracing::debug!(
+            height,
+            signatures = state.signatures.len(),
+            "attested Solana state"
+        );
+        Ok(SolanaUpdateClientPayload::Attested {
+            height,
+            proof: state.into_proof(),
+        })
     }
 }
 
@@ -254,7 +313,7 @@ impl PacketStateQuery for SolanaChain {
         let (pda, _) =
             Ics26Router::packet_commitment_pda(&client_id.0, sequence.0, &self.ics26_program_id);
         let commitment: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
-        let proof = SolanaCommitmentProof(Vec::new());
+        let proof = self.commitment_proof();
         Ok((
             commitment.map(|c| SolanaPacketCommitment(c.value.to_vec())),
             proof,
@@ -270,7 +329,7 @@ impl PacketStateQuery for SolanaChain {
         let (pda, _) =
             Ics26Router::packet_receipt_pda(&client_id.0, sequence.0, &self.ics26_program_id);
         let exists = self.rpc.get_account(&pda).await?.is_some();
-        let proof = SolanaCommitmentProof(Vec::new());
+        let proof = self.commitment_proof();
         Ok((exists.then_some(SolanaPacketReceipt), proof))
     }
 
@@ -283,7 +342,7 @@ impl PacketStateQuery for SolanaChain {
         let (pda, _) =
             Ics26Router::packet_ack_pda(&client_id.0, sequence.0, &self.ics26_program_id);
         let commitment: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
-        let proof = SolanaCommitmentProof(Vec::new());
+        let proof = self.commitment_proof();
         Ok((
             commitment.map(|c| SolanaAcknowledgement(c.value.to_vec())),
             proof,
@@ -459,9 +518,12 @@ impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
     type UpdateClientPayload = SolanaUpdateClientPayload;
 
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
+        if self.attestor.is_some() {
+            return self.build_attested_create_client_payload().await;
+        }
         let slot = self.rpc.get_slot().await?;
         let block_time = self.rpc.get_block_time(slot).await?;
-        Ok(SolanaCreateClientPayload {
+        Ok(SolanaCreateClientPayload::Dummy {
             client_state: slot.to_le_bytes().to_vec(),
             consensus_state: block_time.max(0).cast_unsigned().to_le_bytes().to_vec(),
         })
@@ -476,14 +538,27 @@ impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
     where
         C: IbcTypes,
     {
+        if self.attestor.is_some() {
+            return self.build_attested_update_client_payload().await;
+        }
         let slot = self.rpc.get_slot().await?;
         let block_time = self.rpc.get_block_time(slot).await?;
         let mut header = Vec::with_capacity(16);
         header.extend_from_slice(&slot.to_le_bytes());
         header.extend_from_slice(&block_time.max(0).cast_unsigned().to_le_bytes());
-        Ok(SolanaUpdateClientPayload {
+        Ok(SolanaUpdateClientPayload::Dummy {
             headers: vec![header],
         })
+    }
+
+    fn update_payload_proof_height(
+        &self,
+        payload: &Self::UpdateClientPayload,
+    ) -> Option<Self::Height> {
+        match payload {
+            SolanaUpdateClientPayload::Attested { height, .. } => Some(SolanaHeight(*height)),
+            SolanaUpdateClientPayload::Dummy { .. } => None,
+        }
     }
 }
 

@@ -100,8 +100,8 @@ impl<S: CosmosSigner> ClientQuery<EthereumChain> for CosmosAdapter<S> {
     fn trusting_period(client_state: &Self::ClientState) -> Option<Duration> {
         match client_state {
             CosmosClientState::Wasm(_) => Some(BEACON_TRUSTING_PERIOD),
-            CosmosClientState::Tendermint(_) => {
-                tracing::warn!("unexpected Tendermint client state for Ethereum counterparty");
+            CosmosClientState::Tendermint(_) | CosmosClientState::Attestations(_) => {
+                tracing::warn!("unexpected non-Wasm client state for Ethereum counterparty");
                 None
             }
         }
@@ -116,8 +116,8 @@ impl<S: CosmosSigner> ClientQuery<EthereumChain> for CosmosAdapter<S> {
                 },
                 |h| EvmHeight(h.revision_height),
             ),
-            CosmosClientState::Tendermint(_) => {
-                tracing::warn!("unexpected Tendermint client state for Ethereum counterparty");
+            CosmosClientState::Tendermint(_) | CosmosClientState::Attestations(_) => {
+                tracing::warn!("unexpected non-Wasm client state for Ethereum counterparty");
                 EvmHeight(0)
             }
         }

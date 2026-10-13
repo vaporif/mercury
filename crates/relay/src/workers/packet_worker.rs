@@ -20,7 +20,9 @@ use mercury_telemetry::recorder::PacketMetrics;
 
 use crate::workers::{DstTxRequest, SrcTxRequest};
 
-type UpdateClientResult<Height, Message> = Result<(Height, Vec<Message>)>;
+/// `(proof_height, message_proof_height, update messages)`; see
+/// `build_dst_update_client_payload` for the two heights.
+type UpdateClientResult<Height, Message> = Result<(Height, Option<Height>, Vec<Message>)>;
 type BuildMessagesResult<Message, R> = (
     Vec<Message>,
     Vec<PendingSend<SendEvent<R>>>,
@@ -180,7 +182,7 @@ where
         let trusted_height = SrcChain::<R>::client_latest_height(&client_state);
 
         if dst_height <= trusted_height {
-            return Ok((dst_height, vec![]));
+            return Ok((dst_height, None, vec![]));
         }
 
         let update_payload = self
@@ -188,13 +190,22 @@ where
             .dst_chain()
             .build_update_client_payload(&trusted_height, &dst_height, &client_state)
             .await?;
+        let proof_height = self
+            .relay
+            .dst_chain()
+            .update_payload_proof_height(&update_payload)
+            .unwrap_or(dst_height);
+        let message_proof_height = self
+            .relay
+            .dst_chain()
+            .update_payload_message_height(&update_payload);
         let update_output = self
             .relay
             .src_chain()
             .build_update_client_message(self.relay.src_client_id(), update_payload)
             .await?;
 
-        Ok((dst_height, update_output.messages))
+        Ok((proof_height, message_proof_height, update_output.messages))
     }
 
     #[instrument(skip_all, name = "build_recv_tracked", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
@@ -404,6 +415,7 @@ where
         &self,
         timed_out: Vec<PendingSend<SendEvent<R>>>,
         dst_height: &DstHeight<R>,
+        message_proof_height: Option<&DstHeight<R>>,
     ) -> (
         Vec<<R::SrcChain as ChainTypes>::Message>,
         Vec<PendingSend<SendEvent<R>>>,
@@ -416,10 +428,13 @@ where
             .map(|ps| {
                 let relay = relay.clone();
                 let dst_height = dst_height.clone();
+                let msg_height = message_proof_height.cloned();
                 async move {
                     let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
                     let result = retry_proof_fetch(|| async {
-                        relay.build_timeout_packet_messages(pkt, &dst_height).await
+                        relay
+                            .build_timeout_packet_messages(pkt, &dst_height, msg_height.as_ref())
+                            .await
                     })
                     .await;
                     (ps, result)
@@ -751,9 +766,14 @@ where
                 debug!(count = timed_out.len(), "relaying timeout packets");
 
                 match self.build_src_update_client_messages().await {
-                    Ok((dst_height, src_update_msgs)) => {
-                        let (timeout_msgs, timeout_failed) =
-                            self.build_timeout_messages(timed_out, &dst_height).await;
+                    Ok((dst_height, message_proof_height, src_update_msgs)) => {
+                        let (timeout_msgs, timeout_failed) = self
+                            .build_timeout_messages(
+                                timed_out,
+                                &dst_height,
+                                message_proof_height.as_ref(),
+                            )
+                            .await;
                         pending.extend(timeout_failed);
 
                         if !timeout_msgs.is_empty() {
