@@ -31,6 +31,21 @@ use mercury_solana::types::{
 
 use crate::wrapper::SolanaAdapter;
 
+/// Cosmos emits the proto-encoded `Acknowledgement`; the Solana router hashes
+/// the single app acknowledgement itself, so unwrap it.
+fn single_app_ack(encoded: &[u8]) -> Result<Vec<u8>> {
+    use prost::Message as _;
+    let ack = ibc_proto::ibc::core::channel::v2::Acknowledgement::decode(encoded)
+        .map_err(|e| eyre::eyre!("decoding Cosmos acknowledgement: {e}"))?;
+    let [app_ack] = <[Vec<u8>; 1]>::try_from(ack.app_acknowledgements).map_err(|acks| {
+        eyre::eyre!(
+            "Solana supports single-payload acknowledgements, got {}",
+            acks.len()
+        )
+    })?;
+    Ok(app_ack)
+}
+
 const PAYLOAD_INLINE_THRESHOLD: usize = 300;
 
 fn cosmos_packet_to_msg_packet(packet: &CosmosPacket) -> mercury_solana::ibc_types::MsgPacket {
@@ -321,7 +336,7 @@ impl PacketMessageBuilder<CosmosChain<Secp256k1KeyPair>> for SolanaAdapter {
         let mut msg_packet = cosmos_packet_to_msg_packet(packet);
         let proof_bytes = &proof.proof_bytes;
         let height_val = proof_height.value();
-        let ack_bytes = ack.0.clone();
+        let ack_bytes = single_app_ack(&ack.0)?;
 
         let output = build_chunked_packet_message(
             ChunkedPacketParams {
@@ -817,6 +832,26 @@ mod tests {
     use super::*;
     use mercury_cosmos::builders::CosmosCreateClientPayload;
     use mercury_cosmos::misbehaviour::OnChainTmConsensusState;
+
+    fn encoded_ack(app_acks: Vec<Vec<u8>>) -> Vec<u8> {
+        use prost::Message as _;
+        ibc_proto::ibc::core::channel::v2::Acknowledgement {
+            app_acknowledgements: app_acks,
+        }
+        .encode_to_vec()
+    }
+
+    #[test]
+    fn single_app_ack_unwraps_proto() {
+        let ack = single_app_ack(&encoded_ack(vec![b"ok".to_vec()])).ok();
+        assert_eq!(ack, Some(b"ok".to_vec()));
+    }
+
+    #[test]
+    fn single_app_ack_rejects_multi_payload() {
+        assert!(single_app_ack(&encoded_ack(vec![b"a".to_vec(), b"b".to_vec()])).is_err());
+        assert!(single_app_ack(&encoded_ack(vec![])).is_err());
+    }
 
     #[test]
     fn payload_without_counterparty_client_id_is_none_by_default() {

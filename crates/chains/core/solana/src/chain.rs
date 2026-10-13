@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mercury_attestor::Aggregator;
 use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, MisbehaviourDetector, MisbehaviourMessageBuilder,
     PacketMessageBuilder, UpdateClientOutput,
@@ -34,6 +35,11 @@ use crate::types::{
     WriteAckEvent,
 };
 
+/// How long an attested update waits for attestors to finalize the target slot.
+/// Solana finalizes ~32 slots (~13s) behind the confirmed tip.
+const FINALITY_WAIT: Duration = Duration::from_secs(60);
+const FINALITY_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
 #[derive(Clone, Debug)]
 pub struct SolanaChain {
     pub config: SolanaChainConfig,
@@ -42,6 +48,8 @@ pub struct SolanaChain {
     pub ics26_program_id: Pubkey,
     pub ics07_program_id: Option<Pubkey>,
     pub alt_cache: Option<solana_message::AddressLookupTableAccount>,
+    /// Set when `config.attestation` is configured.
+    pub attestor: Option<Arc<Aggregator>>,
     label: mercury_core::ChainLabel,
 }
 
@@ -60,6 +68,19 @@ impl SolanaChain {
             .map(|id| id.parse::<Pubkey>())
             .transpose()
             .map_err(|e| eyre::eyre!("invalid ics07_program_id: {e}"))?;
+        let attestor = config
+            .attestation
+            .as_ref()
+            .map(|a| {
+                Aggregator::new(
+                    &a.endpoints,
+                    &a.attestor_addresses,
+                    a.min_required_sigs as usize,
+                    Duration::from_secs(a.timeout_secs),
+                )
+                .map(Arc::new)
+            })
+            .transpose()?;
         let label = mercury_core::ChainLabel::new("solana");
         Ok(Self {
             config,
@@ -68,6 +89,7 @@ impl SolanaChain {
             ics26_program_id,
             ics07_program_id,
             alt_cache: None,
+            attestor,
             label,
         })
     }
@@ -108,6 +130,56 @@ impl SolanaChain {
             }
         }
         Ok(sequences)
+    }
+
+    fn commitment_proof(&self) -> SolanaCommitmentProof {
+        self.attestor
+            .clone()
+            .map_or(SolanaCommitmentProof::None, SolanaCommitmentProof::Attested)
+    }
+
+    async fn build_attested_create_client_payload(
+        aggregator: &Aggregator,
+    ) -> Result<SolanaCreateClientPayload> {
+        let height = aggregator.latest_height().await?;
+        let state = aggregator.state_attestation(height).await?;
+        let timestamp_secs = state
+            .timestamp
+            .ok_or_else(|| eyre::eyre!("state attestation at {height} has no timestamp"))?;
+        Ok(SolanaCreateClientPayload::Attested {
+            attestor_addresses: aggregator.attestor_addresses().to_vec(),
+            min_required_sigs: u32::try_from(aggregator.quorum())?,
+            height,
+            timestamp_secs,
+        })
+    }
+
+    /// Updates to the first attested height at or above `target`. Waiting for
+    /// finality here means the packets the relayer is about to prove are
+    /// already attestable, and a timed-out packet's timeout is already behind
+    /// the attested timestamp, so no update goes out only to have its proofs fail.
+    async fn build_attested_update_client_payload(
+        aggregator: &Aggregator,
+        trusted: SolanaHeight,
+        target: SolanaHeight,
+    ) -> Result<SolanaUpdateClientPayload> {
+        let height = aggregator
+            .wait_for_height(target.0, FINALITY_WAIT, FINALITY_POLL_INTERVAL)
+            .await?;
+        eyre::ensure!(
+            height > trusted.0,
+            "attested height {height} is not above the client's height {trusted}"
+        );
+        let state = aggregator.state_attestation(height).await?;
+        tracing::debug!(
+            height,
+            signatures = state.signatures.len(),
+            "attested Solana state"
+        );
+        Ok(SolanaUpdateClientPayload::Attested {
+            height,
+            proof: state.into_proof(),
+        })
     }
 }
 
@@ -254,7 +326,7 @@ impl PacketStateQuery for SolanaChain {
         let (pda, _) =
             Ics26Router::packet_commitment_pda(&client_id.0, sequence.0, &self.ics26_program_id);
         let commitment: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
-        let proof = SolanaCommitmentProof(Vec::new());
+        let proof = self.commitment_proof();
         Ok((
             commitment.map(|c| SolanaPacketCommitment(c.value.to_vec())),
             proof,
@@ -270,7 +342,7 @@ impl PacketStateQuery for SolanaChain {
         let (pda, _) =
             Ics26Router::packet_receipt_pda(&client_id.0, sequence.0, &self.ics26_program_id);
         let exists = self.rpc.get_account(&pda).await?.is_some();
-        let proof = SolanaCommitmentProof(Vec::new());
+        let proof = self.commitment_proof();
         Ok((exists.then_some(SolanaPacketReceipt), proof))
     }
 
@@ -283,7 +355,7 @@ impl PacketStateQuery for SolanaChain {
         let (pda, _) =
             Ics26Router::packet_ack_pda(&client_id.0, sequence.0, &self.ics26_program_id);
         let commitment: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
-        let proof = SolanaCommitmentProof(Vec::new());
+        let proof = self.commitment_proof();
         Ok((
             commitment.map(|c| SolanaAcknowledgement(c.value.to_vec())),
             proof,
@@ -459,9 +531,12 @@ impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
     type UpdateClientPayload = SolanaUpdateClientPayload;
 
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
+        if let Some(aggregator) = &self.attestor {
+            return Self::build_attested_create_client_payload(aggregator).await;
+        }
         let slot = self.rpc.get_slot().await?;
         let block_time = self.rpc.get_block_time(slot).await?;
-        Ok(SolanaCreateClientPayload {
+        Ok(SolanaCreateClientPayload::Dummy {
             client_state: slot.to_le_bytes().to_vec(),
             consensus_state: block_time.max(0).cast_unsigned().to_le_bytes().to_vec(),
         })
@@ -469,22 +544,58 @@ impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
 
     async fn build_update_client_payload(
         &self,
-        _trusted_height: &Self::Height,
-        _target_height: &Self::Height,
+        trusted_height: &Self::Height,
+        target_height: &Self::Height,
         _counterparty_client_state: &<C as IbcTypes>::ClientState,
     ) -> Result<Self::UpdateClientPayload>
     where
         C: IbcTypes,
     {
+        if let Some(aggregator) = &self.attestor {
+            return Self::build_attested_update_client_payload(
+                aggregator,
+                *trusted_height,
+                *target_height,
+            )
+            .await;
+        }
         let slot = self.rpc.get_slot().await?;
         let block_time = self.rpc.get_block_time(slot).await?;
         let mut header = Vec::with_capacity(16);
         header.extend_from_slice(&slot.to_le_bytes());
         header.extend_from_slice(&block_time.max(0).cast_unsigned().to_le_bytes());
-        Ok(SolanaUpdateClientPayload {
+        Ok(SolanaUpdateClientPayload::Dummy {
             headers: vec![header],
         })
     }
+
+    fn update_payload_proof_height(
+        &self,
+        payload: &Self::UpdateClientPayload,
+    ) -> Option<Self::Height> {
+        match payload {
+            SolanaUpdateClientPayload::Attested { height, .. } => Some(SolanaHeight(*height)),
+            SolanaUpdateClientPayload::Dummy { .. } => None,
+        }
+    }
+
+    fn proof_height_without_update(
+        &self,
+        src_height: &Self::Height,
+        trusted_height: &Self::Height,
+    ) -> Self::Height {
+        attested_proof_height(self.attestor.is_some(), *src_height, *trusted_height)
+    }
+}
+
+/// An attested client only has consensus states at heights it was updated to,
+/// so without an update the proof must use the client's own height.
+const fn attested_proof_height(
+    attested: bool,
+    src_height: SolanaHeight,
+    trusted_height: SolanaHeight,
+) -> SolanaHeight {
+    if attested { trusted_height } else { src_height }
 }
 
 #[async_trait]
@@ -737,5 +848,22 @@ impl MisbehaviourQuery<Self> for SolanaChain {
         _consensus_height: &SolanaHeight,
     ) -> Result<Option<Vec<u8>>> {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attested_client_proves_at_trusted_height() {
+        let proof = attested_proof_height(true, SolanaHeight(90), SolanaHeight(100));
+        assert_eq!(proof, SolanaHeight(100));
+    }
+
+    #[test]
+    fn unattested_client_proves_at_src_height() {
+        let proof = attested_proof_height(false, SolanaHeight(90), SolanaHeight(100));
+        assert_eq!(proof, SolanaHeight(90));
     }
 }

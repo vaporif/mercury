@@ -58,6 +58,9 @@ pub struct MockState {
     pub headers: HashMap<u64, HeaderResult>,
     pub check_results: HashMap<u64, CheckResult>,
     pub messages_sent: Vec<MockMsg>,
+    /// Makes `proof_height_without_update` return the trusted height, like an
+    /// attested client.
+    pub prove_at_trusted: bool,
 }
 
 impl Default for MockState {
@@ -68,6 +71,7 @@ impl Default for MockState {
             headers: HashMap::new(),
             check_results: HashMap::new(),
             messages_sent: Vec::new(),
+            prove_at_trusted: false,
         }
     }
 }
@@ -316,6 +320,14 @@ impl ClientPayloadBuilder<Self> for MockChain {
     ) -> Result<()> {
         Ok(())
     }
+
+    fn proof_height_without_update(&self, src_height: &u64, trusted_height: &u64) -> u64 {
+        if self.state.lock().unwrap().prove_at_trusted {
+            *trusted_height
+        } else {
+            *src_height
+        }
+    }
 }
 
 #[async_trait]
@@ -422,6 +434,37 @@ pub struct MockRelay {
     pub dst: MockChain,
     pub src_client_id: String,
     pub dst_client_id: String,
+}
+
+#[async_trait]
+impl mercury_chain_traits::relay::RelayPacketBuilder for MockRelay {
+    async fn build_receive_packet_messages(
+        &self,
+        _packet: &MockPacket,
+        _proof_height: &u64,
+        _message_proof_height: Option<&u64>,
+    ) -> mercury_chain_traits::relay::PacketBuildResult<MockMsg> {
+        Ok((vec![], vec![]))
+    }
+
+    async fn build_ack_packet_messages(
+        &self,
+        _packet: &MockPacket,
+        _ack: &<MockChain as IbcTypes>::Acknowledgement,
+        _proof_height: &u64,
+        _message_proof_height: Option<&u64>,
+    ) -> mercury_chain_traits::relay::PacketBuildResult<MockMsg> {
+        Ok((vec![], vec![]))
+    }
+
+    async fn build_timeout_packet_messages(
+        &self,
+        _packet: &MockPacket,
+        _proof_height: &u64,
+        _message_proof_height: Option<&u64>,
+    ) -> Result<Vec<MockMsg>> {
+        Ok(vec![])
+    }
 }
 
 impl Relay for MockRelay {

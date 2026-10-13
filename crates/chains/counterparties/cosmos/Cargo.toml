@@ -44,10 +44,12 @@ hex = { workspace = true, optional = true }
 
 # Cross-chain (optional — Solana)
 mercury-solana = { workspace = true, optional = true }
+mercury-attestor = { workspace = true, optional = true }
 
 [features]
 solana = [
     "dep:mercury-solana",
+    "dep:mercury-attestor",
     "dep:ibc-proto",
     "dep:prost",
     "dep:ibc-client-tendermint",

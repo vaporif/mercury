@@ -62,6 +62,11 @@ impl<S: CosmosSigner> ClientPayloadBuilder<CosmosChain<S>> for EthereumAdapter {
                     "expected Wasm-wrapped beacon client state on Cosmos counterparty, got Tendermint"
                 );
             }
+            CosmosClientState::Attestations(_) => {
+                eyre::bail!(
+                    "expected Wasm-wrapped beacon client state on Cosmos counterparty, got Attestations"
+                );
+            }
         };
 
         let evm_client_state = EvmClientState(inner_bytes.clone());

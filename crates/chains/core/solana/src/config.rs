@@ -22,6 +22,36 @@ pub struct SolanaChainConfig {
     pub alt_address: Option<String>,
     #[serde(default)]
     pub skip_pre_verify_threshold: Option<usize>,
+    /// Attestors that sign Solana state for an `attestations` light client
+    /// on the counterparty. Without it, counterparties need a mock client.
+    #[serde(default)]
+    pub attestation: Option<AttestationConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AttestationConfig {
+    /// gRPC endpoints of the attestors.
+    pub endpoints: Vec<String>,
+    /// Ethereum-style addresses of the attestor signing keys.
+    pub attestor_addresses: Vec<String>,
+    /// Signatures required by the light client; also the relayer's quorum.
+    pub min_required_sigs: u32,
+    #[serde(default = "default_attestor_timeout_secs")]
+    pub timeout_secs: u64,
+}
+
+const fn default_attestor_timeout_secs() -> u64 {
+    30
+}
+
+impl AttestationConfig {
+    /// Quorum and address rules are enforced by `Aggregator::new`.
+    pub fn validate(&self) -> eyre::Result<()> {
+        for endpoint in &self.endpoints {
+            mercury_core::validate::require_http_url("attestation.endpoints", endpoint)?;
+        }
+        Ok(())
+    }
 }
 
 const DEFAULT_SKIP_PRE_VERIFY_THRESHOLD: usize = 50;
@@ -63,6 +93,9 @@ impl SolanaChainConfig {
             "keypair_path does not exist: {}",
             self.keypair_path.display()
         );
+        if let Some(ref attestation) = self.attestation {
+            attestation.validate()?;
+        }
         Ok(())
     }
 }

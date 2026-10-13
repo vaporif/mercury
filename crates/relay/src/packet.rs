@@ -100,6 +100,7 @@ where
         &self,
         packet: &<Src as IbcTypes>::Packet,
         proof_height: &<Dst as ChainTypes>::Height,
+        message_proof_height: Option<&<Dst as ChainTypes>::Height>,
     ) -> mercury_core::error::Result<Vec<<Src as ChainTypes>::Message>> {
         let sequence = Src::packet_sequence(packet);
 
@@ -117,10 +118,11 @@ where
         }
 
         let revision = self.dst_chain().revision_number();
+        let msg_height = message_proof_height.unwrap_or(proof_height).clone();
 
         let msg = self
             .src_chain()
-            .build_timeout_packet_message(packet, proof, proof_height.clone(), revision)
+            .build_timeout_packet_message(packet, proof, msg_height, revision)
             .await?;
 
         Ok(vec![msg])

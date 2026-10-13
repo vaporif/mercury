@@ -24,11 +24,13 @@ Early development. Not tested against live chains yet, so use at your own risk. 
 | Feature | Cosmos↔Cosmos | Cosmos↔EVM | Cosmos↔Solana |
 |---------|:---:|:---:|:---:|
 | Basic transfer | E2E | E2E | E2E |
-| Bidirectional transfer | E2E | E2E | Untested |
-| Packet timeout | E2E | Untested | Untested |
+| Bidirectional transfer | E2E | E2E | E2E |
+| Packet timeout | E2E | Untested | E2E |
 | Near-expiry packet timeout | E2E | Untested | Untested |
 | Client refresh | E2E | Untested | Untested |
 | Concurrent transfers | E2E | Untested | Untested |
+
+Solana has no state proofs, so Cosmos tracks Solana with ibc-go's `attestations` light client, fed by signatures from [IBC attestors](https://github.com/cosmos/ibc-attestor). Solana tracks Cosmos with the `ics07-tendermint` light client.
 
 ## How it works
 

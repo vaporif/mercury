@@ -20,7 +20,9 @@ use mercury_telemetry::recorder::PacketMetrics;
 
 use crate::workers::{DstTxRequest, SrcTxRequest};
 
-type UpdateClientResult<Height, Message> = Result<(Height, Vec<Message>)>;
+/// `(proof_height, message_proof_height, update messages)`; see
+/// `build_dst_update_client_payload` for the two heights.
+type UpdateClientResult<Height, Message> = Result<(Height, Option<Height>, Vec<Message>)>;
 type BuildMessagesResult<Message, R> = (
     Vec<Message>,
     Vec<PendingSend<SendEvent<R>>>,
@@ -105,7 +107,11 @@ where
         let trusted_height = DstChain::<R>::client_latest_height(&client_state);
 
         if src_height <= trusted_height {
-            return Ok((src_height, None, None));
+            let proof_height = self
+                .relay
+                .src_chain()
+                .proof_height_without_update(&src_height, &trusted_height);
+            return Ok((proof_height, None, None));
         }
 
         debug!(
@@ -180,7 +186,11 @@ where
         let trusted_height = SrcChain::<R>::client_latest_height(&client_state);
 
         if dst_height <= trusted_height {
-            return Ok((dst_height, vec![]));
+            let proof_height = self
+                .relay
+                .dst_chain()
+                .proof_height_without_update(&dst_height, &trusted_height);
+            return Ok((proof_height, None, vec![]));
         }
 
         let update_payload = self
@@ -188,13 +198,22 @@ where
             .dst_chain()
             .build_update_client_payload(&trusted_height, &dst_height, &client_state)
             .await?;
+        let proof_height = self
+            .relay
+            .dst_chain()
+            .update_payload_proof_height(&update_payload)
+            .unwrap_or(dst_height);
+        let message_proof_height = self
+            .relay
+            .dst_chain()
+            .update_payload_message_height(&update_payload);
         let update_output = self
             .relay
             .src_chain()
             .build_update_client_message(self.relay.src_client_id(), update_payload)
             .await?;
 
-        Ok((dst_height, update_output.messages))
+        Ok((proof_height, message_proof_height, update_output.messages))
     }
 
     #[instrument(skip_all, name = "build_recv_tracked", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
@@ -404,6 +423,7 @@ where
         &self,
         timed_out: Vec<PendingSend<SendEvent<R>>>,
         dst_height: &DstHeight<R>,
+        message_proof_height: Option<&DstHeight<R>>,
     ) -> (
         Vec<<R::SrcChain as ChainTypes>::Message>,
         Vec<PendingSend<SendEvent<R>>>,
@@ -416,10 +436,13 @@ where
             .map(|ps| {
                 let relay = relay.clone();
                 let dst_height = dst_height.clone();
+                let msg_height = message_proof_height.cloned();
                 async move {
                     let pkt = <SrcChain<R> as PacketEvents>::packet_from_send_event(&ps.event);
                     let result = retry_proof_fetch(|| async {
-                        relay.build_timeout_packet_messages(pkt, &dst_height).await
+                        relay
+                            .build_timeout_packet_messages(pkt, &dst_height, msg_height.as_ref())
+                            .await
                     })
                     .await;
                     (ps, result)
@@ -751,9 +774,14 @@ where
                 debug!(count = timed_out.len(), "relaying timeout packets");
 
                 match self.build_src_update_client_messages().await {
-                    Ok((dst_height, src_update_msgs)) => {
-                        let (timeout_msgs, timeout_failed) =
-                            self.build_timeout_messages(timed_out, &dst_height).await;
+                    Ok((dst_height, message_proof_height, src_update_msgs)) => {
+                        let (timeout_msgs, timeout_failed) = self
+                            .build_timeout_messages(
+                                timed_out,
+                                &dst_height,
+                                message_proof_height.as_ref(),
+                            )
+                            .await;
                         pending.extend(timeout_failed);
 
                         if !timeout_msgs.is_empty() {
@@ -787,5 +815,76 @@ where
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+    use crate::testhelpers::*;
+
+    /// Mock clients report a latest height of 100.
+    const TRUSTED: u64 = 100;
+
+    fn make_worker(src: MockState, dst: MockState) -> PacketWorker<MockRelay> {
+        let relay = MockRelay {
+            src: MockChain::new(Arc::new(Mutex::new(src))),
+            dst: MockChain::new(Arc::new(Mutex::new(dst))),
+            src_client_id: "src-client".into(),
+            dst_client_id: "dst-client".into(),
+        };
+        let (_events_tx, receiver) = mpsc::channel(1);
+        let (sender, _dst_rx) = mpsc::channel(1);
+        let (src_sender, _src_rx) = mpsc::channel(1);
+        PacketWorker {
+            relay: Arc::new(relay),
+            receiver,
+            sender,
+            src_sender,
+            token: CancellationToken::new(),
+            metrics: PacketMetrics::new(&mercury_core::ChainLabel::new("mock")),
+        }
+    }
+
+    fn lagging(prove_at_trusted: bool) -> MockState {
+        MockState {
+            latest_height: 90,
+            prove_at_trusted,
+            ..MockState::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn dst_no_update_proves_at_src_height_by_default() {
+        let worker = make_worker(lagging(false), MockState::default());
+        let (proof, msg, payload) = worker.build_dst_update_client_payload().await.unwrap();
+        assert_eq!((proof, msg, payload.is_none()), (90, None, true));
+    }
+
+    #[tokio::test]
+    async fn dst_no_update_uses_chain_proof_height() {
+        let worker = make_worker(lagging(true), MockState::default());
+        let (proof, _, payload) = worker.build_dst_update_client_payload().await.unwrap();
+        assert_eq!((proof, payload.is_none()), (TRUSTED, true));
+    }
+
+    #[tokio::test]
+    async fn src_no_update_uses_chain_proof_height() {
+        let worker = make_worker(MockState::default(), lagging(true));
+        let (proof, msg, update) = worker.build_src_update_client_messages().await.unwrap();
+        assert_eq!((proof, msg, update.len()), (TRUSTED, None, 0));
+    }
+
+    #[tokio::test]
+    async fn src_update_proves_at_dst_height() {
+        let dst = MockState {
+            latest_height: 120,
+            ..MockState::default()
+        };
+        let worker = make_worker(MockState::default(), dst);
+        let (proof, msg, _) = worker.build_src_update_client_messages().await.unwrap();
+        assert_eq!((proof, msg), (120, None));
     }
 }

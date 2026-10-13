@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use mercury_attestor::Aggregator;
+use mercury_attestor::proto::lightclient::AttestationProof;
 use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
 
 use crate::ibc_types;
@@ -67,8 +71,17 @@ pub struct SolanaClientState(pub Vec<u8>);
 #[derive(Clone, Debug)]
 pub struct SolanaConsensusState(pub Vec<u8>);
 
-#[derive(Clone, Debug)]
-pub struct SolanaCommitmentProof(pub Vec<u8>);
+/// Proof of Solana packet state.
+///
+/// Solana has no state proofs. In attested mode the proof is a handle the
+/// destination uses to request a packet attestation, because only the
+/// destination's message builder knows the full packet the attestor needs.
+#[derive(Clone, Debug, Default)]
+pub enum SolanaCommitmentProof {
+    #[default]
+    None,
+    Attested(Arc<Aggregator>),
+}
 
 #[derive(Clone, Debug)]
 pub struct SolanaPacket {
@@ -109,14 +122,31 @@ pub struct WriteAckEvent {
 }
 
 #[derive(Clone, Debug)]
-pub struct SolanaCreateClientPayload {
-    pub client_state: Vec<u8>,
-    pub consensus_state: Vec<u8>,
+pub enum SolanaCreateClientPayload {
+    /// Slot and block time for the dummy wasm light client.
+    Dummy {
+        client_state: Vec<u8>,
+        consensus_state: Vec<u8>,
+    },
+    /// Initial state for ibc-go's `attestations` light client.
+    Attested {
+        attestor_addresses: Vec<String>,
+        min_required_sigs: u32,
+        height: u64,
+        timestamp_secs: u64,
+    },
 }
 
 #[derive(Clone, Debug)]
-pub struct SolanaUpdateClientPayload {
-    pub headers: Vec<Vec<u8>>,
+pub enum SolanaUpdateClientPayload {
+    Dummy {
+        headers: Vec<Vec<u8>>,
+    },
+    /// Quorum-signed state attestation for `height`.
+    Attested {
+        height: u64,
+        proof: AttestationProof,
+    },
 }
 
 impl SolanaPacket {
