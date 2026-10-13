@@ -7,7 +7,7 @@ Comparison of Mercury (IBC v2) against [Hermes](https://github.com/informalsyste
 | **Chain Support** | | | |
 | Cosmos SDK | Yes | Yes | -- |
 | Ethereum/EVM | No | Yes | -- |
-| Solana | No | Planned | P1 |
+| Solana | No | Yes | -- |
 | **Packet Relay** | | | |
 | Packet relay (recv/ack/timeout) | Yes | Yes | -- |
 | Periodic packet sweeping | Yes | Yes | -- |

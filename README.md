@@ -30,6 +30,8 @@ Early development. Not tested against live chains yet, so use at your own risk. 
 | Client refresh | E2E | Untested | Untested |
 | Concurrent transfers | E2E | Untested | Untested |
 
+Solana has no state proofs, so Cosmos tracks Solana with ibc-go's `attestations` light client, fed by signatures from [IBC attestors](https://github.com/cosmos/ibc-attestor). Solana tracks Cosmos with the `ics07-tendermint` light client.
+
 ## How it works
 
 ```
