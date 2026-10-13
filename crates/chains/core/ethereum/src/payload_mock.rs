@@ -52,6 +52,7 @@ impl EthereumChain {
         })
     }
 
+    #[expect(clippy::expect_used, reason = "serializing a plain struct cannot fail")]
     pub(crate) fn build_update_client_payload_mock(trusted_slot: u64) -> UpdateClientPayload {
         let target_slot = trusted_slot + 1;
 

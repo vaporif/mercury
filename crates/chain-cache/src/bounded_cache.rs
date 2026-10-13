@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::RwLock;
+use std::sync::{PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 pub struct TtlCell<V> {
@@ -14,14 +14,14 @@ impl<V> TtlCell<V> {
     }
 
     pub fn set(&self, value: V) {
-        let mut cache = self.inner.write().expect("poisoned lock");
+        let mut cache = self.inner.write().unwrap_or_else(PoisonError::into_inner);
         *cache = Some((value, Instant::now()));
     }
 }
 
 impl<V: Clone> TtlCell<V> {
     pub fn get(&self, ttl: Duration) -> Option<V> {
-        let cache = self.inner.read().expect("poisoned lock");
+        let cache = self.inner.read().unwrap_or_else(PoisonError::into_inner);
         match *cache {
             Some((ref value, ts)) if ts.elapsed() < ttl => Some(value.clone()),
             _ => None,
@@ -51,7 +51,7 @@ impl<V> BoundedCache<V> {
     }
 
     pub fn insert(&self, key: String, value: V) {
-        let mut inner = self.inner.write().expect("poisoned lock");
+        let mut inner = self.inner.write().unwrap_or_else(PoisonError::into_inner);
 
         if let Some(existing) = inner.entries.get_mut(&key) {
             *existing = value;
@@ -71,7 +71,7 @@ impl<V> BoundedCache<V> {
 
 impl<V: Clone> BoundedCache<V> {
     pub fn get(&self, key: &str) -> Option<V> {
-        let inner = self.inner.read().expect("poisoned lock");
+        let inner = self.inner.read().unwrap_or_else(PoisonError::into_inner);
         inner.entries.get(key).cloned()
     }
 }
@@ -112,5 +112,39 @@ mod tests {
         cache.insert("c".into(), 3);
         // "a" was inserted first, so it gets evicted
         assert_eq!(cache.get("a"), None);
+    }
+
+    #[test]
+    fn ttl_cell_returns_fresh_value() {
+        let cell = TtlCell::new();
+        assert_eq!(cell.get(Duration::from_secs(60)), None);
+        cell.set(7);
+        assert_eq!(cell.get(Duration::from_secs(60)), Some(7));
+    }
+
+    #[test]
+    fn ttl_cell_expires_value() {
+        let cell = TtlCell::new();
+        cell.set(7);
+        assert_eq!(cell.get(Duration::ZERO), None);
+    }
+
+    #[test]
+    fn recovers_from_poisoned_lock() {
+        let cache = BoundedCache::new(2);
+        cache.insert("a".into(), 1);
+
+        let _ = std::thread::scope(|s| {
+            s.spawn(|| {
+                let _guard = cache.inner.write().unwrap();
+                panic!("poison the lock");
+            })
+            .join()
+        });
+        assert!(cache.inner.is_poisoned());
+
+        assert_eq!(cache.get("a"), Some(1));
+        cache.insert("b".into(), 2);
+        assert_eq!(cache.get("b"), Some(2));
     }
 }

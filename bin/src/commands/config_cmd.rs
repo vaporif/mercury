@@ -10,9 +10,9 @@ pub enum ConfigCmd {
 }
 
 impl ConfigCmd {
-    pub async fn run(self) -> eyre::Result<()> {
+    pub fn run(self) -> eyre::Result<()> {
         match self {
-            Self::Validate(cmd) => cmd.run().await,
+            Self::Validate(cmd) => cmd.run(),
         }
     }
 }
@@ -25,7 +25,7 @@ pub struct ConfigValidateCmd {
 }
 
 impl ConfigValidateCmd {
-    pub async fn run(self) -> eyre::Result<()> {
+    pub fn run(self) -> eyre::Result<()> {
         let registry = build_registry();
         let cfg = crate::config::load_config(&self.config, &registry)?;
         println!("Configuration is valid.");

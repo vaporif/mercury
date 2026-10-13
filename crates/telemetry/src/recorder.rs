@@ -17,7 +17,6 @@ fn saturating_gauge(v: impl TryInto<u32>) -> f64 {
     f64::from(v.try_into().unwrap_or(u32::MAX))
 }
 
-#[allow(clippy::cast_possible_truncation)]
 const fn count_as_u64(v: usize) -> u64 {
     v as u64
 }
@@ -197,7 +196,7 @@ impl PacketMetrics {
             .record(saturating_gauge(size), &self.cached_attrs);
     }
 
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_precision_loss, reason = "values stay well below 2^53")]
     pub fn record_oldest_sequence(&self, sequence: u64) {
         self.backlog_oldest_sequence
             .record(sequence as f64, &self.cached_attrs);
@@ -469,14 +468,12 @@ impl MisbehaviourMetrics {
 }
 
 // TODO: wire when wallet balance worker is implemented
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct WalletMetrics {
     cached_attrs: Vec<KeyValue>,
     wallet_balance: Gauge<f64>,
 }
 
-#[allow(dead_code)]
 impl WalletMetrics {
     #[must_use]
     pub fn new(label: &ChainLabel) -> Self {

@@ -109,13 +109,15 @@ impl TestContext {
         })
     }
 
-    #[allow(clippy::missing_panics_doc)]
     pub async fn send_transfer_a_to_b(&self, amount: u64, denom: &str) -> Result<()> {
         self.send_transfer_a_to_b_with_timeout(amount, denom, 600)
             .await
     }
 
-    #[allow(clippy::missing_panics_doc)]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "panics only on broken invariants"
+    )]
     pub async fn send_transfer_a_to_b_with_timeout(
         &self,
         amount: u64,
@@ -172,7 +174,10 @@ impl TestContext {
         Ok(())
     }
 
-    #[allow(clippy::missing_panics_doc)]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "panics only on broken invariants"
+    )]
     pub async fn send_transfer_b_to_a(&self, amount: u64, denom: &str) -> Result<()> {
         let user_b = &self.handle_b.user_wallets()[0];
         let user_a = &self.handle_a.user_wallets()[0];
@@ -238,7 +243,10 @@ impl TestContext {
         format!("{port_id}/{client_id}/{base_denom}")
     }
 
-    #[allow(clippy::future_not_send)]
+    #[expect(
+        clippy::future_not_send,
+        reason = "testcontainers futures are not Send"
+    )]
     pub async fn query_balance(
         handle: &CosmosDockerHandle,
         address: &str,
@@ -270,7 +278,10 @@ impl TestContext {
         Ok(0)
     }
 
-    #[allow(clippy::future_not_send)]
+    #[expect(
+        clippy::future_not_send,
+        reason = "testcontainers futures are not Send"
+    )]
     pub async fn assert_eventual_balance(
         &self,
         handle: &CosmosDockerHandle,
@@ -326,7 +337,7 @@ fn build_signer_from_wallet(
     let secret_arr: [u8; 32] = secret_bytes
         .try_into()
         .map_err(|_| eyre::eyre!("secret key must be 32 bytes"))?;
-    let secret_key = secp256k1::SecretKey::from_byte_array(secret_arr)
+    let secret_key = secp256k1::SecretKey::from_secret_bytes(secret_arr)
         .map_err(|e| eyre::eyre!("invalid secret key: {e}"))?;
     Ok(Secp256k1KeyPair::from_secret_key(
         secret_key,

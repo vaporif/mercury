@@ -524,7 +524,10 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
             heights.push(h);
         }
 
-        *self.1.lock().unwrap() = new_cache;
+        *self
+            .1
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = new_cache;
 
         heights.sort_unstable();
         heights.dedup();
@@ -539,7 +542,10 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for EthereumAdapter {
         _client_id: &Self::ClientId,
         consensus_height: &TmHeight,
     ) -> Result<Option<mercury_cosmos::misbehaviour::OnChainTmConsensusState>> {
-        let cache = self.1.lock().unwrap();
+        let cache = self
+            .1
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(cache.get(&consensus_height.value()).cloned())
     }
 }

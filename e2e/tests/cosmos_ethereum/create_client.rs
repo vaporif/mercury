@@ -24,7 +24,10 @@ struct CrossChainInfra {
     elf_dir: std::path::PathBuf,
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 async fn setup_infra() -> Result<CrossChainInfra> {
     let cosmos_bootstrap = CosmosDockerBootstrap::new("mercury-cosmos");
     let cosmos_handle = cosmos_bootstrap.start().await?;

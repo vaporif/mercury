@@ -48,7 +48,7 @@ async fn run_tx_loop<M: Send + 'static>(
                             token.cancel();
                             break;
                         }
-                        #[allow(clippy::cast_possible_truncation)]
+                        #[expect(clippy::cast_possible_truncation, reason = "value range is bounded in practice")]
                         let backoff = (BACKOFF_BASE * 2u32.saturating_pow(consecutive_failures.min(5) as u32))
                             .min(BACKOFF_CAP);
                         warn!(label, consecutive_failures, max = MAX_CONSECUTIVE_FAILURES, ?backoff, "tx failure, backing off");

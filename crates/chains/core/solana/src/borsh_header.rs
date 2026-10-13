@@ -175,7 +175,6 @@ fn commit_to_borsh(c: Commit) -> BorshCommit {
     let mut signatures: Vec<BorshCommitSig> =
         c.signatures.into_iter().map(commit_sig_to_borsh).collect();
 
-    #[allow(clippy::match_same_arms)]
     signatures.sort_unstable_by(|a, b| match (a, b) {
         (
             BorshCommitSig::BlockIdFlagCommit {
@@ -226,13 +225,20 @@ fn commit_to_borsh(c: Commit) -> BorshCommit {
 
     BorshCommit {
         height: c.height.value(),
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "value range is bounded in practice"
+        )]
         round: c.round.value() as u16,
         block_id: block_id_to_borsh(c.block_id),
         signatures,
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "tendermint types guarantee these byte lengths"
+)]
 fn commit_sig_to_borsh(cs: CommitSig) -> BorshCommitSig {
     match cs {
         CommitSig::BlockIdFlagAbsent => BorshCommitSig::BlockIdFlagAbsent,
@@ -283,6 +289,10 @@ fn validator_set_to_borsh(vs: &ValidatorSet) -> BorshValidatorSet {
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "tendermint types guarantee these byte lengths"
+)]
 fn validator_to_borsh(v: &ValidatorInfo) -> BorshValidator {
     let address_array: [u8; 20] = v
         .address

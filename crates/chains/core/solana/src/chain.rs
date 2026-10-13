@@ -235,6 +235,7 @@ impl ClientQuery<Self> for SolanaChain {
         Some(Duration::from_secs(cs.trusting_period))
     }
 
+    #[expect(clippy::expect_used, reason = "trait method is infallible")]
     fn client_latest_height(client_state: &Self::ClientState) -> Self::Height {
         let cs: OnChainClientState =
             deserialize_anchor_account(&client_state.0).expect("invalid client state data");

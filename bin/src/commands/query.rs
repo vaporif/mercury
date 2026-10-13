@@ -187,6 +187,9 @@ impl QueryPacketPendingCmd {
             .connect(&chain_cfg.raw, config_dir)
             .await?;
 
-        todo!("implement query packet pending for chain '{}'", self.chain)
+        eyre::bail!(
+            "query packet pending for chain '{}' is not implemented yet",
+            self.chain
+        )
     }
 }

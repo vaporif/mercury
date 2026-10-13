@@ -49,7 +49,10 @@ struct SendPacketMsg {
     sequence: u64,
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "linear setup flow reads clearer as one function"
+)]
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires Docker and solana-test-validator"]
 async fn bidirectional_relay() -> Result<()> {
@@ -198,7 +201,10 @@ async fn send_ics20_packet_from_cosmos(harness: &CosmosSolanaHarness) -> Result<
         "memo": "",
     });
 
-    #[allow(clippy::unwrap_used)]
+    #[expect(
+        clippy::unwrap_used,
+        reason = "system clock is always after UNIX_EPOCH"
+    )]
     let timeout = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -257,7 +263,10 @@ async fn send_packet_from_solana(harness: &CosmosSolanaHarness, rpc: &RpcClient)
     let latest_height = cs.latest_height.revision_height;
     let (consensus_state_pda, _) = Ics07Tendermint::consensus_state_pda(latest_height, &ics07);
 
-    #[allow(clippy::unwrap_used)]
+    #[expect(
+        clippy::unwrap_used,
+        reason = "system clock is always after UNIX_EPOCH"
+    )]
     let timeout_timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

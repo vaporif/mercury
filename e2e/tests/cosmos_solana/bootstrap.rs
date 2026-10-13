@@ -27,7 +27,10 @@ pub struct CosmosSolanaHarness {
     pub solana_tendermint_client_id: String,
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 pub async fn set_up_cosmos_solana(fixtures_dir: &Path) -> Result<CosmosSolanaHarness> {
     let cosmos_bootstrap = CosmosDockerBootstrap::new("mercury-cosmos-solana");
     let cosmos_handle = cosmos_bootstrap.start().await?;
@@ -229,7 +232,7 @@ fn build_signer_from_wallet(wallet: &Wallet, account_prefix: &str) -> Result<Sec
     let secret_arr: [u8; 32] = secret_bytes
         .try_into()
         .map_err(|_| eyre::eyre!("secret key must be 32 bytes"))?;
-    let secret_key = secp256k1::SecretKey::from_byte_array(secret_arr)
+    let secret_key = secp256k1::SecretKey::from_secret_bytes(secret_arr)
         .map_err(|e| eyre::eyre!("invalid secret key: {e}"))?;
     Ok(Secp256k1KeyPair::from_secret_key(
         secret_key,

@@ -11,7 +11,10 @@ struct CosmosCosmosInfra {
     _config_dir: tempfile::TempDir,
 }
 
-#[allow(clippy::future_not_send)]
+#[expect(
+    clippy::future_not_send,
+    reason = "testcontainers futures are not Send"
+)]
 async fn setup_infra() -> CosmosCosmosInfra {
     let bootstrap_a = CosmosDockerBootstrap::new("mercury-a");
     let bootstrap_b = CosmosDockerBootstrap::new("mercury-b");

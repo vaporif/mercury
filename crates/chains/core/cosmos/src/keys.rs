@@ -4,7 +4,7 @@ use std::path::Path;
 use async_trait::async_trait;
 use mercury_core::ThreadSafe;
 use mercury_core::error::Result;
-use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use secp256k1::{PublicKey, SecretKey};
 use serde::Deserialize;
 use zeroize::Zeroize;
 
@@ -28,7 +28,7 @@ pub fn load_cosmos_signer(key_file: &Path, account_prefix: &str) -> Result<Secp2
         .try_into()
         .map_err(|_| eyre::eyre!("secret key must be exactly 32 bytes"))?;
     secret_bytes.zeroize();
-    let result = SecretKey::from_byte_array(secret_arr).wrap_err("invalid secret key");
+    let result = SecretKey::from_secret_bytes(secret_arr).wrap_err("invalid secret key");
     secret_arr.zeroize();
     let secret_key = result?;
     Ok(Secp256k1KeyPair::from_secret_key(
@@ -70,8 +70,7 @@ impl Secp256k1KeyPair {
     /// Create a key pair from a raw secret key and bech32 account prefix.
     #[must_use]
     pub fn from_secret_key(secret_key: SecretKey, account_prefix: &str) -> Self {
-        let secp = Secp256k1::new();
-        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+        let public_key = PublicKey::from_secret_key(&secret_key);
         Self {
             secret_key,
             public_key,
@@ -83,9 +82,8 @@ impl Secp256k1KeyPair {
 #[async_trait]
 impl CosmosSigner for Secp256k1KeyPair {
     async fn sign(&self, digest: [u8; 32]) -> Result<Vec<u8>> {
-        let secp = Secp256k1::signing_only();
         let msg = secp256k1::Message::from_digest(digest);
-        let sig = secp.sign_ecdsa(msg, &self.secret_key);
+        let sig = secp256k1::ecdsa::sign(msg, &self.secret_key);
         Ok(sig.serialize_compact().to_vec())
     }
 
@@ -113,7 +111,7 @@ mod tests {
     #[test]
     fn keypair_address_generation() {
         let secret_bytes = [1u8; 32];
-        let secret_key = secp256k1::SecretKey::from_byte_array(secret_bytes).unwrap();
+        let secret_key = secp256k1::SecretKey::from_secret_bytes(secret_bytes).unwrap();
         let keypair = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
         let address = keypair.account_address().unwrap();
         assert!(address.starts_with("cosmos1"));
@@ -124,7 +122,7 @@ mod tests {
     #[test]
     fn keypair_public_key_bytes_compressed() {
         let secret_bytes = [1u8; 32];
-        let secret_key = secp256k1::SecretKey::from_byte_array(secret_bytes).unwrap();
+        let secret_key = secp256k1::SecretKey::from_secret_bytes(secret_bytes).unwrap();
         let keypair = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
         let pub_bytes = keypair.public_key_bytes();
         assert_eq!(pub_bytes.len(), 33);
@@ -133,7 +131,7 @@ mod tests {
     #[test]
     fn keypair_different_prefix() {
         let secret_bytes = [1u8; 32];
-        let secret_key = secp256k1::SecretKey::from_byte_array(secret_bytes).unwrap();
+        let secret_key = secp256k1::SecretKey::from_secret_bytes(secret_bytes).unwrap();
         let cosmos_kp = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
         let osmo_kp = Secp256k1KeyPair::from_secret_key(secret_key, "osmo");
         let cosmos_addr = cosmos_kp.account_address().unwrap();
@@ -146,7 +144,7 @@ mod tests {
     #[tokio::test]
     async fn keypair_sign_deterministic() {
         let secret_bytes = [1u8; 32];
-        let secret_key = secp256k1::SecretKey::from_byte_array(secret_bytes).unwrap();
+        let secret_key = secp256k1::SecretKey::from_secret_bytes(secret_bytes).unwrap();
         let keypair = Secp256k1KeyPair::from_secret_key(secret_key, "cosmos");
         let digest = [0xABu8; 32];
         let sig1 = keypair.sign(digest).await.unwrap();

@@ -1,4 +1,8 @@
-#![allow(clippy::unused_async)]
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "CLI writes command output to the terminal"
+)]
 
 use clap::Parser;
 use tracing_subscriber::EnvFilter;

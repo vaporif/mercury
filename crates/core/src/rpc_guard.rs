@@ -70,11 +70,10 @@ pub struct RpcGuard {
 
 impl RpcGuard {
     #[must_use]
-    #[allow(clippy::missing_panics_doc)]
     pub fn new(chain_id: &str, config: RpcConfig) -> Self {
         let quota = Quota::per_second(
             NonZeroU32::new(config.rate_limit.try_into().unwrap_or(u32::MAX))
-                .unwrap_or(NonZeroU32::new(1).expect("1 is non-zero")),
+                .unwrap_or(NonZeroU32::MIN),
         );
         let chain: Arc<str> = chain_id.into();
         let m = global::meter("mercury_core");

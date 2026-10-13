@@ -197,6 +197,7 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
         }
     }
 
+    #[expect(clippy::expect_used, reason = "height clamped to a valid range")]
     fn client_latest_height(client_state: &Self::ClientState) -> Self::Height {
         match client_state {
             CosmosClientState::Tendermint(cs) => {

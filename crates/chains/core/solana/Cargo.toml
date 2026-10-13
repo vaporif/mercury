@@ -37,6 +37,7 @@ solana-commitment-config = { workspace = true }
 solana-transaction-status = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
+solana-ed25519-program = { workspace = true }
 solana-address-lookup-table-interface = { workspace = true }
 solana-loader-v3-interface = { workspace = true }
 solana-message = { workspace = true }

@@ -68,9 +68,9 @@ impl Commands {
         match self {
             Self::Start(cmd) => cmd.run(log_format).await,
             Self::Status(cmd) => cmd.run().await,
-            Self::Config(cmd) => cmd.run().await,
+            Self::Config(cmd) => cmd.run(),
             Self::HealthCheck(cmd) => cmd.run().await,
-            Self::Keys(cmd) => cmd.run().await,
+            Self::Keys(cmd) => cmd.run(),
             Self::Create(cmd) => cmd.run().await,
             Self::Update(cmd) => cmd.run().await,
             Self::Query(cmd) => cmd.run().await,

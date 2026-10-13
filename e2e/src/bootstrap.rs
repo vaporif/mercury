@@ -13,7 +13,10 @@ pub mod wasm_lc;
 
 static BUN_INSTALL: Once = Once::new();
 
-#[allow(clippy::missing_panics_doc)]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "panics only on broken invariants"
+)]
 pub fn install_solidity_deps(eureka_dir: &Path) {
     BUN_INSTALL.call_once(|| {
         info!("installing solidity dependencies");

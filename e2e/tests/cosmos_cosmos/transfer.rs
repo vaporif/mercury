@@ -1,4 +1,4 @@
-#![allow(clippy::similar_names)]
+#![expect(clippy::similar_names, reason = "names mirror domain terminology")]
 use std::time::Duration;
 
 use mercury_e2e::bootstrap::traits::ChainHandle;
