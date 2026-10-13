@@ -143,6 +143,7 @@ alloy = { version = "1", default-features = false, features = [
   "sol-types",
 ] }
 alloy-sol-types = "1"
+alloy-primitives = { version = "1", features = ["k256"] }
 testcontainers = "0.28"
 reqwest = { version = "0.13", default-features = false, features = [
   "json",

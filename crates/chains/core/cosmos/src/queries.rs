@@ -1,7 +1,4 @@
 use async_trait::async_trait;
-use ibc_client_tendermint::types::ClientState as TendermintClientState;
-use ibc_client_tendermint::types::ConsensusState as TendermintConsensusState;
-use ibc_proto::Protobuf;
 use ibc_proto::ibc::core::client::v1::QueryClientStateRequest;
 use ibc_proto::ibc::core::client::v1::QueryConsensusStateRequest;
 use ibc_proto::ibc::core::client::v1::query_client::QueryClient as IbcClientQueryClient;
@@ -17,11 +14,7 @@ use mercury_core::error::{ProofError, QueryError, Result};
 use crate::events::ENCODED_PACKET_HEX;
 
 use crate::chain::CosmosChain;
-use crate::client_types::{
-    ATTESTATIONS_CLIENT_STATE_TYPE_URL, ATTESTATIONS_CONSENSUS_STATE_TYPE_URL, CosmosClientState,
-    CosmosConsensusState, TENDERMINT_CLIENT_STATE_TYPE_URL, TENDERMINT_CONSENSUS_STATE_TYPE_URL,
-    WASM_CLIENT_STATE_TYPE_URL, WASM_CONSENSUS_STATE_TYPE_URL,
-};
+use crate::client_types::{CosmosClientState, CosmosConsensusState};
 use crate::keys::CosmosSigner;
 use crate::types::{
     CosmosChainStatus, MerkleProof, PacketAcknowledgement, PacketCommitment, PacketReceipt,
@@ -102,35 +95,7 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
                 what: format!("client state for {client_id}"),
             })?;
 
-        let type_url = any.type_url.strip_prefix('/').unwrap_or(&any.type_url);
-
-        let client_state = match type_url {
-            TENDERMINT_CLIENT_STATE_TYPE_URL => {
-                let cs = <TendermintClientState as Protobuf<
-                    ibc_client_tendermint::types::proto::v1::ClientState,
-                >>::decode(any.value.as_slice())?;
-                CosmosClientState::Tendermint(cs)
-            }
-            WASM_CLIENT_STATE_TYPE_URL => {
-                let cs = ibc_proto::ibc::lightclients::wasm::v1::ClientState::decode(
-                    any.value.as_slice(),
-                )?;
-                CosmosClientState::Wasm(cs)
-            }
-            ATTESTATIONS_CLIENT_STATE_TYPE_URL => {
-                let cs = mercury_attestor::proto::lightclient::ClientState::decode(
-                    any.value.as_slice(),
-                )?;
-                CosmosClientState::Attestations(cs)
-            }
-            other => {
-                return Err(QueryError::UnsupportedType {
-                    type_url: other.to_string(),
-                }
-                .into());
-            }
-        };
-        Ok(client_state)
+        CosmosClientState::decode_any(&any)
     }
 
     #[instrument(skip_all, name = "query_consensus_state", fields(chain = %self.chain_label(), client_id = %client_id))]
@@ -172,35 +137,7 @@ impl<S: CosmosSigner> ClientQuery<Self> for CosmosChain<S> {
                 what: format!("consensus state for {client_id} at height {consensus_height}"),
             })?;
 
-        let type_url = any.type_url.strip_prefix('/').unwrap_or(&any.type_url);
-
-        let consensus_state = match type_url {
-            TENDERMINT_CONSENSUS_STATE_TYPE_URL => {
-                let cs = <TendermintConsensusState as Protobuf<
-                    ibc_client_tendermint::types::proto::v1::ConsensusState,
-                >>::decode(any.value.as_slice())?;
-                CosmosConsensusState::Tendermint(cs)
-            }
-            WASM_CONSENSUS_STATE_TYPE_URL => {
-                let cs = ibc_proto::ibc::lightclients::wasm::v1::ConsensusState::decode(
-                    any.value.as_slice(),
-                )?;
-                CosmosConsensusState::Wasm(cs)
-            }
-            ATTESTATIONS_CONSENSUS_STATE_TYPE_URL => {
-                let cs = mercury_attestor::proto::lightclient::ConsensusState::decode(
-                    any.value.as_slice(),
-                )?;
-                CosmosConsensusState::Attestations(cs)
-            }
-            other => {
-                return Err(QueryError::UnsupportedType {
-                    type_url: other.to_string(),
-                }
-                .into());
-            }
-        };
-        Ok(consensus_state)
+        CosmosConsensusState::decode_any(&any)
     }
 
     fn trusting_period(client_state: &Self::ClientState) -> Option<std::time::Duration> {

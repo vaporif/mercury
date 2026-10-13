@@ -256,6 +256,15 @@ impl<X: ChainTypes, C: ClientPayloadBuilder<X> + IbcTypes> ClientPayloadBuilder<
         self.inner.update_payload_message_height(payload)
     }
 
+    fn proof_height_without_update(
+        &self,
+        src_height: &Self::Height,
+        trusted_height: &Self::Height,
+    ) -> Self::Height {
+        self.inner
+            .proof_height_without_update(src_height, trusted_height)
+    }
+
     fn required_dst_timestamp_secs(&self, payload: &Self::UpdateClientPayload) -> Option<u64> {
         self.inner.required_dst_timestamp_secs(payload)
     }

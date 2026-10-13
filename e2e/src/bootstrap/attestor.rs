@@ -5,7 +5,7 @@ use testcontainers::core::WaitFor;
 use testcontainers::core::wait::ExitWaitStrategy;
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt};
-use tracing::info;
+use tracing::{info, warn};
 
 const IMAGE: &str = "ghcr.io/cosmos/ibc-attestor";
 /// Same tag upstream's e2e pins; newer images require a keystore password.
@@ -14,6 +14,7 @@ const KEYSTORE_DIR: &str = "/tmp/keystore";
 const KEYSTORE_FILE: &str = "ibc-attestor-keystore";
 const CONFIG_PATH: &str = "/tmp/attestor.toml";
 const STARTUP_TIMEOUT: Duration = Duration::from_mins(1);
+const START_ATTEMPTS: u32 = 3;
 
 /// Attestor containers signing Solana state. Containers stop on drop.
 pub struct SolanaAttestors {
@@ -25,8 +26,9 @@ pub struct SolanaAttestors {
 
 /// Starts `count` attestors for the Solana validator at `solana_rpc`.
 ///
-/// The containers use host networking: the local validator only listens on
-/// loopback, and this keeps the setup identical on Linux and macOS.
+/// The containers use host networking because `solana-test-validator` only
+/// listens on loopback. That works on Linux and `OrbStack`; Docker Desktop for
+/// Mac needs "Enable host networking" turned on in its settings.
 pub async fn start_solana_attestors(
     count: usize,
     solana_rpc: &str,
@@ -38,25 +40,7 @@ pub async fn start_solana_attestors(
 
     for _ in 0..count {
         let (address, keystore) = generate_key().await?;
-        let port = free_local_port()?;
-        let config = format!(
-            "[server]\nlisten_addr = \"127.0.0.1:{port}\"\n\n\
-             [signer]\nkeystore_path = \"{KEYSTORE_DIR}\"\n\n\
-             [adapter]\nurl = \"{solana_rpc}\"\nrouter_program_id = \"{router_program_id}\"\n"
-        );
-
-        let container = GenericImage::new(IMAGE, IMAGE_TAG)
-            .with_wait_for(WaitFor::message_on_stdout("gRPC server ready"))
-            .with_network("host")
-            .with_copy_to(format!("{KEYSTORE_DIR}/{KEYSTORE_FILE}"), keystore)
-            .with_copy_to(CONFIG_PATH, config.into_bytes())
-            .with_cmd(["server", "--config", CONFIG_PATH, "--chain-type", "solana"])
-            .with_startup_timeout(STARTUP_TIMEOUT)
-            .start()
-            .await
-            .wrap_err("starting attestor container")?;
-
-        let endpoint = format!("http://127.0.0.1:{port}");
+        let (endpoint, container) = start_server(&keystore, solana_rpc, router_program_id).await?;
         info!(%endpoint, %address, "attestor started");
         endpoints.push(endpoint);
         addresses.push(address);
@@ -68,6 +52,42 @@ pub async fn start_solana_attestors(
         addresses,
         _containers: containers,
     })
+}
+
+/// Starts an attestor server on a free local port. The port is picked before
+/// the container binds it, so another process can grab it first; retry with a
+/// fresh port when that happens.
+async fn start_server(
+    keystore: &[u8],
+    solana_rpc: &str,
+    router_program_id: &str,
+) -> Result<(String, ContainerAsync<GenericImage>)> {
+    let mut last_err = None;
+    for attempt in 1..=START_ATTEMPTS {
+        let port = free_local_port()?;
+        let config = format!(
+            "[server]\nlisten_addr = \"127.0.0.1:{port}\"\n\n\
+             [signer]\nkeystore_path = \"{KEYSTORE_DIR}\"\n\n\
+             [adapter]\nurl = \"{solana_rpc}\"\nrouter_program_id = \"{router_program_id}\"\n"
+        );
+        let started = GenericImage::new(IMAGE, IMAGE_TAG)
+            .with_wait_for(WaitFor::message_on_stdout("gRPC server ready"))
+            .with_network("host")
+            .with_copy_to(format!("{KEYSTORE_DIR}/{KEYSTORE_FILE}"), keystore.to_vec())
+            .with_copy_to(CONFIG_PATH, config.into_bytes())
+            .with_cmd(["server", "--config", CONFIG_PATH, "--chain-type", "solana"])
+            .with_startup_timeout(STARTUP_TIMEOUT)
+            .start()
+            .await;
+        match started {
+            Ok(container) => return Ok((format!("http://127.0.0.1:{port}"), container)),
+            Err(e) => {
+                warn!(attempt, port, error = %e, "attestor failed to start, retrying");
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(eyre::eyre!("{last_err:?}")).wrap_err("starting attestor container")
 }
 
 /// Generates a key in a one-shot container and returns its address and the

@@ -68,6 +68,17 @@ pub trait ClientPayloadBuilder<Counterparty: ChainTypes>: ChainTypes {
         None
     }
 
+    /// Src height to prove at when the dst client is already at or past
+    /// `src_height`, so no update is sent. Clients that only store consensus
+    /// states at heights they were updated to (attested) return `trusted_height`.
+    fn proof_height_without_update(
+        &self,
+        src_height: &Self::Height,
+        _trusted_height: &Self::Height,
+    ) -> Self::Height {
+        src_height.clone()
+    }
+
     /// Earliest dst-chain timestamp (secs) when this payload can land.
     /// `None` means submit immediately.
     fn required_dst_timestamp_secs(&self, _payload: &Self::UpdateClientPayload) -> Option<u64> {

@@ -45,27 +45,11 @@ const fn default_attestor_timeout_secs() -> u64 {
 }
 
 impl AttestationConfig {
+    /// Quorum and address rules are enforced by `Aggregator::new`.
     pub fn validate(&self) -> eyre::Result<()> {
-        eyre::ensure!(
-            !self.endpoints.is_empty(),
-            "attestation.endpoints must not be empty"
-        );
         for endpoint in &self.endpoints {
             mercury_core::validate::require_http_url("attestation.endpoints", endpoint)?;
         }
-        eyre::ensure!(
-            !self.attestor_addresses.is_empty(),
-            "attestation.attestor_addresses must not be empty"
-        );
-        let sigs = usize::try_from(self.min_required_sigs)?;
-        eyre::ensure!(
-            (1..=self.attestor_addresses.len()).contains(&sigs),
-            "attestation.min_required_sigs must be between 1 and the number of attestor_addresses"
-        );
-        eyre::ensure!(
-            sigs <= self.endpoints.len(),
-            "attestation.min_required_sigs exceeds the number of endpoints"
-        );
         Ok(())
     }
 }

@@ -1,10 +1,15 @@
 use ibc_client_tendermint::types::ClientState as TendermintClientState;
 use ibc_client_tendermint::types::ConsensusState as TendermintConsensusState;
+use ibc_proto::Protobuf;
+use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::lightclients::wasm::v1::ClientState as WasmClientState;
 use ibc_proto::ibc::lightclients::wasm::v1::ConsensusState as WasmConsensusState;
 use mercury_attestor::proto::lightclient::{
-    ClientState as AttestationsClientState, ConsensusState as AttestationsConsensusState,
+    self as attestations, ClientState as AttestationsClientState,
+    ConsensusState as AttestationsConsensusState,
 };
+use mercury_core::error::{QueryError, Result};
+use prost::Message;
 
 /// Client state on a Cosmos chain. Tendermint for native IBC, Wasm for
 /// `CosmWasm` light clients (Beacon, Solana, etc.), Attestations for ibc-go's
@@ -43,6 +48,101 @@ pub const WASM_CLIENT_STATE_TYPE_URL: &str = "ibc.lightclients.wasm.v1.ClientSta
 pub const TENDERMINT_CONSENSUS_STATE_TYPE_URL: &str =
     "ibc.lightclients.tendermint.v1.ConsensusState";
 pub const WASM_CONSENSUS_STATE_TYPE_URL: &str = "ibc.lightclients.wasm.v1.ConsensusState";
-pub const ATTESTATIONS_CLIENT_STATE_TYPE_URL: &str = "ibc.lightclients.attestations.v1.ClientState";
-pub const ATTESTATIONS_CONSENSUS_STATE_TYPE_URL: &str =
-    "ibc.lightclients.attestations.v1.ConsensusState";
+
+/// Whether `type_url` (without the leading `/`) names `full`, which has one.
+fn is_type(type_url: &str, full: &str) -> bool {
+    full.strip_prefix('/') == Some(type_url)
+}
+
+impl CosmosClientState {
+    pub fn decode_any(any: &Any) -> Result<Self> {
+        let type_url = any.type_url.strip_prefix('/').unwrap_or(&any.type_url);
+        let value = any.value.as_slice();
+        Ok(match type_url {
+            TENDERMINT_CLIENT_STATE_TYPE_URL => {
+                Self::Tendermint(<TendermintClientState as Protobuf<
+                    ibc_client_tendermint::types::proto::v1::ClientState,
+                >>::decode(value)?)
+            }
+            WASM_CLIENT_STATE_TYPE_URL => Self::Wasm(WasmClientState::decode(value)?),
+            t if is_type(t, attestations::CLIENT_STATE_TYPE_URL) => {
+                Self::Attestations(AttestationsClientState::decode(value)?)
+            }
+            other => {
+                return Err(QueryError::UnsupportedType {
+                    type_url: other.to_string(),
+                }
+                .into());
+            }
+        })
+    }
+}
+
+impl CosmosConsensusState {
+    pub fn decode_any(any: &Any) -> Result<Self> {
+        let type_url = any.type_url.strip_prefix('/').unwrap_or(&any.type_url);
+        let value = any.value.as_slice();
+        Ok(match type_url {
+            TENDERMINT_CONSENSUS_STATE_TYPE_URL => {
+                Self::Tendermint(<TendermintConsensusState as Protobuf<
+                    ibc_client_tendermint::types::proto::v1::ConsensusState,
+                >>::decode(value)?)
+            }
+            WASM_CONSENSUS_STATE_TYPE_URL => Self::Wasm(WasmConsensusState::decode(value)?),
+            t if is_type(t, attestations::CONSENSUS_STATE_TYPE_URL) => {
+                Self::Attestations(AttestationsConsensusState::decode(value)?)
+            }
+            other => {
+                return Err(QueryError::UnsupportedType {
+                    type_url: other.to_string(),
+                }
+                .into());
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn any(type_url: &str, msg: &impl Message) -> Any {
+        Any {
+            type_url: type_url.to_string(),
+            value: msg.encode_to_vec(),
+        }
+    }
+
+    #[test]
+    fn decodes_attestations_client_state() {
+        let cs = AttestationsClientState {
+            attestor_addresses: vec!["0xab".into()],
+            min_required_sigs: 1,
+            latest_height: 42,
+            is_frozen: false,
+        };
+        let decoded = CosmosClientState::decode_any(&any(attestations::CLIENT_STATE_TYPE_URL, &cs));
+        assert!(matches!(decoded, Ok(CosmosClientState::Attestations(d)) if d == cs));
+    }
+
+    #[test]
+    fn decodes_attestations_consensus_state() {
+        let cs = AttestationsConsensusState { timestamp: 7 };
+        let decoded =
+            CosmosConsensusState::decode_any(&any(attestations::CONSENSUS_STATE_TYPE_URL, &cs));
+        assert!(matches!(decoded, Ok(CosmosConsensusState::Attestations(d)) if d == cs));
+    }
+
+    #[test]
+    fn accepts_type_url_without_leading_slash() {
+        let cs = AttestationsConsensusState { timestamp: 7 };
+        let url = attestations::CONSENSUS_STATE_TYPE_URL.trim_start_matches('/');
+        assert!(CosmosConsensusState::decode_any(&any(url, &cs)).is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_type() {
+        let cs = AttestationsConsensusState { timestamp: 7 };
+        assert!(CosmosClientState::decode_any(&any("/foo.Bar", &cs)).is_err());
+    }
+}

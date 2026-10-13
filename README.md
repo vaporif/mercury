@@ -25,7 +25,7 @@ Early development. Not tested against live chains yet, so use at your own risk. 
 |---------|:---:|:---:|:---:|
 | Basic transfer | E2E | E2E | E2E |
 | Bidirectional transfer | E2E | E2E | E2E |
-| Packet timeout | E2E | Untested | Untested |
+| Packet timeout | E2E | Untested | E2E |
 | Near-expiry packet timeout | E2E | Untested | Untested |
 | Client refresh | E2E | Untested | Untested |
 | Concurrent transfers | E2E | Untested | Untested |

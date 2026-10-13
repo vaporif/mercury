@@ -10,6 +10,9 @@ mod transfer;
 #[path = "cosmos_solana/bidirectional.rs"]
 mod bidirectional;
 
+#[path = "cosmos_solana/timeout.rs"]
+mod timeout;
+
 static INIT_TRACING: Once = Once::new();
 
 fn init_tracing() {

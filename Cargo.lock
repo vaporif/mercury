@@ -6124,11 +6124,14 @@ checksum = "3d97bbf43eb4f088f8ca469930cde17fa036207c9a5e02ccc5107c4e8b17c964"
 name = "mercury-attestor"
 version = "0.1.0-alpha.3"
 dependencies = [
+ "alloy",
+ "alloy-primitives",
  "alloy-sol-types",
  "eyre",
  "futures",
  "ibc-proto 0.52.0 (git+https://github.com/cosmos/ibc-proto-rs?branch=main)",
  "prost 0.13.5",
+ "sha2 0.11.0",
  "tokio",
  "tonic 0.13.1",
  "tracing",

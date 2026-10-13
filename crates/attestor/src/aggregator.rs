@@ -1,16 +1,23 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::time::Duration;
 
+use alloy_primitives::{Address, B256, Signature};
 use eyre::Result;
 use futures::future::join_all;
+use sha2::{Digest, Sha256};
 
 use crate::client::{AttestorClient, CommitmentType};
 use crate::proto::attestor::Attestation;
 use crate::proto::lightclient::AttestationProof;
 
-/// Recoverable secp256k1 signature: r (32) || s (32) || v (1).
-const SIGNATURE_LEN: usize = 65;
+/// Domain tags ibc-go's `attestations` client mixes into the signed hash so a
+/// state attestation can't be replayed as a packet attestation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttestationKind {
+    State = 0x01,
+    Packet = 0x02,
+}
 
 /// Attestations from a quorum of attestors that agreed on the same data.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,26 +40,63 @@ impl AggregatedAttestation {
     }
 }
 
-/// Fans requests out to every attestor and returns once a quorum agrees.
+/// Fans requests out to every attestor and returns once a quorum of the
+/// configured signers agrees.
 #[derive(Clone, Debug)]
 pub struct Aggregator {
     clients: Vec<AttestorClient>,
+    signers: HashSet<Address>,
+    attestor_addresses: Vec<String>,
     quorum: usize,
 }
 
 impl Aggregator {
-    pub fn new(endpoints: &[String], quorum: usize, timeout: Duration) -> Result<Self> {
+    /// Must be called inside a Tokio runtime (channels connect lazily on it).
+    pub fn new(
+        endpoints: &[String],
+        attestor_addresses: &[String],
+        quorum: usize,
+        timeout: Duration,
+    ) -> Result<Self> {
+        eyre::ensure!(!endpoints.is_empty(), "no attestor endpoints configured");
         eyre::ensure!(quorum > 0, "attestor quorum must be at least 1");
+        let signers = attestor_addresses
+            .iter()
+            .map(|a| {
+                a.parse::<Address>()
+                    .map_err(|e| eyre::eyre!("invalid attestor address {a}: {e}"))
+            })
+            .collect::<Result<HashSet<_>>>()?;
         eyre::ensure!(
-            endpoints.len() >= quorum,
-            "attestor quorum {quorum} exceeds the {} configured endpoints",
+            signers.len() == attestor_addresses.len(),
+            "duplicate attestor addresses"
+        );
+        eyre::ensure!(
+            quorum <= signers.len() && quorum <= endpoints.len(),
+            "attestor quorum {quorum} exceeds the {} addresses or {} endpoints",
+            signers.len(),
             endpoints.len()
         );
         let clients = endpoints
             .iter()
             .map(|e| AttestorClient::new(e, timeout))
             .collect::<Result<Vec<_>>>()?;
-        Ok(Self { clients, quorum })
+        Ok(Self {
+            clients,
+            signers,
+            attestor_addresses: attestor_addresses.to_vec(),
+            quorum,
+        })
+    }
+
+    #[must_use]
+    pub fn attestor_addresses(&self) -> &[String] {
+        &self.attestor_addresses
+    }
+
+    #[must_use]
+    pub const fn quorum(&self) -> usize {
+        self.quorum
     }
 
     /// Lowest finalized height reported by a quorum, so every member of the
@@ -62,10 +106,25 @@ impl Aggregator {
         select_quorum_height(heights, self.quorum)
     }
 
+    /// Waits until a quorum has finalized `target`, polling every `interval`.
+    pub async fn wait_for_height(
+        &self,
+        target: u64,
+        timeout: Duration,
+        interval: Duration,
+    ) -> Result<u64> {
+        wait_for_height(|| self.latest_height(), target, timeout, interval).await
+    }
+
     pub async fn state_attestation(&self, height: u64) -> Result<AggregatedAttestation> {
         let attestations = self.query_all(|c| c.state_attestation(height)).await;
-        aggregate(attestations, self.quorum)
-            .ok_or_else(|| eyre::eyre!("no attestor quorum for state at height {height}"))
+        aggregate(
+            attestations,
+            AttestationKind::State,
+            &self.signers,
+            self.quorum,
+        )
+        .map_err(|e| e.wrap_err(format!("state attestation at height {height}")))
     }
 
     pub async fn packet_attestation(
@@ -77,8 +136,16 @@ impl Aggregator {
         let attestations = self
             .query_all(|c| c.packet_attestation(packets.clone(), height, commitment_type))
             .await;
-        aggregate(attestations, self.quorum).ok_or_else(|| {
-            eyre::eyre!("no attestor quorum for {commitment_type:?} attestation at height {height}")
+        aggregate(
+            attestations,
+            AttestationKind::Packet,
+            &self.signers,
+            self.quorum,
+        )
+        .map_err(|e| {
+            e.wrap_err(format!(
+                "{commitment_type:?} attestation at height {height}"
+            ))
         })
     }
 
@@ -104,6 +171,31 @@ impl Aggregator {
     }
 }
 
+/// Polls `latest` until it reaches `target`. Returns the height it reached.
+pub async fn wait_for_height<F, Fut>(
+    latest: F,
+    target: u64,
+    timeout: Duration,
+    interval: Duration,
+) -> Result<u64>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<u64>>,
+{
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        match latest().await {
+            Ok(height) if height >= target => return Ok(height),
+            Ok(height) => tracing::debug!(height, target, "waiting for attestors to finalize"),
+            Err(e) => tracing::debug!(error = %e, target, "attestor height unavailable"),
+        }
+        if tokio::time::Instant::now() + interval > deadline {
+            eyre::bail!("attestors did not finalize height {target} within {timeout:?}");
+        }
+        tokio::time::sleep(interval).await;
+    }
+}
+
 fn select_quorum_height(heights: Vec<u64>, quorum: usize) -> Result<u64> {
     eyre::ensure!(
         heights.len() >= quorum,
@@ -116,43 +208,105 @@ fn select_quorum_height(heights: Vec<u64>, quorum: usize) -> Result<u64> {
         .ok_or_else(|| eyre::eyre!("no attestor responded"))
 }
 
-/// Groups attestations by the data they sign and returns the first group
-/// that reaches the quorum. Malformed signatures are dropped.
-fn aggregate(attestations: Vec<Attestation>, quorum: usize) -> Option<AggregatedAttestation> {
-    let mut groups: HashMap<Vec<u8>, Vec<Attestation>> = HashMap::new();
+type SignaturesBySigner = HashMap<Address, Vec<u8>>;
+
+/// The prehash ibc-go verifies: `sha256(kind || sha256(data))`.
+fn signing_hash(data: &[u8], kind: AttestationKind) -> B256 {
+    let inner = Sha256::digest(data);
+    let mut hasher = Sha256::new();
+    hasher.update([kind as u8]);
+    hasher.update(inner);
+    B256::from_slice(&hasher.finalize())
+}
+
+fn recover_signer(att: &Attestation, kind: AttestationKind) -> Result<Address> {
+    let sig = Signature::from_raw(&att.signature)?;
+    Ok(sig.recover_address_from_prehash(&signing_hash(&att.attested_data, kind))?)
+}
+
+/// Groups attestations by the data they sign, keeping one signature per
+/// configured signer, and returns `quorum` signatures from the largest group.
+///
+/// ibc-go rejects a proof outright if any signature is from an unknown or
+/// repeated signer, so those are dropped here rather than counted.
+fn aggregate(
+    attestations: Vec<Attestation>,
+    kind: AttestationKind,
+    signers: &HashSet<Address>,
+    quorum: usize,
+) -> Result<AggregatedAttestation> {
+    let mut groups: HashMap<Vec<u8>, (Attestation, SignaturesBySigner)> = HashMap::new();
     for att in attestations {
-        if att.signature.len() != SIGNATURE_LEN {
-            tracing::warn!(
-                len = att.signature.len(),
-                "dropping attestation with bad signature length"
-            );
-            continue;
-        }
-        groups
+        let signer = match recover_signer(&att, kind) {
+            Ok(signer) if signers.contains(&signer) => signer,
+            Ok(signer) => {
+                tracing::warn!(%signer, "dropping attestation from unknown signer");
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "dropping attestation with invalid signature");
+                continue;
+            }
+        };
+        let (_, sigs) = groups
             .entry(att.attested_data.clone())
-            .or_default()
-            .push(att);
+            .or_insert_with(|| (att.clone(), HashMap::new()));
+        sigs.entry(signer).or_insert(att.signature);
     }
-    let (attested_data, group) = groups.into_iter().find(|(_, g)| g.len() >= quorum)?;
-    let first = group.first()?;
-    Some(AggregatedAttestation {
+
+    let mut ranked: Vec<_> = groups.into_values().collect();
+    ranked.sort_by_key(|(_, sigs)| std::cmp::Reverse(sigs.len()));
+    let (first, sigs) = match ranked.as_slice() {
+        [] => eyre::bail!("no valid attestations"),
+        [(_, best), (_, second), ..] if best.len() == second.len() && second.len() >= quorum => {
+            eyre::bail!("attestors disagree: two attestations reached quorum")
+        }
+        [(first, sigs), ..] => (first, sigs),
+    };
+    eyre::ensure!(
+        sigs.len() >= quorum,
+        "attestor quorum not reached: {} of {quorum} valid signatures",
+        sigs.len()
+    );
+
+    let mut signed: Vec<_> = sigs.iter().collect();
+    signed.sort_by_key(|(addr, _)| **addr);
+    Ok(AggregatedAttestation {
         height: first.height,
         timestamp: first.timestamp,
-        attested_data,
-        signatures: group.into_iter().map(|a| a.signature).collect(),
+        attested_data: first.attested_data.clone(),
+        signatures: signed
+            .into_iter()
+            .take(quorum)
+            .map(|(_, sig)| sig.clone())
+            .collect(),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy::signers::SignerSync;
+    use alloy::signers::local::PrivateKeySigner;
 
-    fn att(data: &[u8], sig_byte: u8) -> Attestation {
+    fn signers(n: usize) -> Vec<PrivateKeySigner> {
+        (0..n).map(|_| PrivateKeySigner::random()).collect()
+    }
+
+    fn set(keys: &[PrivateKeySigner]) -> HashSet<Address> {
+        keys.iter().map(PrivateKeySigner::address).collect()
+    }
+
+    fn att(key: &PrivateKeySigner, data: &[u8], kind: AttestationKind) -> Attestation {
+        let sig = key
+            .sign_hash_sync(&signing_hash(data, kind))
+            .map(|s| s.as_bytes().to_vec())
+            .unwrap_or_default();
         Attestation {
             height: 10,
             timestamp: Some(100),
             attested_data: data.to_vec(),
-            signature: vec![sig_byte; SIGNATURE_LEN],
+            signature: sig,
         }
     }
 
@@ -168,30 +322,132 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_collects_matching_signatures() {
-        let agg = aggregate(vec![att(b"a", 1), att(b"a", 2)], 2);
-        let agg = agg.as_ref();
-        assert_eq!(agg.map(|a| a.signatures.len()), Some(2));
-        assert_eq!(agg.map(|a| a.attested_data.as_slice()), Some(&b"a"[..]));
-        assert_eq!(agg.and_then(|a| a.timestamp), Some(100));
+    fn aggregates_quorum_of_known_signers() {
+        let keys = signers(3);
+        let atts = keys
+            .iter()
+            .map(|k| att(k, b"a", AttestationKind::State))
+            .collect();
+        let agg = aggregate(atts, AttestationKind::State, &set(&keys), 2).ok();
+        assert_eq!(agg.as_ref().map(|a| a.signatures.len()), Some(2));
+        assert_eq!(agg.as_ref().and_then(|a| a.timestamp), Some(100));
+        assert_eq!(agg.map(|a| a.attested_data), Some(b"a".to_vec()));
     }
 
     #[test]
-    fn aggregate_rejects_split_votes() {
-        assert!(aggregate(vec![att(b"a", 1), att(b"b", 2)], 2).is_none());
+    fn duplicate_signer_counts_once() {
+        let keys = signers(2);
+        let dup = att(&keys[0], b"a", AttestationKind::State);
+        let result = aggregate(
+            vec![dup.clone(), dup],
+            AttestationKind::State,
+            &set(&keys),
+            2,
+        );
+        assert!(result.is_err());
     }
 
     #[test]
-    fn aggregate_picks_majority_group() {
-        let agg = aggregate(vec![att(b"a", 1), att(b"b", 2), att(b"b", 3)], 2);
+    fn unknown_signer_is_dropped() {
+        let keys = signers(2);
+        let stranger = PrivateKeySigner::random();
+        let atts = vec![
+            att(&keys[0], b"a", AttestationKind::State),
+            att(&stranger, b"a", AttestationKind::State),
+        ];
+        assert!(aggregate(atts.clone(), AttestationKind::State, &set(&keys), 2).is_err());
+        let agg = aggregate(atts, AttestationKind::State, &set(&keys), 1).ok();
+        assert_eq!(agg.map(|a| a.signatures.len()), Some(1));
+    }
+
+    #[test]
+    fn wrong_domain_tag_is_rejected() {
+        let keys = signers(1);
+        let atts = vec![att(&keys[0], b"a", AttestationKind::State)];
+        assert!(aggregate(atts, AttestationKind::Packet, &set(&keys), 1).is_err());
+    }
+
+    #[test]
+    fn malformed_signature_is_dropped() {
+        let keys = signers(1);
+        let mut bad = att(&keys[0], b"a", AttestationKind::State);
+        bad.signature.truncate(64);
+        assert!(aggregate(vec![bad], AttestationKind::State, &set(&keys), 1).is_err());
+    }
+
+    #[test]
+    fn largest_group_wins() {
+        let keys = signers(3);
+        let atts = vec![
+            att(&keys[0], b"a", AttestationKind::State),
+            att(&keys[1], b"b", AttestationKind::State),
+            att(&keys[2], b"b", AttestationKind::State),
+        ];
+        let agg = aggregate(atts, AttestationKind::State, &set(&keys), 1).ok();
         assert_eq!(agg.map(|a| a.attested_data), Some(b"b".to_vec()));
     }
 
     #[test]
-    fn aggregate_drops_bad_signatures() {
-        let mut bad = att(b"a", 1);
-        bad.signature.truncate(64);
-        assert!(aggregate(vec![bad, att(b"a", 2)], 2).is_none());
-        assert!(aggregate(vec![att(b"a", 2)], 1).is_some());
+    fn conflicting_quorums_error() {
+        let keys = signers(4);
+        let atts = vec![
+            att(&keys[0], b"a", AttestationKind::State),
+            att(&keys[1], b"a", AttestationKind::State),
+            att(&keys[2], b"b", AttestationKind::State),
+            att(&keys[3], b"b", AttestationKind::State),
+        ];
+        assert!(aggregate(atts, AttestationKind::State, &set(&keys), 2).is_err());
+    }
+
+    #[test]
+    fn split_vote_below_quorum_errors() {
+        let keys = signers(2);
+        let atts = vec![
+            att(&keys[0], b"a", AttestationKind::State),
+            att(&keys[1], b"b", AttestationKind::State),
+        ];
+        assert!(aggregate(atts, AttestationKind::State, &set(&keys), 2).is_err());
+    }
+
+    #[tokio::test]
+    async fn rejects_bad_config() {
+        let endpoints = vec!["http://127.0.0.1:1".to_string()];
+        let addr = PrivateKeySigner::random().address().to_string();
+        let t = Duration::from_secs(1);
+        assert!(Aggregator::new(&endpoints, std::slice::from_ref(&addr), 1, t).is_ok());
+        assert!(Aggregator::new(&endpoints, std::slice::from_ref(&addr), 0, t).is_err());
+        assert!(Aggregator::new(&endpoints, std::slice::from_ref(&addr), 2, t).is_err());
+        assert!(Aggregator::new(&endpoints, &[addr.clone(), addr], 1, t).is_err());
+        assert!(Aggregator::new(&endpoints, &["nope".to_string()], 1, t).is_err());
+        assert!(Aggregator::new(&[], &["nope".to_string()], 1, t).is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_for_height_returns_once_reached() {
+        let calls = std::sync::atomic::AtomicU64::new(0);
+        let reached = wait_for_height(
+            || {
+                let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async move { Ok(5 + n * 5) }
+            },
+            15,
+            Duration::from_secs(10),
+            Duration::from_secs(1),
+        )
+        .await
+        .ok();
+        assert_eq!(reached, Some(15));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_for_height_survives_errors_then_times_out() {
+        let result = wait_for_height(
+            || async { Err::<u64, _>(eyre::eyre!("down")) },
+            1,
+            Duration::from_secs(3),
+            Duration::from_secs(1),
+        )
+        .await;
+        assert!(result.is_err());
     }
 }

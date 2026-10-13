@@ -6,6 +6,6 @@ pub mod client;
 pub mod packet;
 pub mod proto;
 
-pub use aggregator::{AggregatedAttestation, Aggregator};
+pub use aggregator::{AggregatedAttestation, Aggregator, AttestationKind, wait_for_height};
 pub use client::{AttestorClient, CommitmentType};
 pub use packet::abi_encode_packet;

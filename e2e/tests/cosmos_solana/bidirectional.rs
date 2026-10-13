@@ -203,6 +203,24 @@ async fn bidirectional_relay() -> Result<()> {
 }
 
 async fn send_ics20_packet_from_cosmos(harness: &CosmosSolanaHarness) -> Result<()> {
+    send_ics20_packet_from_cosmos_with_timeout(harness, unix_now() + 30 * 60).await
+}
+
+pub(super) fn unix_now() -> u64 {
+    #[expect(
+        clippy::unwrap_used,
+        reason = "system clock is always after UNIX_EPOCH"
+    )]
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+pub(super) async fn send_ics20_packet_from_cosmos_with_timeout(
+    harness: &CosmosSolanaHarness,
+    timeout: u64,
+) -> Result<()> {
     let wallet = harness.cosmos_handle.relayer_wallet();
 
     let packet_data = serde_json::json!({
@@ -212,16 +230,6 @@ async fn send_ics20_packet_from_cosmos(harness: &CosmosSolanaHarness) -> Result<
         "receiver": "solana_receiver_placeholder",
         "memo": "",
     });
-
-    #[expect(
-        clippy::unwrap_used,
-        reason = "system clock is always after UNIX_EPOCH"
-    )]
-    let timeout = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        + 30 * 60;
 
     let msg = MsgSendPacket {
         source_client: harness.cosmos_client_id.clone(),
@@ -331,7 +339,11 @@ async fn send_packet_from_solana(harness: &CosmosSolanaHarness, rpc: &RpcClient)
     Ok(())
 }
 
-async fn poll_until(label: &str, timeout: Duration, mut f: impl FnMut() -> bool) -> Result<()> {
+pub(super) async fn poll_until(
+    label: &str,
+    timeout: Duration,
+    mut f: impl FnMut() -> bool,
+) -> Result<()> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         if f() {
@@ -344,7 +356,7 @@ async fn poll_until(label: &str, timeout: Duration, mut f: impl FnMut() -> bool)
     }
 }
 
-async fn poll_until_async<F, Fut>(label: &str, timeout: Duration, mut f: F) -> Result<()>
+pub(super) async fn poll_until_async<F, Fut>(label: &str, timeout: Duration, mut f: F) -> Result<()>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = bool>,

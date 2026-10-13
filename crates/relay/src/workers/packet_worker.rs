@@ -107,7 +107,11 @@ where
         let trusted_height = DstChain::<R>::client_latest_height(&client_state);
 
         if src_height <= trusted_height {
-            return Ok((src_height, None, None));
+            let proof_height = self
+                .relay
+                .src_chain()
+                .proof_height_without_update(&src_height, &trusted_height);
+            return Ok((proof_height, None, None));
         }
 
         debug!(
@@ -182,7 +186,11 @@ where
         let trusted_height = SrcChain::<R>::client_latest_height(&client_state);
 
         if dst_height <= trusted_height {
-            return Ok((dst_height, None, vec![]));
+            let proof_height = self
+                .relay
+                .dst_chain()
+                .proof_height_without_update(&dst_height, &trusted_height);
+            return Ok((proof_height, None, vec![]));
         }
 
         let update_payload = self
@@ -807,5 +815,76 @@ where
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+    use crate::testhelpers::*;
+
+    /// Mock clients report a latest height of 100.
+    const TRUSTED: u64 = 100;
+
+    fn make_worker(src: MockState, dst: MockState) -> PacketWorker<MockRelay> {
+        let relay = MockRelay {
+            src: MockChain::new(Arc::new(Mutex::new(src))),
+            dst: MockChain::new(Arc::new(Mutex::new(dst))),
+            src_client_id: "src-client".into(),
+            dst_client_id: "dst-client".into(),
+        };
+        let (_events_tx, receiver) = mpsc::channel(1);
+        let (sender, _dst_rx) = mpsc::channel(1);
+        let (src_sender, _src_rx) = mpsc::channel(1);
+        PacketWorker {
+            relay: Arc::new(relay),
+            receiver,
+            sender,
+            src_sender,
+            token: CancellationToken::new(),
+            metrics: PacketMetrics::new(&mercury_core::ChainLabel::new("mock")),
+        }
+    }
+
+    fn lagging(prove_at_trusted: bool) -> MockState {
+        MockState {
+            latest_height: 90,
+            prove_at_trusted,
+            ..MockState::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn dst_no_update_proves_at_src_height_by_default() {
+        let worker = make_worker(lagging(false), MockState::default());
+        let (proof, msg, payload) = worker.build_dst_update_client_payload().await.unwrap();
+        assert_eq!((proof, msg, payload.is_none()), (90, None, true));
+    }
+
+    #[tokio::test]
+    async fn dst_no_update_uses_chain_proof_height() {
+        let worker = make_worker(lagging(true), MockState::default());
+        let (proof, _, payload) = worker.build_dst_update_client_payload().await.unwrap();
+        assert_eq!((proof, payload.is_none()), (TRUSTED, true));
+    }
+
+    #[tokio::test]
+    async fn src_no_update_uses_chain_proof_height() {
+        let worker = make_worker(MockState::default(), lagging(true));
+        let (proof, msg, update) = worker.build_src_update_client_messages().await.unwrap();
+        assert_eq!((proof, msg, update.len()), (TRUSTED, None, 0));
+    }
+
+    #[tokio::test]
+    async fn src_update_proves_at_dst_height() {
+        let dst = MockState {
+            latest_height: 120,
+            ..MockState::default()
+        };
+        let worker = make_worker(MockState::default(), dst);
+        let (proof, msg, _) = worker.build_src_update_client_messages().await.unwrap();
+        assert_eq!((proof, msg), (120, None));
     }
 }

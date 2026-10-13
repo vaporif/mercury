@@ -23,7 +23,7 @@ use crate::accounts::{
     self, Ics07Tendermint, Ics26Router, OnChainClientState, OnChainCommitment,
     deserialize_anchor_account, fetch_account, resolve_ics07_program_id,
 };
-use crate::config::{AttestationConfig, SolanaChainConfig};
+use crate::config::SolanaChainConfig;
 use crate::events;
 use crate::rpc::SolanaRpcClient;
 use crate::tx;
@@ -34,6 +34,11 @@ use crate::types::{
     SolanaPacketReceipt, SolanaTimestamp, SolanaTxResponse, SolanaUpdateClientPayload,
     WriteAckEvent,
 };
+
+/// How long an attested update waits for attestors to finalize the target slot.
+/// Solana finalizes ~32 slots (~13s) behind the confirmed tip.
+const FINALITY_WAIT: Duration = Duration::from_secs(60);
+const FINALITY_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug)]
 pub struct SolanaChain {
@@ -69,6 +74,7 @@ impl SolanaChain {
             .map(|a| {
                 Aggregator::new(
                     &a.endpoints,
+                    &a.attestor_addresses,
                     a.min_required_sigs as usize,
                     Duration::from_secs(a.timeout_secs),
                 )
@@ -132,31 +138,38 @@ impl SolanaChain {
             .map_or(SolanaCommitmentProof::None, SolanaCommitmentProof::Attested)
     }
 
-    fn require_attestor(&self) -> Result<(&Aggregator, &AttestationConfig)> {
-        match (&self.attestor, &self.config.attestation) {
-            (Some(aggregator), Some(config)) => Ok((aggregator, config)),
-            _ => eyre::bail!("attestation is not configured for this Solana chain"),
-        }
-    }
-
-    async fn build_attested_create_client_payload(&self) -> Result<SolanaCreateClientPayload> {
-        let (aggregator, config) = self.require_attestor()?;
+    async fn build_attested_create_client_payload(
+        aggregator: &Aggregator,
+    ) -> Result<SolanaCreateClientPayload> {
         let height = aggregator.latest_height().await?;
         let state = aggregator.state_attestation(height).await?;
         let timestamp_secs = state
             .timestamp
             .ok_or_else(|| eyre::eyre!("state attestation at {height} has no timestamp"))?;
         Ok(SolanaCreateClientPayload::Attested {
-            attestor_addresses: config.attestor_addresses.clone(),
-            min_required_sigs: config.min_required_sigs,
+            attestor_addresses: aggregator.attestor_addresses().to_vec(),
+            min_required_sigs: u32::try_from(aggregator.quorum())?,
             height,
             timestamp_secs,
         })
     }
 
-    async fn build_attested_update_client_payload(&self) -> Result<SolanaUpdateClientPayload> {
-        let (aggregator, _) = self.require_attestor()?;
-        let height = aggregator.latest_height().await?;
+    /// Updates to the first attested height at or above `target`. Waiting for
+    /// finality here means the packets the relayer is about to prove are
+    /// already attestable, and a timed-out packet's timeout is already behind
+    /// the attested timestamp, so no update goes out only to have its proofs fail.
+    async fn build_attested_update_client_payload(
+        aggregator: &Aggregator,
+        trusted: SolanaHeight,
+        target: SolanaHeight,
+    ) -> Result<SolanaUpdateClientPayload> {
+        let height = aggregator
+            .wait_for_height(target.0, FINALITY_WAIT, FINALITY_POLL_INTERVAL)
+            .await?;
+        eyre::ensure!(
+            height > trusted.0,
+            "attested height {height} is not above the client's height {trusted}"
+        );
         let state = aggregator.state_attestation(height).await?;
         tracing::debug!(
             height,
@@ -518,8 +531,8 @@ impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
     type UpdateClientPayload = SolanaUpdateClientPayload;
 
     async fn build_create_client_payload(&self) -> Result<Self::CreateClientPayload> {
-        if self.attestor.is_some() {
-            return self.build_attested_create_client_payload().await;
+        if let Some(aggregator) = &self.attestor {
+            return Self::build_attested_create_client_payload(aggregator).await;
         }
         let slot = self.rpc.get_slot().await?;
         let block_time = self.rpc.get_block_time(slot).await?;
@@ -531,15 +544,20 @@ impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
 
     async fn build_update_client_payload(
         &self,
-        _trusted_height: &Self::Height,
-        _target_height: &Self::Height,
+        trusted_height: &Self::Height,
+        target_height: &Self::Height,
         _counterparty_client_state: &<C as IbcTypes>::ClientState,
     ) -> Result<Self::UpdateClientPayload>
     where
         C: IbcTypes,
     {
-        if self.attestor.is_some() {
-            return self.build_attested_update_client_payload().await;
+        if let Some(aggregator) = &self.attestor {
+            return Self::build_attested_update_client_payload(
+                aggregator,
+                *trusted_height,
+                *target_height,
+            )
+            .await;
         }
         let slot = self.rpc.get_slot().await?;
         let block_time = self.rpc.get_block_time(slot).await?;
@@ -560,6 +578,24 @@ impl<C: ChainTypes> ClientPayloadBuilder<C> for SolanaChain {
             SolanaUpdateClientPayload::Dummy { .. } => None,
         }
     }
+
+    fn proof_height_without_update(
+        &self,
+        src_height: &Self::Height,
+        trusted_height: &Self::Height,
+    ) -> Self::Height {
+        attested_proof_height(self.attestor.is_some(), *src_height, *trusted_height)
+    }
+}
+
+/// An attested client only has consensus states at heights it was updated to,
+/// so without an update the proof must use the client's own height.
+const fn attested_proof_height(
+    attested: bool,
+    src_height: SolanaHeight,
+    trusted_height: SolanaHeight,
+) -> SolanaHeight {
+    if attested { trusted_height } else { src_height }
 }
 
 #[async_trait]
@@ -812,5 +848,22 @@ impl MisbehaviourQuery<Self> for SolanaChain {
         _consensus_height: &SolanaHeight,
     ) -> Result<Option<Vec<u8>>> {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attested_client_proves_at_trusted_height() {
+        let proof = attested_proof_height(true, SolanaHeight(90), SolanaHeight(100));
+        assert_eq!(proof, SolanaHeight(100));
+    }
+
+    #[test]
+    fn unattested_client_proves_at_src_height() {
+        let proof = attested_proof_height(false, SolanaHeight(90), SolanaHeight(100));
+        assert_eq!(proof, SolanaHeight(90));
     }
 }
