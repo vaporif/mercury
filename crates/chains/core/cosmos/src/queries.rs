@@ -1237,6 +1237,45 @@ mod tests {
             assert_eq!(pages, vec!["1", "2"]);
         }
 
+        // Port of CometBFT v0.38 rpc/core/env.go `validatePage` + tx_search
+        // slicing: a page past the last one is a JSON-RPC internal error.
+        fn cometbft_tx_search(
+            total: u64,
+            call: &crate::chain::test_support::rpc::RpcCall,
+        ) -> Reply {
+            let per_page: u64 = call.params["per_page"].as_str().unwrap().parse().unwrap();
+            let page: u64 = call.params["page"].as_str().unwrap().parse().unwrap();
+            let pages = (total.saturating_sub(1) / per_page + 1).max(1);
+            if page == 0 || page > pages {
+                return Reply::Error(format!(
+                    "page should be within [1, {pages}] range, given {page}"
+                ));
+            }
+            let skip = (page - 1) * per_page;
+            let size = per_page.min(total - skip);
+            let txs = (skip + 1..=skip + size)
+                .map(|seq| packet_tx("send_packet", seq, "07-tendermint-3", "x"))
+                .collect::<Vec<_>>();
+            Reply::Result(serde_json::json!({"txs": txs, "total_count": total.to_string()}))
+        }
+
+        #[tokio::test]
+        #[ignore = "bug: tx_search requests page N+1 after an exactly-full page; CometBFT rejects it"]
+        async fn sequences_exactly_one_full_page_against_cometbft_pagination() {
+            let rpc = spawn_rpc(|call| cometbft_tx_search(100, call)).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let seqs = chain
+                .query_commitment_sequences(&client_id(), &height(1))
+                .await;
+            let pages: Vec<_> = rpc
+                .calls_to("tx_search")
+                .iter()
+                .map(|p| p["page"].clone())
+                .collect();
+            let seqs = seqs.unwrap_or_else(|e| panic!("pages requested {pages:?}: {e:?}"));
+            assert_eq!(seqs.len(), 100);
+        }
+
         #[tokio::test]
         async fn sequences_rpc_error_propagates() {
             let rpc = spawn_rpc(|_| Reply::Error("index disabled".into())).await;

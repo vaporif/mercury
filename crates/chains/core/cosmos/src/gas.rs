@@ -511,6 +511,84 @@ mod tests {
             }
         }
 
+        // Response bytes captured from mainnet via CometBFT abci_query (same
+        // gogoproto marshalling the gRPC server uses). LegacyDec fields go on the
+        // wire as the 10^18-scaled integer, not a decimal string.
+        // osmosis-1 h=72582341 GetEipBaseFee: base_fee = 0.03
+        const OSMOSIS_MAINNET_BASE_FEE: &[u8] = b"\n\x1130000000000000000";
+        // cosmoshub-4 h=33423002 GasPrices: uatom = 0.005
+        const HUB_MAINNET_GAS_PRICES: &[u8] = b"\n\x19\n\x05uatom\x12\x105000000000000000";
+
+        #[tokio::test]
+        #[ignore = "bug: osmosis LegacyDec base fee parsed as decimal, 1e18 too large"]
+        async fn osmosis_base_fee_decodes_legacy_dec_wire_format() {
+            let grpc = spawn_grpc(|call| match call.path.as_str() {
+                OSMOSIS => GrpcReply::Ok(OSMOSIS_MAINNET_BASE_FEE.to_vec()),
+                _ => unimplemented(call),
+            })
+            .await;
+            assert_price(resolve(&grpc, &OnceLock::new()).await, 0.03 * 1.1);
+        }
+
+        #[tokio::test]
+        #[ignore = "bug: feemarket LegacyDec gas price parsed as decimal, 1e18 too large"]
+        async fn feemarket_price_decodes_legacy_dec_wire_format() {
+            let grpc = spawn_grpc(|call| match call.path.as_str() {
+                FEEMARKET => GrpcReply::Ok(HUB_MAINNET_GAS_PRICES.to_vec()),
+                _ => unimplemented(call),
+            })
+            .await;
+            assert_price(resolve(&grpc, &OnceLock::new()).await, 0.005 * 1.1);
+        }
+
+        #[tokio::test]
+        #[ignore = "bug: feemarket GasPrices ignores denom; first (alphabetical) price is used"]
+        async fn feemarket_price_is_for_configured_denom() {
+            // A real feemarket node: GasPricesRequest has no fields, so the denom
+            // mercury sends is an unknown field and every denom comes back,
+            // sorted (neutron-1 lists 23, `factory/...` first). GasPrice is the
+            // per-denom RPC.
+            let grpc = spawn_grpc(|call| match call.path.as_str() {
+                FEEMARKET => feemarket(&[("factory/x/APOLLO", "0.9"), ("uatom", "0.5")]),
+                "/feemarket.feemarket.v1.Query/GasPrice" => feemarket(&[("uatom", "0.5")]),
+                _ => unimplemented(call),
+            })
+            .await;
+            assert_price(resolve(&grpc, &OnceLock::new()).await, 0.5 * 1.1);
+        }
+
+        #[tokio::test]
+        #[ignore = "bug: one transient probe failure caches Unavailable for the process lifetime"]
+        async fn transient_probe_failure_does_not_disable_dynamic_pricing() {
+            let feemarket_calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let counter = feemarket_calls.clone();
+            let grpc = spawn_grpc(move |call| match call.path.as_str() {
+                FEEMARKET => {
+                    if counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                        GrpcReply::Err(tonic::Status::unavailable("node restarting"))
+                    } else {
+                        feemarket(&[("uatom", "0.5")])
+                    }
+                }
+                _ => unimplemented(call),
+            })
+            .await;
+            let cache = OnceLock::new();
+            // first resolution hits the transient error: static fallback is fine
+            assert_price(resolve(&grpc, &cache).await, STATIC_PRICE);
+            // later resolutions must pick the backend up once it answers
+            let mut later = Vec::new();
+            for _ in 0..3 {
+                later.push(resolve(&grpc, &cache).await);
+            }
+            assert!(
+                later.iter().any(|p| (p - 0.5 * 1.1).abs() < 1e-12),
+                "prices after recovery {later:?}, cache {:?}, feemarket calls {}",
+                cache.get(),
+                grpc.calls_to(FEEMARKET).len()
+            );
+        }
+
         #[tokio::test]
         async fn cached_feemarket_queries_only_feemarket() {
             let grpc = spawn_grpc(|call| match call.path.as_str() {

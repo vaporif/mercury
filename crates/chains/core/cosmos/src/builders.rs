@@ -1105,9 +1105,12 @@ mod tests {
                 clock_drift: Duration::from_secs(10),
             };
             let now = block_time(100);
-            match tendermint_light_client_verifier::ProdVerifier::default()
-                .verify_update_header(untrusted, trusted_state, &options, now)
-            {
+            match tendermint_light_client_verifier::ProdVerifier::default().verify_update_header(
+                untrusted,
+                trusted_state,
+                &options,
+                now,
+            ) {
                 tendermint_light_client_verifier::Verdict::Success => Ok(()),
                 other => Err(format!("{other:?}")),
             }

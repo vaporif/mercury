@@ -490,6 +490,30 @@ mod tests {
         }
 
         #[tokio::test]
+        #[ignore = "bug: https grpc_addr panics, no rustls CryptoProvider selected"]
+        async fn new_with_https_grpc_errors_instead_of_panicking() {
+            let rpc = node(false, true).await;
+            // nothing listens on port 1: TLS setup must succeed and the connect fail
+            let config = mock_config(&rpc.url, "https://127.0.0.1:1");
+            let outcome = tokio::spawn(connect(config)).await;
+            match outcome {
+                Ok(Err(err)) => {
+                    assert!(format!("{err:#}").contains("connecting to gRPC"), "{err:#}");
+                }
+                Ok(Ok(_)) => panic!("connected to a closed port"),
+                Err(join) => {
+                    let panic = join.into_panic();
+                    let msg = panic
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| panic.downcast_ref::<&str>().map(ToString::to_string))
+                        .unwrap_or_default();
+                    panic!("CosmosChain::new panicked: {msg}");
+                }
+            }
+        }
+
+        #[tokio::test]
         async fn new_surfaces_status_and_grpc_connect_failures() {
             let rpc = spawn_rpc(|_| Reply::Error("down".into())).await;
             let err = connect(mock_config(&rpc.url, UNREACHABLE_ADDR))

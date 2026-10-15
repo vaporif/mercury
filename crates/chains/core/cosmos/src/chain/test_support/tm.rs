@@ -2,14 +2,14 @@
 //! consistent, and JSON-RPC result bodies built by serializing the same
 //! `tendermint-rpc` response types the client deserializes.
 
-use serde_json::{json, Value};
-use tendermint::abci::{types::ExecTxResult, Event, EventAttributeIndexExt};
-use tendermint::block::{self, parts, signed_header::SignedHeader, Commit, Header, Height};
+use serde_json::{Value, json};
+use tendermint::abci::{Event, EventAttributeIndexExt, types::ExecTxResult};
+use tendermint::block::{self, Commit, Header, Height, parts, signed_header::SignedHeader};
 use tendermint::validator::{Info, Set};
-use tendermint::{account, AppHash, Hash, Time};
+use tendermint::{AppHash, Hash, Time, account};
 use tendermint_rpc::endpoint::{commit, validators};
 
-use super::rpc::{ok, Reply};
+use super::rpc::{Reply, ok};
 
 pub const CHAIN_ID: &str = "testchain-1";
 pub const GENESIS_UNIX: i64 = 1_700_000_000;
@@ -206,7 +206,7 @@ pub fn abci_reply(value: Vec<u8>, proof: Option<tendermint::merkle::proof::Proof
 
 /// Proof ops whose data decodes as ICS-23 existence proofs for `keys`.
 pub fn proof_ops(keys: &[&[u8]]) -> tendermint::merkle::proof::ProofOps {
-    use ibc_proto::ics23::{commitment_proof, CommitmentProof, ExistenceProof};
+    use ibc_proto::ics23::{CommitmentProof, ExistenceProof, commitment_proof};
     use prost::Message as _;
 
     let ops = keys

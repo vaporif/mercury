@@ -1467,6 +1467,10 @@ mod tests {
             // (sequence, message value lengths) per included tx
             included_txs: Vec<(u64, Vec<usize>)>,
             reject_once: Option<(u64, u32, String)>,
+            // sequences whose tx is committed but never returned by `tx`
+            // (indexer lag, or committed just after the poll window)
+            unindexed: BTreeSet<u64>,
+            unindexed_hashes: Vec<String>,
         }
 
         impl NodeState {
@@ -1545,13 +1549,16 @@ mod tests {
                         );
                     }
                     state.used.insert(seq);
+                    if state.unindexed.contains(&seq) {
+                        state.unindexed_hashes.push(cometbft_hash(&tx));
+                    }
                     state.included.push(cometbft_hash(&tx));
                     state.included_txs.push((seq, msg_lens(&tx)));
                     broadcast_ok(&tx)
                 }
                 "tx" => {
                     let hash = hex::encode_upper(decode_base64(&call.params["hash"]));
-                    if state.included.contains(&hash) {
+                    if state.included.contains(&hash) && !state.unindexed_hashes.contains(&hash) {
                         Reply::Result(tx_entry(
                             hash.parse().unwrap(),
                             42,
@@ -1654,6 +1661,33 @@ mod tests {
             assert_eq!(lens, vec![1, 2, 3]);
             let seqs: Vec<u64> = included.iter().map(|(s, _)| *s).collect();
             assert_eq!(seqs, vec![START_SEQ, START_SEQ + 1, START_SEQ + 2]);
+        }
+
+        #[tokio::test(start_paused = true)]
+        #[ignore = "bug: batch accepted but not seen within poll window is re-broadcast with a fresh nonce"]
+        async fn send_messages_parallel_unconfirmed_batch_is_not_double_included() {
+            keep_clock_ticking();
+            let node = Node::spawn(NodeState {
+                unindexed: BTreeSet::from([START_SEQ + 1]),
+                ..Default::default()
+            })
+            .await;
+            let result = node
+                .chain(1)
+                .send_messages(vec![make_msg(1), make_msg(2), make_msg(3)])
+                .await;
+            let included = node.state.lock().unwrap().included_txs.clone();
+            // (sequence, message value lengths) of every tx the node accepted
+            assert_eq!(
+                included,
+                vec![
+                    (START_SEQ, vec![1]),
+                    (START_SEQ + 1, vec![2]),
+                    (START_SEQ + 2, vec![3])
+                ],
+                "broadcast sequences {:?}, send result {result:?}",
+                node.broadcast_sequences()
+            );
         }
 
         #[tokio::test(start_paused = true)]
