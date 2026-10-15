@@ -2,14 +2,14 @@
 //! consistent, and JSON-RPC result bodies built by serializing the same
 //! `tendermint-rpc` response types the client deserializes.
 
-use serde_json::{Value, json};
-use tendermint::abci::{Event, EventAttributeIndexExt, types::ExecTxResult};
-use tendermint::block::{self, Commit, Header, Height, parts, signed_header::SignedHeader};
+use serde_json::{json, Value};
+use tendermint::abci::{types::ExecTxResult, Event, EventAttributeIndexExt};
+use tendermint::block::{self, parts, signed_header::SignedHeader, Commit, Header, Height};
 use tendermint::validator::{Info, Set};
-use tendermint::{AppHash, Hash, Time, account};
+use tendermint::{account, AppHash, Hash, Time};
 use tendermint_rpc::endpoint::{commit, validators};
 
-use super::rpc::{Reply, ok};
+use super::rpc::{ok, Reply};
 
 pub const CHAIN_ID: &str = "testchain-1";
 pub const GENESIS_UNIX: i64 = 1_700_000_000;
@@ -63,6 +63,56 @@ pub fn signed_header(header: Header) -> SignedHeader {
             part_set_header: parts::Header::new(1, Hash::Sha256([0x0d; 32])).unwrap(),
         },
         signatures: vec![],
+    };
+    SignedHeader::new(header, commit).unwrap()
+}
+
+/// Header with a commit carrying real secp256k1 precommit signatures from every
+/// validator built from `seeds` (see `validator`), so a light client
+/// verifier accepts it.
+pub fn signed_header_by(header: Header, seeds: &[u8], power: u32) -> SignedHeader {
+    use tendermint::block::CommitSig;
+    use tendermint::vote::{Type, ValidatorIndex, Vote};
+
+    let unsigned = signed_header(header.clone());
+    let block_id = unsigned.commit.block_id;
+    let set = Set::new(seeds.iter().map(|s| validator(*s, power)).collect(), None);
+    let signatures = set
+        .validators()
+        .iter()
+        .enumerate()
+        .map(|(idx, info)| {
+            let seed = *seeds
+                .iter()
+                .find(|s| validator(**s, power).address == info.address)
+                .unwrap();
+            let timestamp = header.time;
+            let vote = Vote {
+                vote_type: Type::Precommit,
+                height: header.height,
+                round: block::Round::default(),
+                block_id: Some(block_id),
+                timestamp: Some(timestamp),
+                validator_address: info.address,
+                validator_index: ValidatorIndex::try_from(u32::try_from(idx).unwrap()).unwrap(),
+                signature: None,
+                extension: vec![],
+                extension_signature: None,
+            };
+            let sign_bytes = vote.into_signable_vec(header.chain_id.clone());
+            let digest: [u8; 32] = <sha2::Sha256 as sha2::Digest>::digest(&sign_bytes).into();
+            let secret = secp256k1::SecretKey::from_secret_bytes([seed; 32]).unwrap();
+            let sig = secp256k1::ecdsa::sign(secp256k1::Message::from_digest(digest), &secret);
+            CommitSig::BlockIdFlagCommit {
+                validator_address: info.address,
+                timestamp,
+                signature: tendermint::Signature::new(sig.serialize_compact()).unwrap(),
+            }
+        })
+        .collect();
+    let commit = Commit {
+        signatures,
+        ..unsigned.commit
     };
     SignedHeader::new(header, commit).unwrap()
 }
@@ -156,7 +206,7 @@ pub fn abci_reply(value: Vec<u8>, proof: Option<tendermint::merkle::proof::Proof
 
 /// Proof ops whose data decodes as ICS-23 existence proofs for `keys`.
 pub fn proof_ops(keys: &[&[u8]]) -> tendermint::merkle::proof::ProofOps {
-    use ibc_proto::ics23::{CommitmentProof, ExistenceProof, commitment_proof};
+    use ibc_proto::ics23::{commitment_proof, CommitmentProof, ExistenceProof};
     use prost::Message as _;
 
     let ops = keys

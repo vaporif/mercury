@@ -1025,6 +1025,139 @@ mod tests {
             assert_eq!(heights_requested(&rpc, "commit"), vec![9, 15]);
         }
 
+        // Validator set {1,2,3} up to height 10; validator 4 joins at 11. Header
+        // hashes are consistent and the target commit carries real signatures.
+        const OLD_SET: &[u8] = &[1, 2, 3];
+        const NEW_SET: &[u8] = &[1, 2, 3, 4];
+        const LAST_OLD_HEIGHT: u64 = 10;
+
+        fn set_at(h: u64) -> &'static [u8] {
+            if h <= LAST_OLD_HEIGHT {
+                OLD_SET
+            } else {
+                NEW_SET
+            }
+        }
+
+        fn chain_header(h: u64) -> tendermint::block::Header {
+            header(
+                h,
+                u8::try_from(h).unwrap(),
+                &validators(set_at(h)),
+                &validators(set_at(h + 1)),
+            )
+        }
+
+        async fn valset_change_node() -> MockRpc {
+            use tendermint_rpc::endpoint::commit;
+            spawn_rpc(|call| {
+                let h = height_param(call);
+                match call.method.as_str() {
+                    "validators" => validators_reply(h, &validators(set_at(h))),
+                    "commit" => crate::chain::test_support::rpc::ok(&commit::Response {
+                        signed_header: crate::chain::test_support::tm::signed_header_by(
+                            chain_header(h),
+                            set_at(h),
+                            10,
+                        ),
+                        canonical: true,
+                    }),
+                    other => Reply::Error(format!("unexpected {other}")),
+                }
+            })
+            .await
+        }
+
+        // Mirrors ibc-client-tendermint 0.57 `client_state::verify_header`
+        // (the function the SP1 ICS07 program and ibc-rs hosts run): validate_basic,
+        // trusted next-validator-set hash check, then the light client verifier.
+        fn ibc_rs_verify(
+            header: &TmIbcHeader,
+            trusted: &TendermintConsensusState,
+        ) -> std::result::Result<(), String> {
+            use tendermint_light_client_verifier::Verifier as _;
+            use tendermint_light_client_verifier::options::Options;
+            use tendermint_light_client_verifier::types::{
+                TrustThreshold as TmTrust, TrustedBlockState, UntrustedBlockState,
+            };
+            type H = tendermint::crypto::default::Sha256;
+
+            header.validate_basic::<H>().map_err(|e| e.to_string())?;
+            header
+                .check_trusted_next_validator_set::<H>(&trusted.next_validators_hash)
+                .map_err(|e| e.to_string())?;
+            let chain_id: tendermint::chain::Id = "testchain-1".parse().unwrap();
+            let trusted_state = TrustedBlockState {
+                chain_id: &chain_id,
+                header_time: trusted.timestamp(),
+                height: TmHeight::try_from(header.trusted_height.revision_height()).unwrap(),
+                next_validators: &header.trusted_next_validator_set,
+                next_validators_hash: trusted.next_validators_hash,
+            };
+            let untrusted = UntrustedBlockState {
+                signed_header: &header.signed_header,
+                validators: &header.validator_set,
+                next_validators: None,
+            };
+            let options = Options {
+                trust_threshold: TmTrust::ONE_THIRD,
+                trusting_period: Duration::from_secs(3600),
+                clock_drift: Duration::from_secs(10),
+            };
+            let now = block_time(100);
+            match tendermint_light_client_verifier::ProdVerifier::default()
+                .verify_update_header(untrusted, trusted_state, &options, now)
+            {
+                tendermint_light_client_verifier::Verdict::Success => Ok(()),
+                other => Err(format!("{other:?}")),
+            }
+        }
+
+        #[tokio::test]
+        #[ignore = "bug: trusted validator set fetched at trusted_height instead of trusted_height+1"]
+        async fn update_client_header_verifies_across_validator_set_change() {
+            let rpc = valset_change_node().await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let cs = CosmosClientState::Tendermint(tm_client_state(LAST_OLD_HEIGHT));
+            let payload =
+                <TestChain as ClientPayloadBuilder<TestChain>>::build_update_client_payload(
+                    &chain,
+                    &height(LAST_OLD_HEIGHT),
+                    &height(20),
+                    &cs,
+                )
+                .await
+                .unwrap();
+            let header = TmIbcHeader::try_from(payload.headers[0].clone()).unwrap();
+            let trusted = payload.trusted_consensus_state.unwrap();
+
+            // Control: the same header with the trusted set taken from H+1 verifies,
+            // so the fixture (hashes, signatures, times) is sound.
+            let mut fixed = header.clone();
+            fixed.trusted_next_validator_set =
+                tendermint::validator::Set::new(validators(set_at(LAST_OLD_HEIGHT + 1)), None);
+            ibc_rs_verify(&fixed, &trusted).expect("H+1 trusted set must verify");
+
+            ibc_rs_verify(&header, &trusted).expect("header built by mercury must verify");
+        }
+
+        #[tokio::test]
+        #[ignore = "bug: corrective misbehaviour update uses validators(trusted_height), not +1"]
+        async fn corrective_update_header_verifies_across_validator_set_change() {
+            let rpc = valset_change_node().await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let payload = crate::misbehaviour::build_corrective_update_payload(
+                &chain,
+                height(LAST_OLD_HEIGHT),
+                height(20),
+            )
+            .await
+            .unwrap();
+            let header = TmIbcHeader::try_from(payload.headers[0].clone()).unwrap();
+            let trusted = payload.trusted_consensus_state.unwrap();
+            ibc_rs_verify(&header, &trusted).expect("corrective header must verify");
+        }
+
         #[tokio::test]
         async fn update_client_payload_rpc_error_propagates() {
             let rpc = spawn_rpc(|_| Reply::Error("pruned".into())).await;
