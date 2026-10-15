@@ -1050,6 +1050,637 @@ mod tests {
             assert!(chain.poll_tx_response("abcd").await.is_err());
         }
     }
+
+    mod mocked {
+        use std::collections::BTreeSet;
+        use std::sync::Mutex;
+
+        use super::*;
+        use crate::chain::test_support::grpc::{
+            GrpcCall, GrpcReply, MockGrpc, reply, spawn_grpc, unimplemented,
+        };
+        use crate::chain::test_support::rpc::{MockRpc, Reply, RpcCall, spawn_rpc};
+        use crate::chain::test_support::tm::{event, exec_result, tx_entry};
+        use crate::chain::test_support::{
+            UNREACHABLE_ADDR, keep_clock_ticking, mock_chain, mock_config, test_chain_with,
+            test_signer,
+        };
+        use crate::config::CosmosChainConfig;
+        use crate::keys::Secp256k1KeyPair;
+        use ibc_proto::cosmos::auth::v1beta1::{
+            BaseAccount, QueryAccountRequest, QueryAccountResponse,
+        };
+        use ibc_proto::cosmos::base::abci::v1beta1::GasInfo;
+        use ibc_proto::cosmos::tx::v1beta1::{
+            AuthInfo, SignDoc, SimulateRequest, SimulateResponse, TxRaw,
+        };
+        use prost::Name;
+        use serde_json::{Value, json};
+
+        const ACCOUNT_PATH: &str = "/cosmos.auth.v1beta1.Query/Account";
+        const SIMULATE_PATH: &str = "/cosmos.tx.v1beta1.Service/Simulate";
+        const ACCOUNT_NUMBER: u64 = 12;
+        const START_SEQ: u64 = 34;
+
+        type TestChain = CosmosChain<Secp256k1KeyPair>;
+
+        fn account_reply(sequence: u64) -> GrpcReply {
+            reply(&QueryAccountResponse {
+                account: Some(ibc_proto::google::protobuf::Any {
+                    type_url: BaseAccount::type_url(),
+                    value: BaseAccount {
+                        address: test_signer().account_address().unwrap(),
+                        pub_key: None,
+                        account_number: ACCOUNT_NUMBER,
+                        sequence,
+                    }
+                    .encode_to_vec(),
+                }),
+            })
+        }
+
+        fn simulate_reply(gas_used: u64) -> GrpcReply {
+            reply(&SimulateResponse {
+                gas_info: Some(GasInfo {
+                    gas_wanted: 0,
+                    gas_used,
+                }),
+                result: None,
+            })
+        }
+
+        fn nonce(sequence: u64) -> CosmosNonce {
+            CosmosNonce {
+                account_number: AccountNumber(ACCOUNT_NUMBER),
+                sequence: TxSequence(sequence),
+            }
+        }
+
+        fn cometbft_hash(tx: &[u8]) -> String {
+            hex::encode_upper(Sha256::digest(tx))
+        }
+
+        fn decode_base64(v: &Value) -> Vec<u8> {
+            #[derive(serde::Deserialize)]
+            struct B64(#[serde(with = "tendermint::serializers::bytes::base64string")] Vec<u8>);
+            serde_json::from_value::<B64>(v.clone()).unwrap().0
+        }
+
+        fn broadcast_ok(tx: &[u8]) -> Reply {
+            Reply::Result(json!({
+                "code": 0, "data": "", "log": "", "codespace": "", "hash": cometbft_hash(tx)
+            }))
+        }
+
+        fn broadcast_err(tx: &[u8], code: u32, log: &str) -> Reply {
+            Reply::Result(json!({
+                "code": code, "data": "", "log": log, "codespace": "sdk", "hash": cometbft_hash(tx)
+            }))
+        }
+
+        // Checks what a full node checks on a SIGN_MODE_DIRECT tx and returns
+        // the signer's sequence and the fee.
+        fn verify_signed(tx: &[u8]) -> (u64, ibc_proto::cosmos::tx::v1beta1::Fee) {
+            let raw = TxRaw::decode(tx).unwrap();
+            let sign_doc = SignDoc {
+                body_bytes: raw.body_bytes.clone(),
+                auth_info_bytes: raw.auth_info_bytes.clone(),
+                chain_id: "testchain-1".into(),
+                account_number: ACCOUNT_NUMBER,
+            };
+            let digest: [u8; 32] = Sha256::digest(sign_doc.encode_to_vec()).into();
+            let sig = secp256k1::ecdsa::Signature::from_compact(&raw.signatures[0]).unwrap();
+            secp256k1::ecdsa::verify(
+                &sig,
+                secp256k1::Message::from_digest(digest),
+                &test_signer().public_key,
+            )
+            .unwrap();
+            let auth = AuthInfo::decode(raw.auth_info_bytes.as_slice()).unwrap();
+            (auth.signer_infos[0].sequence, auth.fee.unwrap())
+        }
+
+        #[tokio::test]
+        async fn query_nonce_decodes_base_account_for_signer_address() {
+            let grpc = spawn_grpc(|call| match call.path.as_str() {
+                ACCOUNT_PATH => account_reply(START_SEQ),
+                _ => unimplemented(call),
+            })
+            .await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            let n = chain.query_nonce(&test_signer()).await.unwrap();
+            assert_eq!(u64::from(n.account_number), ACCOUNT_NUMBER);
+            assert_eq!(u64::from(n.sequence), START_SEQ);
+            let req: QueryAccountRequest = grpc.calls_to(ACCOUNT_PATH)[0].decode();
+            assert_eq!(req.address, test_signer().account_address().unwrap());
+        }
+
+        #[tokio::test]
+        async fn query_nonce_missing_or_garbage_account_is_error() {
+            let grpc = spawn_grpc(|_| reply(&QueryAccountResponse { account: None })).await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            let err = chain.query_nonce(&test_signer()).await.unwrap_err();
+            assert!(err.to_string().contains("account not found"), "{err:#}");
+
+            let grpc = spawn_grpc(|_| {
+                reply(&QueryAccountResponse {
+                    account: Some(ibc_proto::google::protobuf::Any {
+                        type_url: BaseAccount::type_url(),
+                        value: vec![0xff, 0xff, 0xff],
+                    }),
+                })
+            })
+            .await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            assert!(chain.query_nonce(&test_signer()).await.is_err());
+
+            let grpc =
+                spawn_grpc(|_| GrpcReply::Err(tonic::Status::not_found("unknown address"))).await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            let err = chain.query_nonce(&test_signer()).await.unwrap_err();
+            assert!(format!("{err:#}").contains("unknown address"), "{err:#}");
+        }
+
+        async fn estimate_with(
+            config: CosmosChainConfig,
+            simulate: impl Fn(&GrpcCall) -> GrpcReply + Send + Sync + 'static,
+        ) -> (Result<CosmosFee>, MockGrpc) {
+            let grpc = spawn_grpc(move |call| match call.path.as_str() {
+                SIMULATE_PATH => simulate(call),
+                _ => unimplemented(call),
+            })
+            .await;
+            let mut config = config;
+            config.grpc_addr.clone_from(&grpc.url);
+            let chain = test_chain_with(config);
+            let fee = chain
+                .estimate_fee_with_nonce(&test_signer(), &nonce(START_SEQ), &[make_msg(16)])
+                .await;
+            (fee, grpc)
+        }
+
+        fn simulated_tx_size(grpc: &MockGrpc) -> u64 {
+            let req: SimulateRequest = grpc.calls_to(SIMULATE_PATH)[0].decode();
+            req.tx_bytes.len() as u64
+        }
+
+        #[tokio::test]
+        async fn estimate_fee_simulates_signed_zero_fee_tx_and_applies_multiplier() {
+            let mut config = mock_config(UNREACHABLE_ADDR, UNREACHABLE_ADDR);
+            config.fee_granter = Some("cosmos1granter".into());
+            let (fee, grpc) = estimate_with(config, |_| simulate_reply(100_000)).await;
+            let fee = fee.unwrap();
+
+            let req: SimulateRequest = grpc.calls_to(SIMULATE_PATH)[0].decode();
+            let (sequence, sim_fee) = verify_signed(&req.tx_bytes);
+            assert_eq!(sequence, START_SEQ);
+            assert_eq!(sim_fee.gas_limit, 0);
+            assert_eq!(sim_fee.amount[0].amount, "0");
+            assert_eq!(sim_fee.granter, "cosmos1granter");
+
+            // 100_000 * default multiplier 1.3, priced at the static 0.025uatom
+            assert_eq!(u64::from(fee.gas_limit), 130_000);
+            assert_eq!(u64::from(fee.amount), 3250);
+            assert_eq!(fee.denom.0, "uatom");
+        }
+
+        #[tokio::test]
+        async fn estimate_fee_floors_gas_at_sdk_tx_size_cost() {
+            let mut config = mock_config(UNREACHABLE_ADDR, UNREACHABLE_ADDR);
+            config.tx_size_gas_per_byte = Some(1_000);
+            let (fee, grpc) = estimate_with(config, |_| simulate_reply(1)).await;
+            // SDK ConsumeTxSizeGas charges len(tx_bytes) * TxSizeCostPerByte up front
+            assert_eq!(
+                u64::from(fee.unwrap().gas_limit),
+                simulated_tx_size(&grpc) * 1_000
+            );
+        }
+
+        #[tokio::test]
+        async fn estimate_fee_caps_at_max_gas() {
+            let mut config = mock_config(UNREACHABLE_ADDR, UNREACHABLE_ADDR);
+            config.max_gas = Some(50_000);
+            let (fee, _) = estimate_with(config, |_| simulate_reply(1_000_000)).await;
+            assert_eq!(u64::from(fee.unwrap().gas_limit), 50_000);
+        }
+
+        #[tokio::test]
+        async fn estimate_fee_recoverable_simulation_error_uses_default_gas() {
+            let mut config = mock_config(UNREACHABLE_ADDR, UNREACHABLE_ADDR);
+            config.default_gas = Some(200_000);
+            let (fee, _) = estimate_with(config, |_| {
+                GrpcReply::Err(tonic::Status::unknown(
+                    "account sequence mismatch, expected 35, got 34: incorrect account sequence",
+                ))
+            })
+            .await;
+            assert_eq!(u64::from(fee.unwrap().gas_limit), 260_000);
+        }
+
+        #[tokio::test]
+        async fn estimate_fee_unrecoverable_simulation_error_is_simulation_failed() {
+            let config = mock_config(UNREACHABLE_ADDR, UNREACHABLE_ADDR);
+            let (fee, _) = estimate_with(config, |_| {
+                GrpcReply::Err(tonic::Status::unknown("insufficient funds"))
+            })
+            .await;
+            let err = fee.unwrap_err();
+            assert!(
+                matches!(
+                    err.downcast_ref::<TxError>(),
+                    Some(TxError::SimulationFailed { reason }) if reason.contains("insufficient funds")
+                ),
+                "{err:#}"
+            );
+        }
+
+        #[tokio::test]
+        async fn estimate_fee_without_gas_info_is_error() {
+            let config = mock_config(UNREACHABLE_ADDR, UNREACHABLE_ADDR);
+            let (fee, _) = estimate_with(config, |_| reply(&SimulateResponse::default())).await;
+            assert!(fee.unwrap_err().to_string().contains("no gas info"));
+        }
+
+        fn fee(amount: u64, gas: u64) -> CosmosFee {
+            CosmosFee {
+                amount: FeeAmount(amount),
+                denom: Denom("uatom".into()),
+                gas_limit: GasLimit(gas),
+            }
+        }
+
+        #[tokio::test]
+        async fn submit_tx_broadcasts_signed_tx_and_returns_cometbft_hash() {
+            let rpc = spawn_rpc(|call| broadcast_ok(&decode_base64(&call.params["tx"]))).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let hash = chain
+                .submit_tx(&test_signer(), &nonce(40), &fee(777, 9_999), &[make_msg(4)])
+                .await
+                .unwrap();
+
+            let sent = rpc.calls_to("broadcast_tx_sync");
+            assert_eq!(sent.len(), 1);
+            let tx = decode_base64(&sent[0]["tx"]);
+            assert_eq!(hash, cometbft_hash(&tx));
+            let (sequence, sent_fee) = verify_signed(&tx);
+            assert_eq!(sequence, 40);
+            assert_eq!(sent_fee.gas_limit, 9_999);
+            assert_eq!(sent_fee.amount[0].amount, "777");
+        }
+
+        #[tokio::test]
+        async fn submit_tx_classifies_check_tx_failures() {
+            let rpc = spawn_rpc(|call| {
+                broadcast_err(
+                    &decode_base64(&call.params["tx"]),
+                    32,
+                    "account sequence mismatch, expected 41, got 40: incorrect account sequence",
+                )
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let err = chain
+                .submit_tx(&test_signer(), &nonce(40), &fee(1, 1), &[make_msg(4)])
+                .await
+                .unwrap_err();
+            assert!(is_sequence_mismatch(&err), "{err:#}");
+
+            let rpc = spawn_rpc(|call| {
+                broadcast_err(&decode_base64(&call.params["tx"]), 13, "insufficient fee")
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let err = chain
+                .submit_tx(&test_signer(), &nonce(40), &fee(1, 1), &[make_msg(4)])
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err.downcast_ref::<TxError>(),
+                    Some(TxError::BroadcastFailed { reason }) if reason == "code=13, log=insufficient fee"
+                ),
+                "{err:#}"
+            );
+        }
+
+        #[tokio::test]
+        async fn submit_tx_rpc_error_propagates() {
+            let rpc = spawn_rpc(|_| Reply::Error("mempool is full".into())).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let err = chain
+                .submit_tx(&test_signer(), &nonce(1), &fee(1, 1), &[make_msg(4)])
+                .await
+                .unwrap_err();
+            assert!(format!("{err:#}").contains("mempool is full"), "{err:#}");
+        }
+
+        const HASH: &str = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+
+        fn found_tx(code: u32, log: &str) -> Reply {
+            Reply::Result(tx_entry(
+                HASH.parse().unwrap(),
+                42,
+                exec_result(
+                    code,
+                    log,
+                    vec![event("write_acknowledgement", &[("packet_sequence", "7")])],
+                ),
+            ))
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn poll_tx_response_retries_until_indexed() {
+            keep_clock_ticking();
+            let attempts = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let counter = attempts.clone();
+            let rpc = spawn_rpc(move |_| {
+                if counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 2 {
+                    Reply::Error(format!("tx ({HASH}) not found"))
+                } else {
+                    found_tx(0, "")
+                }
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let started = tokio::time::Instant::now();
+            let resp = chain.poll_tx_response(HASH).await.unwrap();
+
+            assert_eq!(resp.hash, HASH);
+            assert_eq!(resp.height.value(), 42);
+            assert_eq!(resp.events.len(), 1);
+            assert_eq!(resp.events[0].kind, "write_acknowledgement");
+            assert_eq!(
+                resp.events[0].attributes,
+                vec![("packet_sequence".to_string(), "7".to_string())]
+            );
+            assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 3);
+            // one half-block sleep before each attempt
+            assert!(started.elapsed() >= chain.block_time / 2 * 3);
+
+            let params = &rpc.calls_to("tx")[0];
+            assert_eq!(decode_base64(&params["hash"]), hex::decode(HASH).unwrap());
+            assert_eq!(params["prove"], false);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn poll_tx_response_failed_execution_is_reverted() {
+            keep_clock_ticking();
+            let rpc = spawn_rpc(|_| found_tx(11, "out of gas")).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let err = chain.poll_tx_response(HASH).await.unwrap_err();
+            assert!(
+                matches!(
+                    err.downcast_ref::<TxError>(),
+                    Some(TxError::Reverted { tx_hash, reason })
+                        if tx_hash == HASH && reason == "code=11, log=out of gas"
+                ),
+                "{err:#}"
+            );
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn poll_tx_response_gives_up_after_max_retries() {
+            keep_clock_ticking();
+            let rpc = spawn_rpc(|_| Reply::Error("tx not found".into())).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let err = chain.poll_tx_response(HASH).await.unwrap_err();
+            assert!(
+                matches!(
+                    err.downcast_ref::<TxError>(),
+                    Some(TxError::NotConfirmed { attempts, reason, .. })
+                        if *attempts == MAX_TX_POLL_RETRIES && reason.contains("tx not found")
+                ),
+                "{err:#}"
+            );
+            assert_eq!(rpc.calls_to("tx").len(), MAX_TX_POLL_RETRIES as usize);
+        }
+
+        // A node that enforces account sequences like the SDK ante handler: a
+        // tx is accepted only with exactly the account's next sequence, and the
+        // account query reports that sequence. `reject_once` fails one
+        // broadcast with the given CheckTx code; code 32 also burns the
+        // sequence, as if another relayer had used it.
+        #[derive(Default)]
+        struct NodeState {
+            used: BTreeSet<u64>,
+            included: Vec<String>,
+            // (sequence, message value lengths) per included tx
+            included_txs: Vec<(u64, Vec<usize>)>,
+            reject_once: Option<(u64, u32, String)>,
+        }
+
+        impl NodeState {
+            fn next_sequence(&self) -> u64 {
+                START_SEQ + self.used.len() as u64
+            }
+        }
+
+        fn msg_lens(tx: &[u8]) -> Vec<usize> {
+            let raw = TxRaw::decode(tx).unwrap();
+            ibc_proto::cosmos::tx::v1beta1::TxBody::decode(raw.body_bytes.as_slice())
+                .unwrap()
+                .messages
+                .iter()
+                .map(|m| m.value.len())
+                .collect()
+        }
+
+        struct Node {
+            rpc: MockRpc,
+            grpc: MockGrpc,
+            state: std::sync::Arc<Mutex<NodeState>>,
+        }
+
+        impl Node {
+            async fn spawn(state: NodeState) -> Self {
+                let state = std::sync::Arc::new(Mutex::new(state));
+                let s = state.clone();
+                let grpc = spawn_grpc(move |call| match call.path.as_str() {
+                    ACCOUNT_PATH => account_reply(s.lock().unwrap().next_sequence()),
+                    SIMULATE_PATH => simulate_reply(80_000),
+                    _ => unimplemented(call),
+                })
+                .await;
+                let s = state.clone();
+                let rpc = spawn_rpc(move |call| node_rpc(&mut s.lock().unwrap(), call)).await;
+                Self { rpc, grpc, state }
+            }
+
+            fn chain(&self, max_msg_num: usize) -> TestChain {
+                let mut config = mock_config(&self.rpc.url, &self.grpc.url);
+                config.max_msg_num = max_msg_num;
+                test_chain_with(config)
+            }
+
+            fn broadcast_sequences(&self) -> Vec<u64> {
+                self.rpc
+                    .calls_to("broadcast_tx_sync")
+                    .iter()
+                    .map(|p| verify_signed(&decode_base64(&p["tx"])).0)
+                    .collect()
+            }
+        }
+
+        fn node_rpc(state: &mut NodeState, call: &RpcCall) -> Reply {
+            match call.method.as_str() {
+                "broadcast_tx_sync" => {
+                    let tx = decode_base64(&call.params["tx"]);
+                    let (seq, _) = verify_signed(&tx);
+                    if let Some((target, code, log)) = state.reject_once.clone()
+                        && target == seq
+                    {
+                        state.reject_once = None;
+                        if code == 32 {
+                            // someone else consumed this sequence
+                            state.used.insert(seq);
+                        }
+                        return broadcast_err(&tx, code, &log);
+                    }
+                    let expected = state.next_sequence();
+                    if seq != expected {
+                        return broadcast_err(
+                            &tx,
+                            32,
+                            &format!("account sequence mismatch, expected {expected}, got {seq}"),
+                        );
+                    }
+                    state.used.insert(seq);
+                    state.included.push(cometbft_hash(&tx));
+                    state.included_txs.push((seq, msg_lens(&tx)));
+                    broadcast_ok(&tx)
+                }
+                "tx" => {
+                    let hash = hex::encode_upper(decode_base64(&call.params["hash"]));
+                    if state.included.contains(&hash) {
+                        Reply::Result(tx_entry(
+                            hash.parse().unwrap(),
+                            42,
+                            exec_result(0, "", vec![event("message", &[("action", "/test.Msg")])]),
+                        ))
+                    } else {
+                        Reply::Error(format!("tx ({hash}) not found"))
+                    }
+                }
+                other => Reply::Error(format!("unexpected method {other}")),
+            }
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn send_messages_single_batch_end_to_end() {
+            keep_clock_ticking();
+            let node = Node::spawn(NodeState::default()).await;
+            let chain = node.chain(30);
+            let responses = chain
+                .send_messages_with_responses(vec![make_msg(4), make_msg(5)])
+                .await
+                .unwrap();
+            assert_eq!(responses.len(), 1);
+            assert_eq!(responses[0].height.value(), 42);
+            assert_eq!(responses[0].hash, node.state.lock().unwrap().included[0]);
+            assert_eq!(node.broadcast_sequences(), vec![START_SEQ]);
+
+            let receipt = chain.send_messages(vec![make_msg(4)]).await.unwrap();
+            assert!(receipt.gas_used.is_none());
+            assert_eq!(node.broadcast_sequences(), vec![START_SEQ, START_SEQ + 1]);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn send_messages_refreshes_nonce_after_sequence_mismatch() {
+            keep_clock_ticking();
+            let node = Node::spawn(NodeState {
+                reject_once: Some((
+                    START_SEQ,
+                    32,
+                    "account sequence mismatch, expected 35, got 34".into(),
+                )),
+                ..Default::default()
+            })
+            .await;
+            let responses = node
+                .chain(30)
+                .send_messages_with_responses(vec![make_msg(4)])
+                .await
+                .unwrap();
+            assert_eq!(responses.len(), 1);
+            assert_eq!(node.broadcast_sequences(), vec![START_SEQ, START_SEQ + 1]);
+            assert_eq!(node.grpc.calls_to(ACCOUNT_PATH).len(), 2);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn send_messages_non_sequence_broadcast_failure_is_not_retried() {
+            keep_clock_ticking();
+            let node = Node::spawn(NodeState {
+                reject_once: Some((START_SEQ, 13, "insufficient fee".into())),
+                ..Default::default()
+            })
+            .await;
+            let err = node
+                .chain(30)
+                .send_messages(vec![make_msg(4)])
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err.downcast_ref::<TxError>(),
+                    Some(TxError::BroadcastFailed { .. })
+                ),
+                "{err:#}"
+            );
+            assert_eq!(node.broadcast_sequences(), vec![START_SEQ]);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn send_messages_parallel_batches_use_consecutive_sequences() {
+            keep_clock_ticking();
+            let node = Node::spawn(NodeState::default()).await;
+            let responses = node
+                .chain(1)
+                .send_messages_with_responses(vec![make_msg(1), make_msg(2), make_msg(3)])
+                .await
+                .unwrap();
+            assert_eq!(responses.len(), 3);
+            assert_each_message_included_once(&node);
+            // batches are signed with consecutive sequences from one nonce query
+            let mut seqs = node.broadcast_sequences();
+            seqs.sort_unstable();
+            seqs.dedup();
+            assert_eq!(seqs, vec![START_SEQ, START_SEQ + 1, START_SEQ + 2]);
+        }
+
+        fn assert_each_message_included_once(node: &Node) {
+            let included = node.state.lock().unwrap().included_txs.clone();
+            let mut lens: Vec<usize> = included.iter().flat_map(|(_, l)| l.clone()).collect();
+            lens.sort_unstable();
+            assert_eq!(lens, vec![1, 2, 3]);
+            let seqs: Vec<u64> = included.iter().map(|(s, _)| *s).collect();
+            assert_eq!(seqs, vec![START_SEQ, START_SEQ + 1, START_SEQ + 2]);
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn send_messages_parallel_failed_batch_is_retried_with_fresh_nonce() {
+            keep_clock_ticking();
+            let node = Node::spawn(NodeState {
+                reject_once: Some((START_SEQ + 1, 13, "insufficient fee".into())),
+                ..Default::default()
+            })
+            .await;
+            let receipt = node
+                .chain(1)
+                .send_messages(vec![make_msg(1), make_msg(2), make_msg(3)])
+                .await;
+            receipt.unwrap();
+            assert_each_message_included_once(&node);
+            assert!(
+                node.broadcast_sequences().len() > 3,
+                "rejected batch must be re-sent"
+            );
+            assert_eq!(
+                node.grpc.calls_to(ACCOUNT_PATH).len(),
+                2,
+                "fresh nonce for the retry"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1008,3 +1008,1054 @@ mod tests {
         assert!(a.matches_fields(&b));
     }
 }
+
+#[cfg(test)]
+mod builder_tests {
+    use super::*;
+
+    use crate::test_support::{PORT, adapter, deployed, tm_header};
+    use borsh::BorshDeserialize;
+    use ibc::core::client::types::Height as IbcHeight;
+    use ibc::core::commitment_types::commitment::CommitmentRoot;
+    use ibc::core::commitment_types::specs::ProofSpecs;
+    use ibc::core::host::types::identifiers::ChainId;
+    use ibc_client_tendermint::types::{
+        AllowUpdate, ClientState as TmClientState, ConsensusState as TmConsensusState,
+        Header as TmIbcHeader, TrustThreshold,
+    };
+    use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+    use mercury_cosmos::keys::Secp256k1KeyPair;
+    use mercury_cosmos::types::{PacketPayload, RawClientId};
+    use mercury_solana::accounts::{
+        ANCHOR_DISCRIMINATOR_LEN, AccessManager, IbcApp, Ics07Tendermint,
+        anchor_instruction_discriminator,
+    };
+    use mercury_solana::ibc_types::{
+        ClientState as SolClientState, ConsensusState as SolConsensusState, CounterpartyInfo,
+        Delivery, MsgAckPacket, MsgRecvPacket, MsgTimeoutPacket,
+    };
+    use mercury_solana::rpc::testing::anchor_account;
+    use mercury_solana::types::SolanaPayload;
+    use solana_sdk::instruction::{AccountMeta, Instruction};
+    use solana_sdk::pubkey::Pubkey;
+
+    type Cosmos = CosmosChain<Secp256k1KeyPair>;
+
+    const DEST_CLIENT: &str = "07-tendermint-0";
+    const SOURCE_CLIENT: &str = "08-wasm-0";
+    const SEQ: u64 = 7;
+    const PROOF_HEIGHT: u64 = 42;
+    fn payload(len: usize) -> PacketPayload {
+        PacketPayload {
+            source_port: Port(PORT.into()),
+            dest_port: Port(PORT.into()),
+            version: "ics20-1".into(),
+            encoding: "application/json".into(),
+            data: (0..len).map(|i| u8::try_from(i % 251).unwrap()).collect(),
+        }
+    }
+
+    fn cosmos_packet(payloads: Vec<PacketPayload>) -> CosmosPacket {
+        CosmosPacket {
+            source_client_id: RawClientId(SOURCE_CLIENT.into()),
+            dest_client_id: RawClientId(DEST_CLIENT.into()),
+            sequence: PacketSequence(SEQ),
+            timeout_timestamp: TimeoutTimestamp(1_000),
+            payloads,
+        }
+    }
+
+    fn solana_packet(data_len: usize) -> SolanaPacket {
+        SolanaPacket {
+            source_client_id: DEST_CLIENT.into(),
+            dest_client_id: SOURCE_CLIENT.into(),
+            sequence: PacketSequence(SEQ),
+            timeout_timestamp: TimeoutTimestamp(1_000),
+            payloads: vec![SolanaPayload {
+                source_port: Port(PORT.into()),
+                dest_port: Port(PORT.into()),
+                version: "ics20-1".into(),
+                encoding: "application/json".into(),
+                data: vec![5; data_len],
+            }],
+        }
+    }
+
+    fn proof(len: usize) -> MerkleProof {
+        MerkleProof {
+            proof_bytes: (0..len).map(|i| u8::try_from(i % 13).unwrap()).collect(),
+        }
+    }
+
+    fn height(h: u64) -> TmHeight {
+        TmHeight::try_from(h).unwrap()
+    }
+
+    fn decode<T: BorshDeserialize>(ix: &Instruction, method: &str) -> T {
+        let (disc, body) = ix.data.split_at(ANCHOR_DISCRIMINATOR_LEN);
+        assert_eq!(disc, anchor_instruction_discriminator(method), "{method}");
+        T::try_from_slice(body).unwrap()
+    }
+
+    fn is_method(ix: &Instruction, method: &str) -> bool {
+        ix.data.get(..ANCHOR_DISCRIMINATOR_LEN) == Some(&anchor_instruction_discriminator(method))
+    }
+
+    fn find<'a>(msg: &'a SolanaMessage, method: &str) -> Vec<&'a Instruction> {
+        msg.instructions
+            .iter()
+            .filter(|ix| is_method(ix, method))
+            .collect()
+    }
+
+    fn payer(a: &SolanaAdapter) -> Pubkey {
+        a.0.keypair.pubkey()
+    }
+
+    // Mirrors ics26-router `UploadPayloadChunk` / `UploadProofChunk` args.
+    type ChunkArgs = (String, u64, u8, u8, Vec<u8>);
+    // Mirrors ics26-router `MsgCleanupChunks`.
+    type CleanupArgs = (String, u64, Vec<u8>, u8);
+
+    // The router reassembles chunks in index order (utils/chunking.rs), so
+    // concatenating the uploads must give back the original bytes.
+    fn reassemble(msg: &SolanaMessage, method: &str, payload_index: u8) -> Vec<u8> {
+        let mut chunks: Vec<ChunkArgs> = find(msg, method)
+            .into_iter()
+            .map(|ix| decode::<ChunkArgs>(ix, method))
+            .filter(|c| c.2 == payload_index)
+            .collect();
+        chunks.sort_by_key(|c| c.3);
+        for (i, c) in chunks.iter().enumerate() {
+            assert_eq!(usize::from(c.3), i, "chunk indices must be contiguous");
+        }
+        chunks.into_iter().flat_map(|c| c.4).collect()
+    }
+
+    // Remaining accounts after the fixed `RecvPacket`/`AckPacket` accounts.
+    fn remaining(ix: &Instruction, fixed: usize) -> Vec<Pubkey> {
+        ix.accounts[fixed..].iter().map(|m| m.pubkey).collect()
+    }
+
+    const RECV_FIXED_ACCOUNTS: usize = 14;
+    const ACK_FIXED_ACCOUNTS: usize = 13;
+    const CLEANUP_FIXED_ACCOUNTS: usize = 4;
+
+    // --- packet messages ---
+
+    #[tokio::test]
+    async fn recv_small_payload_stays_inline_but_proof_is_always_chunked() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let a = adapter(&d, rpc);
+        let pkt = cosmos_packet(vec![payload(10)]);
+        let msg = PacketMessageBuilder::<Cosmos>::build_receive_packet_message(
+            &a,
+            &pkt,
+            proof(100),
+            height(PROOF_HEIGHT),
+            0,
+        )
+        .await
+        .unwrap();
+
+        // proof upload, then [budget, budget, recv], then [budget, budget, cleanup]
+        assert_eq!(msg.instructions.len(), 7);
+        let recv = find(&msg, "recv_packet");
+        assert_eq!(recv.len(), 1);
+        let decoded: MsgRecvPacket = decode(recv[0], "recv_packet");
+        assert_eq!(decoded.packet.sequence, SEQ);
+        assert_eq!(decoded.packet.source_client, SOURCE_CLIENT);
+        assert_eq!(decoded.packet.dest_client, DEST_CLIENT);
+        assert!(
+            matches!(&decoded.packet.payloads[0].data, Delivery::Inline { data } if *data == pkt.payloads[0].data)
+        );
+        assert_eq!(decoded.proof.height, PROOF_HEIGHT);
+        assert!(matches!(
+            decoded.proof.data,
+            Delivery::Chunked { total_chunks: 1 }
+        ));
+
+        let proof_pda = Ics26Router::proof_chunk_pda(&payer(&a), DEST_CLIENT, SEQ, 0, &d.ics26).0;
+        assert_eq!(remaining(recv[0], RECV_FIXED_ACCOUNTS), vec![proof_pda]);
+        assert_eq!(
+            reassemble(&msg, "upload_proof_chunk", 0),
+            proof(100).proof_bytes
+        );
+
+        // Light client accounts are resolved through the dest client's ics07 program.
+        let keys: Vec<_> = recv[0].accounts.iter().map(|m| m.pubkey).collect();
+        assert!(keys.contains(&d.ics07));
+        assert!(keys.contains(&Ics07Tendermint::consensus_state_pda(PROOF_HEIGHT, &d.ics07).0));
+        assert!(keys.contains(&AccessManager::pda(&d.am).0));
+        assert!(keys.contains(&IbcApp::state_pda(&d.app).0));
+
+        let cleanup = find(&msg, "cleanup_chunks");
+        let args: CleanupArgs = decode(cleanup[0], "cleanup_chunks");
+        assert_eq!(args, (DEST_CLIENT.to_string(), SEQ, vec![0], 1));
+        assert_eq!(
+            remaining(cleanup[0], CLEANUP_FIXED_ACCOUNTS),
+            vec![proof_pda]
+        );
+    }
+
+    #[tokio::test]
+    async fn payloads_switch_to_chunked_delivery_at_300_bytes_total() {
+        for (len, chunked) in [(299, false), (300, true)] {
+            let (d, rpc) = deployed(DEST_CLIENT);
+            let a = adapter(&d, rpc);
+            let msg = PacketMessageBuilder::<Cosmos>::build_receive_packet_message(
+                &a,
+                &cosmos_packet(vec![payload(len)]),
+                proof(10),
+                height(PROOF_HEIGHT),
+                0,
+            )
+            .await
+            .unwrap();
+            let decoded: MsgRecvPacket = decode(find(&msg, "recv_packet")[0], "recv_packet");
+            assert_eq!(
+                matches!(
+                    decoded.packet.payloads[0].data,
+                    Delivery::Chunked { total_chunks: 1 }
+                ),
+                chunked,
+                "payload of {len} bytes"
+            );
+            assert_eq!(
+                find(&msg, "upload_payload_chunk").len(),
+                usize::from(chunked)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn chunked_payloads_and_proof_follow_router_remaining_account_order() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let a = adapter(&d, rpc);
+        // 200 B fits one chunk, 1000 B needs two, the 1801 B proof needs three.
+        let pkt = cosmos_packet(vec![payload(200), payload(1000)]);
+        let msg = PacketMessageBuilder::<Cosmos>::build_receive_packet_message(
+            &a,
+            &pkt,
+            proof(1801),
+            height(PROOF_HEIGHT),
+            0,
+        )
+        .await
+        .unwrap();
+
+        let decoded: MsgRecvPacket = decode(find(&msg, "recv_packet")[0], "recv_packet");
+        // The router rejects mixed inline/chunked payloads, so both must be chunked.
+        let counts: Vec<u8> = decoded
+            .packet
+            .payloads
+            .iter()
+            .map(|p| match p.data {
+                Delivery::Chunked { total_chunks } => total_chunks,
+                Delivery::Inline { .. } => panic!("mixed delivery modes"),
+            })
+            .collect();
+        assert_eq!(counts, vec![1, 2]);
+        assert!(matches!(
+            decoded.proof.data,
+            Delivery::Chunked { total_chunks: 3 }
+        ));
+
+        let p = payer(&a);
+        let payload_pda =
+            |pi, ci| Ics26Router::payload_chunk_pda(&p, DEST_CLIENT, SEQ, pi, ci, &d.ics26).0;
+        let proof_pda = |ci| Ics26Router::proof_chunk_pda(&p, DEST_CLIENT, SEQ, ci, &d.ics26).0;
+        // Router: payload chunks (per payload, in order), then proof chunks.
+        let expected = vec![
+            payload_pda(0, 0),
+            payload_pda(1, 0),
+            payload_pda(1, 1),
+            proof_pda(0),
+            proof_pda(1),
+            proof_pda(2),
+        ];
+        let recv = find(&msg, "recv_packet")[0];
+        assert_eq!(remaining(recv, RECV_FIXED_ACCOUNTS), expected);
+        assert!(
+            recv.accounts[RECV_FIXED_ACCOUNTS..]
+                .iter()
+                .all(|m| m.is_writable && !m.is_signer)
+        );
+
+        assert_eq!(
+            reassemble(&msg, "upload_payload_chunk", 0),
+            pkt.payloads[0].data
+        );
+        assert_eq!(
+            reassemble(&msg, "upload_payload_chunk", 1),
+            pkt.payloads[1].data
+        );
+        assert_eq!(
+            reassemble(&msg, "upload_proof_chunk", 0),
+            proof(1801).proof_bytes
+        );
+
+        let cleanup = find(&msg, "cleanup_chunks")[0];
+        let args: CleanupArgs = decode(cleanup, "cleanup_chunks");
+        assert_eq!(args, (DEST_CLIENT.to_string(), SEQ, vec![1, 2], 3));
+        assert_eq!(remaining(cleanup, CLEANUP_FIXED_ACCOUNTS), expected);
+
+        // Uploads come first so the chunks exist when the packet is delivered.
+        let recv_pos = msg
+            .instructions
+            .iter()
+            .position(|ix| is_method(ix, "recv_packet"))
+            .unwrap();
+        let cleanup_pos = msg
+            .instructions
+            .iter()
+            .position(|ix| is_method(ix, "cleanup_chunks"))
+            .unwrap();
+        assert_eq!(recv_pos, 6 + 2, "six uploads, then the compute budget");
+        assert!(cleanup_pos > recv_pos);
+    }
+
+    // Solana's PACKET_DATA_SIZE: 1280-byte IPv6 MTU minus 48 bytes of headers.
+    const PACKET_DATA_SIZE: usize = 1232;
+
+    async fn sent_tx_sizes(payload_len: usize, proof_len: usize) -> Vec<usize> {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let sent = rpc.sent_txs.clone();
+        let a = adapter(&d, rpc);
+        let msg = PacketMessageBuilder::<Cosmos>::build_receive_packet_message(
+            &a,
+            &cosmos_packet(vec![payload(payload_len)]),
+            proof(proof_len),
+            height(PROOF_HEIGHT),
+            0,
+        )
+        .await
+        .unwrap();
+        mercury_chain_traits::types::MessageSender::send_messages(&a.0, vec![msg])
+            .await
+            .unwrap();
+        sent.lock().unwrap().iter().map(Vec::len).collect()
+    }
+
+    #[tokio::test]
+    async fn single_chunk_recv_goes_out_as_three_packet_sized_transactions() {
+        // proof upload, recv, cleanup
+        let sizes = sent_tx_sizes(10, 100).await;
+        assert_eq!(sizes.len(), 3);
+        assert!(sizes.iter().all(|&s| s <= PACKET_DATA_SIZE), "{sizes:?}");
+    }
+
+    // Chunk uploads carry no compute-budget prefix, so `send_messages` (which
+    // splits only at SetComputeUnitLimit) packs every upload into one
+    // transaction: a 1801-byte proof yields a single ~2.3 KB transaction.
+    #[tokio::test]
+    #[ignore = "bug: consecutive chunk uploads are sent as one oversized transaction"]
+    async fn each_chunk_upload_is_sent_as_its_own_transaction() {
+        // three proof uploads, recv, cleanup
+        let sizes = sent_tx_sizes(10, 1801).await;
+        assert_eq!(sizes.len(), 5, "{sizes:?}");
+        // payload upload, proof upload, recv, cleanup
+        let sizes = sent_tx_sizes(400, 600).await;
+        assert_eq!(sizes.len(), 4, "{sizes:?}");
+        assert!(sizes.iter().all(|&s| s <= PACKET_DATA_SIZE), "{sizes:?}");
+    }
+
+    #[tokio::test]
+    async fn ack_unwraps_single_app_ack_and_targets_source_client() {
+        let (d, rpc) = deployed(SOURCE_CLIENT);
+        let a = adapter(&d, rpc);
+        // Ack is relayed back to the packet's source; flip the cosmos packet ids.
+        let mut pkt = cosmos_packet(vec![payload(10)]);
+        std::mem::swap(&mut pkt.source_client_id, &mut pkt.dest_client_id);
+        pkt.source_client_id = RawClientId(SOURCE_CLIENT.into());
+        let ack = PacketAcknowledgement(encoded_ack(vec![b"app-ack".to_vec()]));
+
+        let msg = PacketMessageBuilder::<Cosmos>::build_ack_packet_message(
+            &a,
+            &pkt,
+            &ack,
+            proof(50),
+            height(PROOF_HEIGHT),
+            0,
+        )
+        .await
+        .unwrap();
+
+        let ix = find(&msg, "ack_packet")[0];
+        let decoded: MsgAckPacket = decode(ix, "ack_packet");
+        assert_eq!(decoded.acknowledgement, b"app-ack".to_vec());
+        assert_eq!(decoded.proof.height, PROOF_HEIGHT);
+        assert!(ix.accounts.contains(&AccountMeta::new(
+            Ics26Router::packet_commitment_pda(SOURCE_CLIENT, SEQ, &d.ics26).0,
+            false
+        )));
+        let proof_pda = Ics26Router::proof_chunk_pda(&payer(&a), SOURCE_CLIENT, SEQ, 0, &d.ics26).0;
+        assert_eq!(remaining(ix, ACK_FIXED_ACCOUNTS), vec![proof_pda]);
+
+        let multi = PacketAcknowledgement(encoded_ack(vec![b"a".to_vec(), b"b".to_vec()]));
+        let err = PacketMessageBuilder::<Cosmos>::build_ack_packet_message(
+            &a,
+            &pkt,
+            &multi,
+            proof(50),
+            height(PROOF_HEIGHT),
+            0,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("single-payload"), "{err}");
+
+        let garbage = PacketAcknowledgement(vec![0xFF; 3]);
+        let err = PacketMessageBuilder::<Cosmos>::build_ack_packet_message(
+            &a,
+            &pkt,
+            &garbage,
+            proof(50),
+            height(PROOF_HEIGHT),
+            0,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("decoding Cosmos acknowledgement"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn timeout_chunks_proof_under_solana_source_client() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let a = adapter(&d, rpc);
+        let pkt = solana_packet(10);
+        let msg = PacketMessageBuilder::<Cosmos>::build_timeout_packet_message(
+            &a,
+            &pkt,
+            proof(64),
+            height(PROOF_HEIGHT),
+            0,
+        )
+        .await
+        .unwrap();
+
+        let ix = find(&msg, "timeout_packet")[0];
+        let decoded: MsgTimeoutPacket = decode(ix, "timeout_packet");
+        assert_eq!(decoded.packet.source_client, DEST_CLIENT);
+        assert_eq!(decoded.packet.dest_client, SOURCE_CLIENT);
+        assert!(ix.accounts.contains(&AccountMeta::new(
+            Ics26Router::packet_commitment_pda(DEST_CLIENT, SEQ, &d.ics26).0,
+            false
+        )));
+        assert_eq!(
+            reassemble(&msg, "upload_proof_chunk", 0),
+            proof(64).proof_bytes
+        );
+        let args: CleanupArgs = decode(find(&msg, "cleanup_chunks")[0], "cleanup_chunks");
+        assert_eq!(args, (DEST_CLIENT.to_string(), SEQ, vec![0], 1));
+    }
+
+    #[tokio::test]
+    async fn packet_builders_reject_empty_payloads() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let a = adapter(&d, rpc);
+        let empty = cosmos_packet(vec![]);
+        let mut empty_solana = solana_packet(1);
+        empty_solana.payloads.clear();
+        let ack = PacketAcknowledgement(encoded_ack(vec![b"ok".to_vec()]));
+
+        let errs = [
+            PacketMessageBuilder::<Cosmos>::build_receive_packet_message(
+                &a,
+                &empty,
+                proof(1),
+                height(1),
+                0,
+            )
+            .await
+            .unwrap_err(),
+            PacketMessageBuilder::<Cosmos>::build_ack_packet_message(
+                &a,
+                &empty,
+                &ack,
+                proof(1),
+                height(1),
+                0,
+            )
+            .await
+            .unwrap_err(),
+            PacketMessageBuilder::<Cosmos>::build_timeout_packet_message(
+                &a,
+                &empty_solana,
+                proof(1),
+                height(1),
+                0,
+            )
+            .await
+            .unwrap_err(),
+        ];
+        for err in errs {
+            assert!(err.to_string().contains("packet has no payloads"), "{err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn packet_builders_surface_missing_on_chain_accounts() {
+        let pkt = cosmos_packet(vec![payload(1)]);
+        let build = |a: SolanaAdapter| {
+            let pkt = pkt.clone();
+            async move {
+                PacketMessageBuilder::<Cosmos>::build_receive_packet_message(
+                    &a,
+                    &pkt,
+                    proof(1),
+                    height(1),
+                    0,
+                )
+                .await
+                .unwrap_err()
+                .to_string()
+            }
+        };
+
+        let (d, mut rpc) = deployed(DEST_CLIENT);
+        rpc.accounts
+            .remove(&Ics26Router::client_pda(DEST_CLIENT, &d.ics26).0);
+        assert!(
+            build(adapter(&d, rpc))
+                .await
+                .contains("client PDA not found")
+        );
+
+        let (d, mut rpc) = deployed(DEST_CLIENT);
+        rpc.accounts
+            .remove(&Ics26Router::router_state_pda(&d.ics26).0);
+        assert!(
+            build(adapter(&d, rpc))
+                .await
+                .contains("router state PDA not found")
+        );
+
+        let (d, mut rpc) = deployed(DEST_CLIENT);
+        rpc.accounts
+            .remove(&Ics26Router::ibc_app_pda(PORT, &d.ics26).0);
+        assert!(
+            build(adapter(&d, rpc))
+                .await
+                .contains("IbcApp PDA not found")
+        );
+    }
+
+    fn encoded_ack(app_acks: Vec<Vec<u8>>) -> Vec<u8> {
+        use prost::Message as _;
+        ibc_proto::ibc::core::channel::v2::Acknowledgement {
+            app_acknowledgements: app_acks,
+        }
+        .encode_to_vec()
+    }
+
+    // --- create client ---
+
+    fn tm_client_state(latest: u64) -> TmClientState {
+        TmClientState::new(
+            ChainId::new("cosmoshub-4").unwrap(),
+            TrustThreshold::new(2, 3).unwrap(),
+            Duration::from_hours(336),
+            Duration::from_hours(504),
+            Duration::from_secs(15),
+            IbcHeight::new(4, latest).unwrap(),
+            ProofSpecs::cosmos(),
+            vec!["upgrade".into()],
+            AllowUpdate {
+                after_expiry: false,
+                after_misbehaviour: false,
+            },
+        )
+        .unwrap()
+    }
+
+    fn tm_consensus_state(root: &[u8], unix_secs: i64) -> TmConsensusState {
+        TmConsensusState::new(
+            CommitmentRoot::from_bytes(root),
+            tendermint::Time::from_unix_timestamp(unix_secs, 5).unwrap(),
+            tendermint::Hash::Sha256([0xBB; 32]),
+        )
+    }
+
+    fn create_payload(root: &[u8], unix_secs: i64) -> CosmosCreateClientPayload {
+        CosmosCreateClientPayload {
+            client_state: tm_client_state(100).into(),
+            consensus_state: tm_consensus_state(root, unix_secs).into(),
+            counterparty_client_id: Some(SOURCE_CLIENT.into()),
+            counterparty_merkle_prefix: None,
+        }
+    }
+
+    type AddClientArgs = (String, CounterpartyInfo);
+    type InitializeArgs = (SolClientState, SolConsensusState, Pubkey);
+
+    #[tokio::test]
+    async fn create_client_registers_then_initializes_ics07() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let a = adapter(&d, rpc);
+        let msg = ClientMessageBuilder::<Cosmos>::build_create_client_message(
+            &a,
+            create_payload(&[0xAA; 32], 1_700_000_000),
+        )
+        .await
+        .unwrap();
+
+        // [budget, budget, add_client, budget, budget, initialize]
+        assert_eq!(msg.instructions.len(), 6);
+        let add = &msg.instructions[2];
+        assert_eq!(add.program_id, d.ics26);
+        let (client_id, info): AddClientArgs = decode(add, "add_client");
+        assert_eq!(client_id, crate::DEFAULT_TENDERMINT_CLIENT_ID);
+        assert_eq!(info.client_id, SOURCE_CLIENT);
+        assert_eq!(
+            info.merkle_prefix,
+            mercury_core::MerklePrefix::ibc_default().0
+        );
+
+        let init = &msg.instructions[5];
+        assert_eq!(init.program_id, d.ics07);
+        let (cs, cons, am): InitializeArgs = decode(init, "initialize");
+        assert_eq!(cs.chain_id, "cosmoshub-4");
+        assert_eq!(
+            (cs.trust_level_numerator, cs.trust_level_denominator),
+            (2, 3)
+        );
+        assert_eq!(cs.trusting_period, 1_209_600);
+        assert_eq!(cs.unbonding_period, 1_814_400);
+        assert_eq!(cs.max_clock_drift, 15);
+        assert_eq!(
+            (
+                cs.latest_height.revision_number,
+                cs.latest_height.revision_height
+            ),
+            (4, 100)
+        );
+        assert_eq!(
+            cs.frozen_height.revision_height, 0,
+            "new client is not frozen"
+        );
+        // ics07 ConsensusState.timestamp is unix nanoseconds.
+        assert_eq!(cons.timestamp, 1_700_000_000_000_000_005);
+        assert_eq!(cons.root, [0xAA; 32]);
+        assert_eq!(cons.next_validators_hash, [0xBB; 32]);
+        assert_eq!(am, d.am);
+        // initialize stores the consensus state at the client's latest height.
+        assert_eq!(
+            init.accounts[1].pubkey,
+            Ics07Tendermint::consensus_state_pda(100, &d.ics07).0
+        );
+    }
+
+    #[tokio::test]
+    async fn create_client_uses_explicit_merkle_prefix() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let a = adapter(&d, rpc);
+        let mut p = create_payload(&[0xAA; 32], 1);
+        let prefix = mercury_core::MerklePrefix(vec![b"store".to_vec()]);
+        p.counterparty_merkle_prefix = Some(prefix.clone());
+        let msg = ClientMessageBuilder::<Cosmos>::build_create_client_message(&a, p)
+            .await
+            .unwrap();
+        let (_, info): AddClientArgs = decode(&msg.instructions[2], "add_client");
+        assert_eq!(info.merkle_prefix, prefix.0);
+    }
+
+    #[tokio::test]
+    async fn create_client_rejects_invalid_inputs() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let a = adapter(&d, rpc);
+        let err = |p| async {
+            ClientMessageBuilder::<Cosmos>::build_create_client_message(&a, p)
+                .await
+                .unwrap_err()
+                .to_string()
+        };
+
+        let mut p = create_payload(&[0xAA; 32], 1);
+        p.counterparty_client_id = None;
+        assert!(err(p).await.contains("counterparty_client_id is required"));
+
+        let mut p = create_payload(&[0xAA; 32], 1);
+        p.client_state = tm_consensus_state(&[0; 32], 1).into();
+        assert!(err(p).await.contains("failed to decode client state"));
+
+        let mut p = create_payload(&[0xAA; 32], 1);
+        p.consensus_state = tm_client_state(1).into();
+        assert!(err(p).await.contains("failed to decode consensus state"));
+
+        let p = create_payload(&[0xAA; 20], 1);
+        assert!(err(p).await.contains("root is not 32 bytes"));
+
+        // ibc-rs already rejects pre-epoch timestamps while decoding, ahead of
+        // the builder's own u64 guard.
+        let p = create_payload(&[0xAA; 32], -10);
+        assert!(err(p).await.contains("failed to decode consensus state"));
+
+        let mut no_ics07 = a.clone();
+        no_ics07.0.ics07_program_id = None;
+        let e = ClientMessageBuilder::<Cosmos>::build_create_client_message(
+            &no_ics07,
+            create_payload(&[0xAA; 32], 1),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            e.to_string().contains("ics07_program_id not configured"),
+            "{e}"
+        );
+    }
+
+    #[tokio::test]
+    async fn register_counterparty_is_folded_into_add_client() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let a = adapter(&d, rpc);
+        let err = ClientMessageBuilder::<Cosmos>::build_register_counterparty_message(
+            &a,
+            &SolanaClientId(DEST_CLIENT.into()),
+            &"07-tendermint-1".parse().unwrap(),
+            mercury_core::MerklePrefix::ibc_default(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("add_client"), "{err}");
+    }
+
+    // --- update client ---
+
+    fn update_payload(headers: Vec<TmIbcHeader>) -> CosmosUpdateClientPayload {
+        CosmosUpdateClientPayload {
+            headers: headers.into_iter().map(Into::into).collect(),
+            trusted_consensus_state: None,
+            membership_proofs: mercury_core::MembershipProofs::default(),
+        }
+    }
+
+    // Mirrors ics07-tendermint `upload_header_chunk(target_height, chunk_index, chunk_data)`.
+    type HeaderChunkArgs = (u64, u8, Vec<u8>);
+
+    #[tokio::test]
+    async fn update_client_uploads_borsh_header_and_assembles_inline_when_below_threshold() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let a = adapter(&d, rpc);
+        let header = tm_header(&[10, 10, 10, 10], &[0, 1, 2, 3], 120, 100);
+        let expected_bytes = borsh::to_vec(&mercury_solana::borsh_header::header_to_borsh(
+            header.clone(),
+        ))
+        .unwrap();
+
+        let out = ClientMessageBuilder::<Cosmos>::build_update_client_message(
+            &a,
+            &SolanaClientId(DEST_CLIENT.into()),
+            update_payload(vec![header]),
+        )
+        .await
+        .unwrap();
+        assert!(out.membership_proof.is_none());
+
+        let n_chunks = expected_bytes.len().div_ceil(chunking::CHUNK_DATA_SIZE);
+        // one message per header chunk, then assemble, then cleanup
+        assert_eq!(out.messages.len(), n_chunks + 2);
+        let p = payer(&a);
+        let mut uploaded = Vec::new();
+        for (i, m) in out.messages[..n_chunks].iter().enumerate() {
+            let ix = &m.instructions[0];
+            assert_eq!(ix.program_id, d.ics07);
+            let (target, idx, data): HeaderChunkArgs = decode(ix, "upload_header_chunk");
+            assert_eq!((target, usize::from(idx)), (120, i));
+            uploaded.extend(data);
+        }
+        assert_eq!(uploaded, expected_bytes);
+
+        let chunk_pdas: Vec<_> = (0..n_chunks)
+            .map(|i| {
+                Ics07Tendermint::header_chunk_pda(&p, 120, u8::try_from(i).unwrap(), &d.ics07).0
+            })
+            .collect();
+        // No signature pre-verification below the threshold.
+        assert_eq!(
+            find(&out.messages[n_chunks], "pre_verify_signature"),
+            Vec::<&Instruction>::new()
+        );
+        let cleanup = &out.messages[n_chunks + 1];
+        assert_eq!(cleanup.instructions.len(), 3, "compute budget + cleanup");
+        let cleanup_keys: Vec<_> = cleanup.instructions[2]
+            .accounts
+            .iter()
+            .map(|m| m.pubkey)
+            .collect();
+        for pda in &chunk_pdas {
+            assert!(cleanup_keys.contains(pda));
+        }
+    }
+
+    #[tokio::test]
+    async fn update_client_pre_verifies_minimal_signature_set_above_threshold() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let mut a = adapter(&d, rpc);
+        a.0.config.skip_pre_verify_threshold = Some(2);
+        // Total power 100, threshold 67: the two heaviest signers (50 + 30) suffice.
+        let header = tm_header(&[50, 30, 15, 5], &[3, 2, 1, 0], 120, 100);
+
+        let out = ClientMessageBuilder::<Cosmos>::build_update_client_message(
+            &a,
+            &SolanaClientId(DEST_CLIENT.into()),
+            update_payload(vec![header]),
+        )
+        .await
+        .unwrap();
+
+        let pre_verify: Vec<_> = out
+            .messages
+            .iter()
+            .filter(|m| {
+                m.instructions
+                    .iter()
+                    .any(|ix| is_method(ix, "pre_verify_signature"))
+            })
+            .collect();
+        assert_eq!(pre_verify.len(), 2);
+        // Every pre-verify tx carries the ed25519 precompile check it relies on.
+        for m in &pre_verify {
+            assert!(
+                m.instructions
+                    .iter()
+                    .any(|ix| ix.program_id == solana_sdk::ed25519_program::ID)
+            );
+        }
+        // ics07 keys sig-verify PDAs by sha256(signature).
+        let sig_pda = |byte: u8| {
+            let hash = solana_sdk::hash::hash(&[byte; 64]).to_bytes();
+            Ics07Tendermint::sig_verify_pda(&hash, &d.ics07).0
+        };
+        // Validator 0 (power 50) signed with byte 10, validator 1 (power 30) with 11.
+        let cleanup = out.messages.last().unwrap();
+        let keys: Vec<_> = cleanup.instructions[2]
+            .accounts
+            .iter()
+            .map(|m| m.pubkey)
+            .collect();
+        assert!(keys.contains(&sig_pda(10)));
+        assert!(keys.contains(&sig_pda(11)));
+        assert!(!keys.contains(&sig_pda(12)));
+    }
+
+    #[tokio::test]
+    async fn update_client_rejects_bad_payloads() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let a = adapter(&d, rpc);
+        let id = SolanaClientId(DEST_CLIENT.into());
+        let run = |p| async {
+            match ClientMessageBuilder::<Cosmos>::build_update_client_message(&a, &id, p).await {
+                Ok(_) => panic!("expected an error"),
+                Err(e) => e.to_string(),
+            }
+        };
+
+        assert!(run(update_payload(vec![])).await.contains("no headers"));
+
+        let mut not_header = update_payload(vec![]);
+        not_header.headers.push(tm_client_state(1).into());
+        assert!(
+            run(not_header)
+                .await
+                .contains("failed to decode tendermint header")
+        );
+
+        // 10 of 30 voting power cannot reach the 2/3 quorum.
+        let weak = tm_header(&[10, 10, 10], &[0], 120, 100);
+        assert!(
+            run(update_payload(vec![weak]))
+                .await
+                .contains("voting power")
+        );
+    }
+
+    // --- queries ---
+
+    type WireClientState = (String, u64, u64, u64, u64, u64, (u64, u64), (u64, u64));
+
+    fn client_state_account(trusting_period: u64, latest: u64) -> Vec<u8> {
+        let body: WireClientState = (
+            "cosmoshub-4".into(),
+            2,
+            3,
+            trusting_period,
+            2 * trusting_period,
+            10,
+            (0, 0),
+            (4, latest),
+        );
+        anchor_account("ClientState", &body)
+    }
+
+    fn consensus_store(height: u64, timestamp: u64) -> Vec<u8> {
+        anchor_account(
+            "ConsensusStateStore",
+            &(height, (timestamp, [0xAA_u8; 32], [0xBB_u8; 32])),
+        )
+    }
+
+    #[tokio::test]
+    async fn client_queries_resolve_through_ics07_program() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let rpc = rpc
+            .with_account(
+                Ics07Tendermint::client_state_pda(&d.ics07).0,
+                client_state_account(3_600, 55),
+            )
+            .with_account(
+                Ics07Tendermint::consensus_state_pda(55, &d.ics07).0,
+                consensus_store(55, 9),
+            );
+        let a = adapter(&d, rpc);
+        let id = SolanaClientId(DEST_CLIENT.into());
+
+        let cs = ClientQuery::<Cosmos>::query_client_state(&a, &id, &SolanaHeight(0))
+            .await
+            .unwrap();
+        assert_eq!(
+            <SolanaAdapter as ClientQuery<Cosmos>>::client_latest_height(&cs),
+            height(55)
+        );
+        assert_eq!(
+            <SolanaAdapter as ClientQuery<Cosmos>>::trusting_period(&cs),
+            Some(Duration::from_secs(3_600))
+        );
+
+        let cons =
+            ClientQuery::<Cosmos>::query_consensus_state(&a, &id, &height(55), &SolanaHeight(0))
+                .await
+                .unwrap();
+        assert_eq!(cons.0, consensus_store(55, 9));
+        assert!(
+            ClientQuery::<Cosmos>::query_consensus_state(&a, &id, &height(56), &SolanaHeight(0))
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "height conversion")]
+    fn client_latest_height_panics_beyond_tendermint_height_range() {
+        // Tendermint heights are capped at i64::MAX.
+        let cs = SolanaClientState(client_state_account(1, u64::MAX));
+        let _ = <SolanaAdapter as ClientQuery<Cosmos>>::client_latest_height(&cs);
+    }
+
+    #[tokio::test]
+    async fn consensus_heights_scan_filters_by_discriminator_and_sorts_descending() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let mut truncated = consensus_store(77, 1);
+        truncated.truncate(20);
+        let rpc = rpc
+            .with_program_account(d.ics07, Pubkey::new_unique(), consensus_store(5, 1))
+            .with_program_account(d.ics07, Pubkey::new_unique(), consensus_store(20, 1))
+            .with_program_account(d.ics07, Pubkey::new_unique(), consensus_store(10, 1))
+            // Beyond the Tendermint height range (i64::MAX).
+            .with_program_account(d.ics07, Pubkey::new_unique(), consensus_store(u64::MAX, 1))
+            .with_program_account(d.ics07, Pubkey::new_unique(), truncated)
+            // Different account type owned by the same program.
+            .with_program_account(d.ics07, Pubkey::new_unique(), client_state_account(1, 99))
+            // Same type, different program.
+            .with_program_account(
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                consensus_store(30, 1),
+            );
+        let a = adapter(&d, rpc);
+
+        let heights = MisbehaviourQuery::<Cosmos>::query_consensus_state_heights(
+            &a,
+            &SolanaClientId(DEST_CLIENT.into()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(heights, vec![height(20), height(10), height(5)]);
+    }
+
+    #[tokio::test]
+    async fn update_client_header_reads_consensus_store_pda() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let rpc = rpc
+            .with_account(
+                Ics07Tendermint::consensus_state_pda(12, &d.ics07).0,
+                consensus_store(12, 1_000),
+            )
+            .with_account(
+                Ics07Tendermint::consensus_state_pda(13, &d.ics07).0,
+                // Stored height is outside the Tendermint height range.
+                consensus_store(u64::MAX, 1_000),
+            );
+        let a = adapter(&d, rpc);
+        let id = SolanaClientId(DEST_CLIENT.into());
+
+        let found = MisbehaviourQuery::<Cosmos>::query_update_client_header(&a, &id, &height(12))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.height, height(12));
+        assert_eq!(found.timestamp_nanos, 1_000);
+        assert_eq!(found.root, [0xAA; 32]);
+        assert_eq!(found.next_validators_hash, [0xBB; 32]);
+
+        assert!(
+            MisbehaviourQuery::<Cosmos>::query_update_client_header(&a, &id, &height(13))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            MisbehaviourQuery::<Cosmos>::query_update_client_header(&a, &id, &height(14))
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn misbehaviour_paths_need_ics07_program_and_are_not_implemented() {
+        let (d, rpc) = deployed(DEST_CLIENT);
+        let mut a = adapter(&d, rpc);
+        a.0.ics07_program_id = None;
+        let id = SolanaClientId(DEST_CLIENT.into());
+
+        let err = MisbehaviourQuery::<Cosmos>::query_consensus_state_heights(&a, &id)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("ics07_program_id not configured"),
+            "{err}"
+        );
+        let err = MisbehaviourQuery::<Cosmos>::query_update_client_header(&a, &id, &height(1))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("ics07_program_id not configured"),
+            "{err}"
+        );
+
+        let header = tm_header(&[1], &[0], 2, 1);
+        let cs = mercury_cosmos::client_types::CosmosClientState::Tendermint(tm_client_state(1));
+        let none = MisbehaviourDetector::<Cosmos>::check_for_misbehaviour(
+            &a,
+            &"07-tendermint-0".parse().unwrap(),
+            &header,
+            &cs,
+        )
+        .await
+        .unwrap();
+        assert!(none.is_none());
+
+        let evidence = mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence::CorrectiveUpdate {
+            payload: update_payload(vec![]),
+        };
+        assert!(
+            MisbehaviourMessageBuilder::<Cosmos>::build_misbehaviour_message(&a, &id, evidence)
+                .await
+                .is_err()
+        );
+    }
+}

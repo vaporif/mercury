@@ -1,5 +1,10 @@
-//! Offline `CosmosChain` construction for unit tests. Endpoints point at a
-//! closed local port, so any code path that reaches the network fails fast.
+//! `CosmosChain` construction for unit tests. `test_chain` points at a closed
+//! local port, so any code path that reaches the network fails fast;
+//! `mock_chain` wires the chain to the in-process mocks in `rpc` and `grpc`.
+
+pub mod grpc;
+pub mod rpc;
+pub mod tm;
 
 use std::sync::{Arc, OnceLock};
 
@@ -61,6 +66,20 @@ pub fn test_chain() -> CosmosChain<Secp256k1KeyPair> {
     test_chain_with(test_config())
 }
 
+/// Config pointing at the given mock endpoints; pass `UNREACHABLE_ADDR` for
+/// the side a test must not touch.
+pub fn mock_config(rpc_addr: &str, grpc_addr: &str) -> CosmosChainConfig {
+    let mut config = test_config();
+    config.rpc_addr = rpc_addr.to_string();
+    config.grpc_addr = grpc_addr.to_string();
+    config.rpc_rate_limit = 10_000;
+    config
+}
+
+pub fn mock_chain(rpc_addr: &str, grpc_addr: &str) -> CosmosChain<Secp256k1KeyPair> {
+    test_chain_with(mock_config(rpc_addr, grpc_addr))
+}
+
 pub fn tm_client_state(latest_height: u64) -> ibc_client_tendermint::types::ClientState {
     use ibc::core::client::types::Height;
     use ibc::core::commitment_types::specs::ProofSpecs;
@@ -117,4 +136,18 @@ pub fn tm_ibc_header(height: u64, app_hash_byte: u8) -> ibc_client_tendermint::t
         trusted_height: Height::new(1, height - 1).unwrap(),
         trusted_next_validator_set: ValidatorSet::new(vec![], None),
     }
+}
+
+/// For `start_paused` tests that talk to the socket mocks. A paused clock
+/// auto-advances straight to the next timer whenever the runtime is idle, and
+/// it is idle while waiting on socket IO, so the next timer would be the RPC
+/// timeout and every call would spuriously time out. A 1ms ticker keeps the
+/// next deadline close, so mocked IO completes long before any real timeout
+/// while sleeps in the code under test still elapse instantly.
+pub fn keep_clock_ticking() {
+    tokio::spawn(async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+    });
 }

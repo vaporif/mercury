@@ -115,3 +115,96 @@ impl UpdateClientCmd {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+    use crate::test_support::{HUB, err_string, example_config};
+
+    #[derive(Parser)]
+    struct Wrap {
+        #[command(subcommand)]
+        cmd: UpdateCmd,
+    }
+
+    #[test]
+    fn reference_chain_and_height_are_optional() {
+        let w = Wrap::try_parse_from([
+            "x",
+            "client",
+            "-c",
+            "r.toml",
+            "--host-chain",
+            "a",
+            "--client",
+            "b",
+        ])
+        .unwrap();
+        let UpdateCmd::Client(cmd) = w.cmd;
+        assert_eq!(cmd.reference_chain, None);
+        assert_eq!(cmd.height, None);
+    }
+
+    #[test]
+    fn height_must_be_unsigned_integer() {
+        let err = Wrap::try_parse_from([
+            "x",
+            "client",
+            "-c",
+            "r.toml",
+            "--host-chain",
+            "a",
+            "--client",
+            "b",
+            "--height",
+            "-5",
+        ])
+        .err()
+        .unwrap();
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+        let err = Wrap::try_parse_from([
+            "x",
+            "client",
+            "-c",
+            "r.toml",
+            "--host-chain",
+            "a",
+            "--client",
+            "b",
+            "--height",
+            "tip",
+        ])
+        .err()
+        .unwrap();
+        assert_eq!(err.kind(), clap::error::ErrorKind::ValueValidation);
+    }
+
+    fn cmd(config: &Path, host: &str) -> UpdateClientCmd {
+        UpdateClientCmd {
+            config: config.into(),
+            host_chain: host.into(),
+            client: "07-tendermint-0".into(),
+            reference_chain: None,
+            height: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_host_chain_is_reported() {
+        let cfg = example_config();
+        let err = err_string(UpdateCmd::Client(cmd(&cfg.path, "juno-1")).run().await);
+        assert_eq!(err, "chain 'juno-1' not found in config");
+    }
+
+    #[tokio::test]
+    async fn host_connect_failure_aborts_update() {
+        let cfg = example_config();
+        let err = err_string(cmd(&cfg.path, HUB).run().await);
+        assert!(
+            err.starts_with(&format!("loading signer for '{HUB}'")),
+            "{err}"
+        );
+    }
+}

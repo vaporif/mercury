@@ -145,4 +145,36 @@ mod tests {
         let cs = AttestationsConsensusState { timestamp: 7 };
         assert!(CosmosClientState::decode_any(&any("/foo.Bar", &cs)).is_err());
     }
+
+    fn fuzz_type_url(selector: u8) -> String {
+        let urls = [
+            TENDERMINT_CLIENT_STATE_TYPE_URL,
+            WASM_CLIENT_STATE_TYPE_URL,
+            attestations::CLIENT_STATE_TYPE_URL,
+            TENDERMINT_CONSENSUS_STATE_TYPE_URL,
+            WASM_CONSENSUS_STATE_TYPE_URL,
+            attestations::CONSENSUS_STATE_TYPE_URL,
+        ];
+        let url = urls[usize::from(selector) % urls.len()];
+        let url = url.strip_prefix('/').unwrap_or(url);
+        if selector & 0x80 == 0 {
+            format!("/{url}")
+        } else {
+            url.to_string()
+        }
+    }
+
+    #[test]
+    fn fuzz_decode_any() {
+        bolero::check!()
+            .with_type::<(u8, Vec<u8>)>()
+            .for_each(|(selector, value)| {
+                let any = Any {
+                    type_url: fuzz_type_url(*selector),
+                    value: value.clone(),
+                };
+                let _ = CosmosClientState::decode_any(&any);
+                let _ = CosmosConsensusState::decode_any(&any);
+            });
+    }
 }

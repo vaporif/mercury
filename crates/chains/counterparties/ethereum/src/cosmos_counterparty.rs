@@ -974,6 +974,71 @@ mod tests {
         );
     }
 
+    fn conflicting_header(app_hash: u8) -> ibc_client_tendermint::types::Header {
+        use tendermint::block::{Commit, Header as BlockHeader, Round, signed_header};
+        use tendermint::validator::{Info, Set};
+
+        let pk = tendermint::PublicKey::from_raw_ed25519(&[1; 32]).unwrap();
+        let validator = Info::new(pk, 10u32.into());
+        let set = Set::new(vec![validator.clone()], Some(validator.clone()));
+        let header = BlockHeader {
+            version: tendermint::block::header::Version { block: 11, app: 1 },
+            chain_id: "cosmoshub-4".parse().unwrap(),
+            height: TmHeight::from(20_u32),
+            time: tendermint::Time::from_unix_timestamp(1_700_000_000, 0).unwrap(),
+            last_block_id: None,
+            last_commit_hash: None,
+            data_hash: None,
+            validators_hash: set.hash(),
+            next_validators_hash: set.hash(),
+            consensus_hash: tendermint::Hash::Sha256([3; 32]),
+            app_hash: vec![app_hash; 32].try_into().unwrap(),
+            last_results_hash: None,
+            evidence_hash: None,
+            proposer_address: validator.address,
+        };
+        let commit = Commit {
+            height: header.height,
+            round: Round::from(0u16),
+            block_id: tendermint::block::Id {
+                hash: header.hash(),
+                part_set_header: tendermint::block::parts::Header::default(),
+            },
+            signatures: vec![],
+        };
+        ibc_client_tendermint::types::Header {
+            signed_header: signed_header::SignedHeader::new(header, commit).unwrap(),
+            validator_set: set.clone(),
+            trusted_height: ibc::core::client::types::Height::new(4, 10).unwrap(),
+            trusted_next_validator_set: set,
+        }
+    }
+
+    #[tokio::test]
+    async fn misbehaviour_submission_requires_sp1_before_touching_the_chain() {
+        // `no_rpc` fails any RPC call, so reaching the SP1 check first is observable.
+        let a = adapter(no_rpc).await;
+        let misbehaviour = ibc_client_tendermint::types::Misbehaviour::new(
+            "07-tendermint-0".parse().unwrap(),
+            conflicting_header(1),
+            conflicting_header(2),
+        );
+        let err = MisbehaviourMessageBuilder::<Cosmos>::build_misbehaviour_message(
+            &a,
+            &EvmClientId("client-0".to_string()),
+            mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence::Misbehaviour {
+                misbehaviour,
+                supporting_headers: vec![],
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("required for misbehaviour proof"),
+            "{err}"
+        );
+    }
+
     #[tokio::test]
     async fn corrective_update_requires_sp1() {
         let a = adapter(no_rpc).await;

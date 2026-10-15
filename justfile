@@ -26,6 +26,18 @@ clippy:
 test:
     cargo nextest run --workspace
 
+# Fuzz a bolero target with libfuzzer (run inside `nix develop .#fuzz`)
+fuzz crate target time="60s":
+    cargo bolero test -p {{crate}} --all-features --engine libfuzzer -T {{time}} {{target}}
+
+# Fuzz several targets of one crate back to back, reusing one sanitizer build
+fuzz-all crate time +targets:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for target in {{targets}}; do
+        just fuzz {{crate}} "$target" {{time}}
+    done
+
 # Run e2e tests
 e2e:
     cargo nextest run -p mercury-e2e --run-ignored all

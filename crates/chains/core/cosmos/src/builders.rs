@@ -863,4 +863,310 @@ mod tests {
             }
         }
     }
+
+    mod mocked {
+        use super::*;
+        use crate::chain::test_support::grpc::{GrpcReply, reply, spawn_grpc, unimplemented};
+        use crate::chain::test_support::rpc::{MockRpc, Reply, RpcCall, spawn_rpc};
+        use crate::chain::test_support::tm::{
+            abci_reply, block_reply, block_time, commit_reply, header, proof_ops, set_hash,
+            status_json, validators, validators_reply,
+        };
+        use crate::chain::test_support::{
+            UNREACHABLE_ADDR, mock_chain, mock_config, test_chain_with, tm_client_state,
+        };
+        use crate::client_types::CosmosClientState;
+        use crate::keys::Secp256k1KeyPair;
+        use ibc_proto::cosmos::upgrade::v1beta1::{Plan, QueryCurrentPlanResponse};
+
+        type TestChain = CosmosChain<Secp256k1KeyPair>;
+
+        const PLAN_PATH: &str = "/cosmos.upgrade.v1beta1.Query/CurrentPlan";
+
+        fn height(h: u64) -> TmHeight {
+            TmHeight::try_from(h).unwrap()
+        }
+
+        fn height_param(call: &RpcCall) -> u64 {
+            call.params["height"].as_str().unwrap().parse().unwrap()
+        }
+
+        fn heights_requested(rpc: &MockRpc, method: &str) -> Vec<u64> {
+            let mut hs: Vec<u64> = rpc
+                .calls()
+                .iter()
+                .filter(|c| c.method == method)
+                .map(height_param)
+                .collect();
+            hs.sort_unstable();
+            hs
+        }
+
+        #[tokio::test]
+        async fn create_client_payload_from_latest_block() {
+            let vals = validators(&[1, 2]);
+            let next = validators(&[3]);
+            let latest = header(50, 0x11, &vals, &next);
+            let rpc = spawn_rpc(move |call| match call.method.as_str() {
+                "block" => block_reply(latest.clone()),
+                other => Reply::Error(format!("unexpected {other}")),
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let payload =
+                <TestChain as ClientPayloadBuilder<TestChain>>::build_create_client_payload(&chain)
+                    .await
+                    .unwrap();
+
+            let cs = TendermintClientState::try_from(payload.client_state).unwrap();
+            assert_eq!(cs.chain_id.as_str(), "testchain-1");
+            assert_eq!(cs.latest_height, Height::new(1, 50).unwrap());
+            assert_eq!(cs.trust_level, TrustThreshold::ONE_THIRD);
+            assert_eq!(cs.trusting_period, DEFAULT_TRUSTING_PERIOD);
+            assert_eq!(cs.unbonding_period, DEFAULT_UNBONDING_PERIOD);
+            assert_eq!(cs.max_clock_drift, DEFAULT_MAX_CLOCK_DRIFT);
+            assert_eq!(cs.proof_specs, ProofSpecs::cosmos());
+            assert_eq!(cs.upgrade_path, vec!["upgrade", "upgradedIBCState"]);
+
+            let cons = TendermintConsensusState::try_from(payload.consensus_state).unwrap();
+            assert_eq!(cons.root.as_bytes(), &[0x11; 32]);
+            assert_eq!(cons.timestamp(), block_time(50));
+            assert_eq!(cons.next_validators_hash, set_hash(&next));
+            assert!(payload.counterparty_client_id.is_none());
+            // latest block, not a pinned height
+            assert!(
+                rpc.calls_to("block")[0]
+                    .get("height")
+                    .is_none_or(serde_json::Value::is_null)
+            );
+        }
+
+        #[tokio::test]
+        async fn create_client_payload_honours_configured_periods() {
+            let latest = header(7, 0, &validators(&[1]), &validators(&[1]));
+            let rpc = spawn_rpc(move |_| block_reply(latest.clone())).await;
+            let mut config = mock_config(&rpc.url, UNREACHABLE_ADDR);
+            config.trusting_period = Some(Duration::from_secs(100));
+            config.unbonding_period = Some(Duration::from_secs(200));
+            config.max_clock_drift = Some(Duration::from_secs(3));
+            let chain = test_chain_with(config);
+            let payload =
+                <TestChain as ClientPayloadBuilder<TestChain>>::build_create_client_payload(&chain)
+                    .await
+                    .unwrap();
+            let cs = TendermintClientState::try_from(payload.client_state).unwrap();
+            assert_eq!(cs.trusting_period, Duration::from_secs(100));
+            assert_eq!(cs.unbonding_period, Duration::from_secs(200));
+            assert_eq!(cs.max_clock_drift, Duration::from_secs(3));
+        }
+
+        #[tokio::test]
+        async fn create_client_payload_rpc_error_propagates() {
+            let rpc = spawn_rpc(|_| Reply::Error("no block".into())).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            assert!(
+                <TestChain as ClientPayloadBuilder<TestChain>>::build_create_client_payload(&chain)
+                    .await
+                    .is_err()
+            );
+        }
+
+        async fn header_node() -> MockRpc {
+            spawn_rpc(|call| {
+                let h = height_param(call);
+                let vals = validators(&[1, 2, 3]);
+                match call.method.as_str() {
+                    "validators" => validators_reply(h, &vals),
+                    "commit" => commit_reply(header(h, u8::try_from(h).unwrap(), &vals, &vals)),
+                    other => Reply::Error(format!("unexpected {other}")),
+                }
+            })
+            .await
+        }
+
+        #[tokio::test]
+        async fn update_client_payload_fetches_trusted_and_target_headers() {
+            let rpc = header_node().await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let cs = CosmosClientState::Tendermint(tm_client_state(9));
+            let payload =
+                <TestChain as ClientPayloadBuilder<TestChain>>::build_update_client_payload(
+                    &chain,
+                    &height(9),
+                    &height(15),
+                    &cs,
+                )
+                .await
+                .unwrap();
+
+            // skip verification: only the target header, trusting height 9
+            assert_eq!(payload.headers.len(), 1);
+            let header = TmIbcHeader::try_from(payload.headers[0].clone()).unwrap();
+            assert_eq!(header.signed_header.header.height.value(), 15);
+            assert_eq!(header.signed_header.header.app_hash.as_bytes(), &[15u8; 32]);
+            assert_eq!(
+                header.validator_set.hash(),
+                header.signed_header.header.validators_hash
+            );
+            assert_eq!(
+                header.validator_set.proposer().as_ref().map(|p| p.address),
+                Some(header.signed_header.header.proposer_address)
+            );
+            assert_eq!(header.trusted_height, Height::new(1, 9).unwrap());
+
+            let trusted = payload.trusted_consensus_state.unwrap();
+            assert_eq!(trusted.root.as_bytes(), &[9u8; 32]);
+            assert_eq!(
+                header.trusted_next_validator_set.hash(),
+                trusted.next_validators_hash
+            );
+
+            assert_eq!(heights_requested(&rpc, "validators"), vec![9, 15]);
+            assert_eq!(heights_requested(&rpc, "commit"), vec![9, 15]);
+        }
+
+        #[tokio::test]
+        async fn update_client_payload_rpc_error_propagates() {
+            let rpc = spawn_rpc(|_| Reply::Error("pruned".into())).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let cs = CosmosClientState::Tendermint(tm_client_state(9));
+            assert!(
+                <TestChain as ClientPayloadBuilder<TestChain>>::build_update_client_payload(
+                    &chain,
+                    &height(9),
+                    &height(15),
+                    &cs,
+                )
+                .await
+                .is_err()
+            );
+        }
+
+        fn plan_reply(plan_height: Option<i64>) -> GrpcReply {
+            reply(&QueryCurrentPlanResponse {
+                plan: plan_height.map(|height| Plan {
+                    name: "v2".into(),
+                    height,
+                    info: String::new(),
+                    ..Default::default()
+                }),
+            })
+        }
+
+        // x/upgrade UpgradedClientKey / UpgradedConsStateKey
+        fn upgraded_key(plan_height: u64, leaf: &str) -> String {
+            hex::encode_upper(format!("upgradedIBCState/{plan_height}/{leaf}"))
+        }
+
+        async fn upgrade_payload(
+            plan: Option<i64>,
+            latest: u64,
+            client_value: Vec<u8>,
+        ) -> (Result<Option<UpgradeClientPayload>>, MockRpc) {
+            let grpc = spawn_grpc(move |call| match call.path.as_str() {
+                PLAN_PATH => plan_reply(plan),
+                _ => unimplemented(call),
+            })
+            .await;
+            let rpc = spawn_rpc(move |call| match call.method.as_str() {
+                "status" => Reply::Result(status_json(latest, false, true)),
+                "abci_query" if call.params["data"] == upgraded_key(100, "upgradedClient") => {
+                    abci_reply(client_value.clone(), Some(proof_ops(&[b"client"])))
+                }
+                "abci_query" => abci_reply(vec![0xc5], Some(proof_ops(&[b"cons", b"root"]))),
+                other => Reply::Error(format!("unexpected {other}")),
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, &grpc.url);
+            let result =
+                <TestChain as ClientPayloadBuilder<TestChain>>::build_upgrade_client_payload(
+                    &chain,
+                )
+                .await;
+            (result, rpc)
+        }
+
+        #[tokio::test]
+        async fn upgrade_payload_reads_upgraded_states_at_latest_height() {
+            let (result, rpc) = upgrade_payload(Some(100), 120, vec![0xc1]).await;
+            let payload = result.unwrap().unwrap();
+            assert_eq!(payload.plan_height, 100);
+            assert_eq!(payload.upgraded_client_state, vec![0xc1]);
+            assert_eq!(payload.upgraded_consensus_state, vec![0xc5]);
+            let decode = |bytes: &[u8]| {
+                ibc_proto::ibc::core::commitment::v1::MerkleProof::decode(bytes)
+                    .unwrap()
+                    .proofs
+                    .len()
+            };
+            assert_eq!(decode(&payload.proof_upgrade_client), 1);
+            assert_eq!(decode(&payload.proof_upgrade_consensus_state), 2);
+
+            let queries = rpc.calls_to("abci_query");
+            assert_eq!(queries.len(), 2);
+            for (q, leaf) in queries.iter().zip(["upgradedClient", "upgradedConsState"]) {
+                assert_eq!(q["path"], "store/upgrade/key");
+                assert_eq!(q["data"], upgraded_key(100, leaf));
+                assert_eq!(q["height"], "120");
+                assert_eq!(q["prove"], true);
+            }
+        }
+
+        #[tokio::test]
+        async fn upgrade_payload_none_without_reached_plan_or_state() {
+            let (result, rpc) = upgrade_payload(None, 120, vec![1]).await;
+            assert!(result.unwrap().is_none());
+            assert!(rpc.calls().is_empty(), "no plan, no RPC");
+
+            let (result, rpc) = upgrade_payload(Some(0), 120, vec![1]).await;
+            assert!(result.unwrap().is_none());
+            assert!(rpc.calls().is_empty());
+
+            let (result, rpc) = upgrade_payload(Some(100), 99, vec![1]).await;
+            assert!(result.unwrap().is_none());
+            assert!(
+                rpc.calls_to("abci_query").is_empty(),
+                "plan height not reached"
+            );
+
+            let (result, rpc) = upgrade_payload(Some(100), 100, vec![]).await;
+            assert!(result.unwrap().is_none());
+            assert_eq!(
+                rpc.calls_to("abci_query").len(),
+                1,
+                "no upgraded client stored"
+            );
+        }
+
+        #[tokio::test]
+        async fn upgrade_payload_plan_query_error_propagates() {
+            let grpc = spawn_grpc(|_| GrpcReply::Err(tonic::Status::unavailable("down"))).await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            assert!(
+                <TestChain as ClientPayloadBuilder<TestChain>>::build_upgrade_client_payload(
+                    &chain
+                )
+                .await
+                .is_err()
+            );
+        }
+
+        #[tokio::test]
+        async fn upgrade_payload_without_proof_is_error() {
+            let grpc = spawn_grpc(|_| plan_reply(Some(5))).await;
+            let rpc = spawn_rpc(|call| match call.method.as_str() {
+                "status" => Reply::Result(status_json(6, false, true)),
+                _ => abci_reply(vec![1], None),
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, &grpc.url);
+            assert!(
+                <TestChain as ClientPayloadBuilder<TestChain>>::build_upgrade_client_payload(
+                    &chain
+                )
+                .await
+                .is_err()
+            );
+        }
+    }
 }

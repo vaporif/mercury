@@ -259,6 +259,20 @@
           RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
         };
       };
+
+      # libfuzzer needs nightly (-Zsanitizer); kept separate so the default shell stays on stable.
+      devShells.fuzz = pkgs.mkShell {
+        packages =
+          [
+            (fenixPkgs.latest.withComponents ["cargo" "rustc" "rust-src" "llvm-tools-preview"])
+            pkgs.cargo-bolero
+            pkgs.just
+            pkgs.protobuf
+          ]
+          ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.apple-sdk_15
+          ];
+      };
     });
   in {
     formatter = nixpkgs.lib.genAttrs systems (system: nixpkgs.legacyPackages.${system}.alejandra);

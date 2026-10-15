@@ -378,4 +378,150 @@ mod tests {
             }
         }
     }
+
+    mod mocked {
+        use super::*;
+        use crate::chain::test_support::grpc::{
+            GrpcReply, MockGrpc, reply, spawn_grpc, unimplemented,
+        };
+        use crate::config::DynamicGasPrice;
+        use mercury_core::rpc_guard::RpcGuard;
+        use mercury_core::validate::GasMultiplier;
+
+        const STATIC_PRICE: f64 = 0.025;
+        const OSMOSIS: &str = "/osmosis.txfees.v1beta1.Query/GetEipBaseFee";
+        const FEEMARKET: &str = "/feemarket.feemarket.v1.Query/GasPrices";
+
+        fn cfg() -> DynamicGasPrice {
+            DynamicGasPrice {
+                multiplier: GasMultiplier::new_unchecked(1.1),
+                enabled: true,
+                max: 1.0,
+            }
+        }
+
+        fn osmosis(base_fee: &str) -> GrpcReply {
+            reply(&GetEipBaseFeeResponse {
+                base_fee: base_fee.into(),
+            })
+        }
+
+        fn feemarket(prices: &[(&str, &str)]) -> GrpcReply {
+            reply(&GasPricesResponse {
+                prices: prices
+                    .iter()
+                    .map(|(denom, amount)| DecCoin {
+                        denom: (*denom).into(),
+                        amount: (*amount).into(),
+                    })
+                    .collect(),
+            })
+        }
+
+        async fn resolve(grpc: &MockGrpc, cache: &OnceLock<DynamicGasBackend>) -> f64 {
+            let channel = tonic::transport::Channel::from_shared(grpc.url.clone())
+                .unwrap()
+                .connect_lazy();
+            resolve_gas_price(
+                channel,
+                "uatom",
+                STATIC_PRICE,
+                &cfg(),
+                cache,
+                &RpcGuard::noop("test"),
+            )
+            .await
+        }
+
+        fn assert_price(got: f64, want: f64) {
+            assert!((got - want).abs() < 1e-12, "got {got}, want {want}");
+        }
+
+        #[tokio::test]
+        async fn detects_osmosis_and_applies_multiplier() {
+            let grpc = spawn_grpc(|call| match call.path.as_str() {
+                OSMOSIS => osmosis("0.0025"),
+                _ => unimplemented(call),
+            })
+            .await;
+            let cache = OnceLock::new();
+            assert_price(resolve(&grpc, &cache).await, 0.0025 * 1.1);
+            assert!(matches!(cache.get(), Some(DynamicGasBackend::Osmosis)));
+
+            // cached backend: osmosis only, never probes feemarket
+            assert_price(resolve(&grpc, &cache).await, 0.0025 * 1.1);
+            assert_eq!(grpc.calls_to(OSMOSIS).len(), 2);
+            assert!(grpc.calls_to(FEEMARKET).is_empty());
+        }
+
+        #[tokio::test]
+        async fn falls_back_to_feemarket_when_osmosis_unimplemented() {
+            let grpc = spawn_grpc(|call| match call.path.as_str() {
+                FEEMARKET => feemarket(&[("uatom", "0.5")]),
+                _ => unimplemented(call),
+            })
+            .await;
+            let cache = OnceLock::new();
+            assert_price(resolve(&grpc, &cache).await, 0.5 * 1.1);
+            assert!(matches!(cache.get(), Some(DynamicGasBackend::Feemarket)));
+            let req: GasPricesRequest = grpc.calls_to(FEEMARKET)[0].decode();
+            assert_eq!(req.denom, "uatom");
+
+            resolve(&grpc, &cache).await;
+            assert_eq!(
+                grpc.calls_to(OSMOSIS).len(),
+                1,
+                "osmosis probed only during detection"
+            );
+        }
+
+        #[tokio::test]
+        async fn dynamic_price_capped_at_max() {
+            let grpc = spawn_grpc(|_| osmosis("5.0")).await;
+            assert_price(resolve(&grpc, &OnceLock::new()).await, 1.0);
+        }
+
+        #[tokio::test]
+        async fn empty_feemarket_prices_mark_backends_unavailable() {
+            let grpc = spawn_grpc(|call| match call.path.as_str() {
+                FEEMARKET => feemarket(&[]),
+                _ => unimplemented(call),
+            })
+            .await;
+            let cache = OnceLock::new();
+            assert_price(resolve(&grpc, &cache).await, STATIC_PRICE);
+            assert!(matches!(cache.get(), Some(DynamicGasBackend::Unavailable)));
+
+            assert_price(resolve(&grpc, &cache).await, STATIC_PRICE);
+            assert_eq!(
+                grpc.calls().len(),
+                2,
+                "unavailable backend is never re-probed"
+            );
+        }
+
+        #[tokio::test]
+        async fn unusable_base_fee_falls_back_to_static_and_keeps_backend() {
+            for bad in ["not-a-number", "0", "-1"] {
+                let grpc = spawn_grpc(move |_| osmosis(bad)).await;
+                let cache = OnceLock::new();
+                cache.set(DynamicGasBackend::Osmosis).unwrap();
+                assert_price(resolve(&grpc, &cache).await, STATIC_PRICE);
+                assert!(matches!(cache.get(), Some(DynamicGasBackend::Osmosis)));
+            }
+        }
+
+        #[tokio::test]
+        async fn cached_feemarket_queries_only_feemarket() {
+            let grpc = spawn_grpc(|call| match call.path.as_str() {
+                FEEMARKET => feemarket(&[("uatom", "0.2")]),
+                _ => osmosis("0.9"),
+            })
+            .await;
+            let cache = OnceLock::new();
+            cache.set(DynamicGasBackend::Feemarket).unwrap();
+            assert_price(resolve(&grpc, &cache).await, 0.2 * 1.1);
+            assert!(grpc.calls_to(OSMOSIS).is_empty());
+        }
+    }
 }

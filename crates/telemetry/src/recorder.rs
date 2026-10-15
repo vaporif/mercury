@@ -520,7 +520,7 @@ impl GasMetrics {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::OnceLock;
 
     use opentelemetry_sdk::metrics::data::{
@@ -539,7 +539,7 @@ mod tests {
 
     /// One process-wide provider: the global meter can only be set once, so
     /// each test isolates its data by using a unique chain name.
-    fn harness() -> &'static (SdkMeterProvider, InMemoryMetricExporter) {
+    pub fn harness() -> &'static (SdkMeterProvider, InMemoryMetricExporter) {
         static HARNESS: OnceLock<(SdkMeterProvider, InMemoryMetricExporter)> = OnceLock::new();
         HARNESS.get_or_init(|| {
             let exporter = InMemoryMetricExporter::default();

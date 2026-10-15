@@ -807,4 +807,14 @@ mod tests {
         );
         assert!(chain.query_ack_sequences(&id, &EvmHeight(1)).await.is_err());
     }
+
+    #[test]
+    fn fuzz_decode_client_state() {
+        bolero::check!().for_each(|bytes: &[u8]| {
+            if let Some(cs) = decode_client_state(bytes) {
+                let reencoded = encode_client_state(&cs);
+                assert!(decode_client_state(&reencoded).is_some());
+            }
+        });
+    }
 }

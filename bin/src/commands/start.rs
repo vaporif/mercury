@@ -310,3 +310,267 @@ async fn serve_health(port: u16, registry: ChainRegistry, chains: Vec<HealthChai
         tracing::error!(error = %e, "health server error");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use mercury_core::plugin::ChainId;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    use super::*;
+    use crate::test_support::{
+        HUB, OSMO, ScriptedRelay, StatusPlugin, err_string, example_config, status_chain,
+        write_config,
+    };
+
+    fn relay_config() -> RelayConfig {
+        toml::from_str(
+            r#"
+src_chain = "a"
+dst_chain = "b"
+src_client_id = "x"
+dst_client_id = "y"
+lookback_window_secs = 600
+sweep_interval_secs = 30
+misbehaviour_scan_interval_secs = 120
+clear_on_start = false
+clear_limit = 5
+excluded_sequences = [3, 7]
+packet_filter = { policy = "deny" }
+"#,
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn relay_pair_runs_both_directions_with_relay_config() {
+        let fwd = ScriptedRelay::ok();
+        let rev = ScriptedRelay::ok();
+        spawn_relay_pair(
+            fwd.clone(),
+            rev.clone(),
+            &relay_config(),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        for relay in [&fwd, &rev] {
+            let seen = relay.seen.lock().unwrap().clone().expect("direction ran");
+            assert_eq!(seen.lookback_secs, Some(600));
+            assert_eq!(seen.sweep_interval_secs, Some(30));
+            assert_eq!(seen.misbehaviour_scan_interval_secs, Some(120));
+            assert!(!seen.clear_on_start);
+            assert_eq!(seen.clear_limit, 5);
+            assert_eq!(seen.excluded_sequences, vec![3, 7]);
+            let filter = seen.packet_filter_config.unwrap();
+            assert_eq!(
+                filter.get("policy").and_then(toml::Value::as_str),
+                Some("deny")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn relay_pair_surfaces_single_direction_failure() {
+        for (fwd, rev, expected) in [
+            (
+                ScriptedRelay::failing("fwd broke"),
+                ScriptedRelay::ok(),
+                "fwd broke",
+            ),
+            (
+                ScriptedRelay::ok(),
+                ScriptedRelay::failing("rev broke"),
+                "rev broke",
+            ),
+        ] {
+            let err = spawn_relay_pair(fwd, rev, &relay_config(), CancellationToken::new())
+                .await
+                .unwrap()
+                .unwrap_err();
+            assert_eq!(err.to_string(), expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn relay_pair_reports_both_failures_with_directions() {
+        let err = spawn_relay_pair(
+            ScriptedRelay::failing("fwd broke"),
+            ScriptedRelay::failing("rev broke"),
+            &relay_config(),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(err.to_string(), "a->b: fwd broke; b->a: rev broke");
+    }
+
+    fn health_state() -> Arc<HealthState> {
+        let mut registry = ChainRegistry::new();
+        registry.register_chain(StatusPlugin("mock"));
+        let entry = |id: &str, chain_type: &str, height| HealthChainEntry {
+            chain_id: ChainId::from(id),
+            chain_type: chain_type.into(),
+            chain: status_chain(height),
+        };
+        Arc::new(HealthState {
+            registry,
+            chains: vec![
+                entry("up-1", "mock", Some(10)),
+                entry("down-1", "mock", None),
+                entry("odd-1", "unregistered", Some(1)),
+            ],
+        })
+    }
+
+    #[tokio::test]
+    async fn health_reports_each_chain_and_overall_status() {
+        let axum::response::Json(body) = health_handler(axum::extract::State(health_state())).await;
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "healthy": false,
+                "chains": {
+                    "up-1": { "status": "healthy", "height": 10, "timestamp": "ts-10" },
+                    "down-1": { "status": "unhealthy", "error": "rpc down" },
+                    "odd-1": {
+                        "status": "error",
+                        "error": "unsupported chain type 'unregistered'",
+                    },
+                },
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn health_is_true_when_every_chain_answers() {
+        let mut registry = ChainRegistry::new();
+        registry.register_chain(StatusPlugin("mock"));
+        let state = Arc::new(HealthState {
+            registry,
+            chains: vec![HealthChainEntry {
+                chain_id: ChainId::from("up-1"),
+                chain_type: "mock".into(),
+                chain: status_chain(Some(3)),
+            }],
+        });
+        let axum::response::Json(body) = health_handler(axum::extract::State(state)).await;
+        assert_eq!(body["healthy"], serde_json::json!(true));
+    }
+
+    fn free_port() -> u16 {
+        std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    async fn get_health(port: u16) -> String {
+        let mut stream = loop {
+            match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+                Ok(s) => break s,
+                Err(_) => tokio::time::sleep(Duration::from_millis(20)).await,
+            }
+        };
+        stream
+            .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
+    }
+
+    #[tokio::test]
+    async fn serve_health_answers_get_health_with_json() {
+        let port = free_port();
+        let mut registry = ChainRegistry::new();
+        registry.register_chain(StatusPlugin("mock"));
+        let chains = vec![HealthChainEntry {
+            chain_id: ChainId::from("up-1"),
+            chain_type: "mock".into(),
+            chain: status_chain(Some(4)),
+        }];
+        let server = tokio::spawn(serve_health(port, registry, chains));
+
+        let response = tokio::time::timeout(Duration::from_secs(10), get_health(port))
+            .await
+            .unwrap();
+        server.abort();
+
+        assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+        assert!(response.contains("application/json"), "{response}");
+        let body = response.split("\r\n\r\n").nth(1).unwrap();
+        let json: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(json["healthy"], serde_json::json!(true));
+        assert_eq!(json["chains"]["up-1"]["height"], serde_json::json!(4));
+    }
+
+    #[tokio::test]
+    async fn serve_health_returns_when_port_is_taken() {
+        let taken = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = taken.local_addr().unwrap().port();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            serve_health(port, ChainRegistry::new(), vec![]),
+        )
+        .await
+        .expect("bind failure must not hang the health task");
+    }
+
+    // run_start installs the global tracing subscriber, which can happen once
+    // per process; nextest (the project runner) gives each test its own.
+
+    #[tokio::test]
+    async fn start_rejects_relay_with_unknown_src_chain() {
+        let file = write_config(&format!(
+            "{}\n[[relays]]\nsrc_chain = \"juno-1\"\ndst_chain = \"{HUB}\"\nsrc_client_id = \"x\"\ndst_client_id = \"y\"\n",
+            crate::test_support::cosmos_chain(HUB)
+        ));
+        let err = err_string(run_start(&file.path, None, LogFormat::Pretty).await);
+        assert_eq!(err, "relay references unknown src_chain 'juno-1'");
+    }
+
+    #[tokio::test]
+    async fn start_rejects_relay_with_unknown_dst_chain() {
+        let file = write_config(&format!(
+            "{}\n[[relays]]\nsrc_chain = \"{HUB}\"\ndst_chain = \"juno-1\"\nsrc_client_id = \"x\"\ndst_client_id = \"y\"\n",
+            crate::test_support::cosmos_chain(HUB)
+        ));
+        let err = err_string(run_start(&file.path, None, LogFormat::Json).await);
+        assert_eq!(err, "relay references unknown dst_chain 'juno-1'");
+    }
+
+    #[tokio::test]
+    async fn start_with_nothing_configured_exits_cleanly() {
+        let file = write_config("");
+        StartCmd {
+            config: file.path.clone(),
+            health_port: Some(free_port()),
+        }
+        .run(LogFormat::Pretty)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn start_fails_when_a_chain_cannot_connect() {
+        let cfg = example_config();
+        let err = err_string(run_start(&cfg.path, None, LogFormat::Pretty).await);
+        assert!(
+            err.starts_with(&format!("loading signer for '{HUB}'"))
+                || err.starts_with(&format!("loading signer for '{OSMO}'")),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn start_rejects_invalid_config_before_touching_chains() {
+        let file = write_config("[[chains]]\ntype = \"near\"\n");
+        let err = err_string(run_start(&file.path, None, LogFormat::Pretty).await);
+        assert_eq!(err, "unsupported chain type 'near'");
+    }
+}

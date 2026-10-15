@@ -274,8 +274,8 @@ impl std::fmt::Debug for SolanaRpcClient {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod testing;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 
 #[cfg(test)]
 mod tests {
@@ -391,5 +391,232 @@ mod tests {
         let statuses = rpc.get_signature_statuses(&[sig, sig]).await.unwrap();
         assert_eq!(statuses.len(), 2);
         assert!(statuses.iter().all(Option::is_some));
+    }
+
+    fn transfer_ix(payer: &Keypair) -> solana_sdk::instruction::Instruction {
+        solana_system_interface::instruction::transfer(&payer.pubkey(), &Pubkey::new_unique(), 1)
+    }
+
+    #[tokio::test]
+    async fn get_account_rpc_failure_is_an_error_not_a_missing_account() {
+        let pk = Pubkey::new_unique();
+        let rpc = FakeRpc {
+            failing: vec![solana_client::rpc_request::RpcRequest::GetAccountInfo],
+            ..FakeRpc::default()
+        }
+        .with_account(pk, vec![1])
+        .into_client();
+        let err = rpc.get_account(&pk).await.unwrap_err().to_string();
+        assert!(err.contains(&format!("get_account({pk}) failed")), "{err}");
+    }
+
+    #[tokio::test]
+    async fn legacy_send_and_confirm_returns_the_transaction_signature() {
+        let fake = FakeRpc::default();
+        let sent = fake.sent_txs.clone();
+        let rpc = fake.into_client();
+        let payer = Keypair::new();
+        let blockhash = rpc.get_latest_blockhash().await.unwrap();
+        let tx = Transaction::new_signed_with_payer(
+            &[transfer_ix(&payer)],
+            Some(&payer.pubkey()),
+            &[&payer],
+            blockhash,
+        );
+
+        let sig = rpc.send_and_confirm_transaction(&tx).await.unwrap();
+        assert_eq!(sig, tx.signatures[0]);
+        assert_eq!(sent.lock().unwrap().len(), 1);
+
+        let failing = FakeRpc {
+            failing: vec![solana_client::rpc_request::RpcRequest::SendTransaction],
+            ..FakeRpc::default()
+        }
+        .into_client();
+        let err = failing.send_and_confirm_transaction(&tx).await.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("send_and_confirm_transaction failed"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn skip_preflight_send_confirms_and_labels_failures() {
+        let fake = FakeRpc::default();
+        let sent = fake.sent_txs.clone();
+        let rpc = fake.into_client();
+        let payer = Keypair::new();
+
+        let sig = crate::tx::send_transaction_skip_preflight(
+            &rpc,
+            &payer,
+            vec![transfer_ix(&payer)],
+            None,
+        )
+        .await
+        .unwrap();
+        {
+            let wire = sent.lock().unwrap();
+            assert_eq!(wire.len(), 1);
+            assert_eq!(&wire[0][1..65], sig.as_ref());
+        }
+
+        let unsendable = FakeRpc {
+            failing: vec![solana_client::rpc_request::RpcRequest::SendTransaction],
+            ..FakeRpc::default()
+        }
+        .into_client();
+        let err = crate::tx::send_transaction_skip_preflight(
+            &unsendable,
+            &payer,
+            vec![transfer_ix(&payer)],
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("send_versioned_transaction failed"),
+            "{err}"
+        );
+
+        let unconfirmable = FakeRpc {
+            failing: vec![solana_client::rpc_request::RpcRequest::GetSignatureStatuses],
+            ..FakeRpc::default()
+        }
+        .into_client();
+        let err = crate::tx::send_transaction_skip_preflight(
+            &unconfirmable,
+            &payer,
+            vec![transfer_ix(&payer)],
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("confirm_versioned_transaction failed"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn versioned_send_failure_is_labelled() {
+        let payer = Keypair::new();
+        let rpc = FakeRpc {
+            failing: vec![solana_client::rpc_request::RpcRequest::SendTransaction],
+            ..FakeRpc::default()
+        }
+        .into_client();
+        let err = crate::tx::send_transaction(&rpc, &payer, vec![transfer_ix(&payer)], None)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("send_and_confirm_versioned_transaction failed"),
+            "{err}"
+        );
+
+        let no_blockhash = FakeRpc {
+            failing: vec![solana_client::rpc_request::RpcRequest::GetLatestBlockhash],
+            ..FakeRpc::default()
+        }
+        .into_client();
+        let err =
+            crate::tx::send_transaction(&no_blockhash, &payer, vec![transfer_ix(&payer)], None)
+                .await
+                .unwrap_err();
+        assert!(
+            err.to_string().contains("get_latest_blockhash failed"),
+            "{err}"
+        );
+
+        let no_status = FakeRpc {
+            failing: vec![solana_client::rpc_request::RpcRequest::GetSignatureStatuses],
+            ..FakeRpc::default()
+        }
+        .into_client();
+        let err = no_status
+            .get_signature_statuses(&[Signature::default()])
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("get_signature_statuses failed"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn program_accounts_apply_memcmp_and_size_filters() {
+        use solana_client::rpc_filter::{Memcmp, RpcFilterType};
+
+        let program = Pubkey::new_unique();
+        let (a, b, c) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let rpc = FakeRpc::default()
+            .with_program_account(program, a, vec![1, 2, 3, 4])
+            .with_program_account(program, b, vec![1, 2, 9])
+            .with_program_account(program, c, vec![7, 2, 3, 4])
+            .with_program_account(Pubkey::new_unique(), Pubkey::new_unique(), vec![1, 2, 3, 4])
+            .into_client();
+
+        let prefix = |bytes: &[u8]| RpcFilterType::Memcmp(Memcmp::new_raw_bytes(0, bytes.to_vec()));
+        let keys = |accounts: Vec<(Pubkey, Account)>| {
+            let mut k: Vec<_> = accounts.into_iter().map(|(pk, _)| pk).collect();
+            k.sort();
+            k
+        };
+        let mut ab = vec![a, b];
+        ab.sort();
+
+        let found = rpc
+            .get_program_accounts_with_filter(&program, vec![prefix(&[1, 2])])
+            .await
+            .unwrap();
+        assert_eq!(keys(found.clone()), ab);
+        assert!(
+            found
+                .iter()
+                .any(|(pk, acc)| *pk == a && acc.data == vec![1, 2, 3, 4])
+        );
+
+        let found = rpc
+            .get_program_accounts_with_filter(
+                &program,
+                vec![prefix(&[1, 2]), RpcFilterType::DataSize(4)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(keys(found), vec![a]);
+
+        let all = rpc
+            .get_program_accounts_with_filter(&program, vec![])
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(
+            rpc.get_program_accounts_with_filter(&Pubkey::new_unique(), vec![])
+                .await
+                .unwrap(),
+            Vec::<(Pubkey, Account)>::new()
+        );
+
+        let failing = FakeRpc {
+            failing: vec![solana_client::rpc_request::RpcRequest::GetProgramAccounts],
+            ..FakeRpc::default()
+        }
+        .into_client();
+        let err = failing
+            .get_program_accounts_with_filter(&program, vec![])
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("get_program_accounts failed"),
+            "{err}"
+        );
     }
 }

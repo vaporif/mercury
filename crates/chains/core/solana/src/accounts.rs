@@ -672,4 +672,29 @@ mod tests {
             .unwrap_err();
         assert!(err.to_string().contains("port=other"), "{err}");
     }
+
+    fn fuzz_account<T: AnchorAccount>(with_disc: bool, body: &[u8]) {
+        let mut data = if with_disc {
+            anchor_account_discriminator(T::NAME).to_vec()
+        } else {
+            Vec::new()
+        };
+        data.extend_from_slice(body);
+        let _ = deserialize_anchor_account::<T>(&data);
+    }
+
+    #[test]
+    fn fuzz_deserialize_anchor_account() {
+        bolero::check!()
+            .with_type::<(u8, Vec<u8>)>()
+            .for_each(|(selector, body)| {
+                let with_disc = selector & 0x80 == 0;
+                match selector % 4 {
+                    0 => fuzz_account::<OnChainClientState>(with_disc, body),
+                    1 => fuzz_account::<OnChainRouterState>(with_disc, body),
+                    2 => fuzz_account::<OnChainClient>(with_disc, body),
+                    _ => fuzz_account::<OnChainCommitment>(with_disc, body),
+                }
+            });
+    }
 }

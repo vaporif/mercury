@@ -31,3 +31,7 @@ ibc-client-tendermint = { workspace = true }
 ibc-proto = { workspace = true }
 prost = { workspace = true }
 tendermint = { workspace = true }
+
+[dev-dependencies]
+mercury-solana = { workspace = true, features = ["cosmos", "testing"] }
+tokio = { workspace = true }

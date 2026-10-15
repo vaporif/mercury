@@ -400,4 +400,119 @@ mod tests {
         let chain = test_support::test_chain_with(config);
         assert_eq!(chain.max_clock_drift(), Duration::from_secs(7));
     }
+
+    mod connect {
+        use super::*;
+        use crate::chain::test_support::grpc::{
+            GrpcReply, MockGrpc, reply, spawn_grpc, unimplemented,
+        };
+        use crate::chain::test_support::rpc::{MockRpc, Reply, spawn_rpc};
+        use crate::chain::test_support::tm::status_json;
+        use crate::chain::test_support::{UNREACHABLE_ADDR, mock_config, test_signer};
+        use ibc_proto::cosmos::base::node::v1beta1::ConfigResponse;
+
+        const NODE_CONFIG: &str = "/cosmos.base.node.v1beta1.Service/Config";
+
+        async fn node(catching_up: bool, tx_index_on: bool) -> MockRpc {
+            spawn_rpc(move |_| Reply::Result(status_json(500, catching_up, tx_index_on))).await
+        }
+
+        async fn grpc_with_min_gas(min: &'static str) -> MockGrpc {
+            spawn_grpc(move |call| match call.path.as_str() {
+                NODE_CONFIG => reply(&ConfigResponse {
+                    minimum_gas_price: min.into(),
+                    ..Default::default()
+                }),
+                _ => unimplemented(call),
+            })
+            .await
+        }
+
+        async fn connect(config: CosmosChainConfig) -> mercury_core::error::Result<TestChain> {
+            CosmosChain::new(config, test_signer()).await
+        }
+
+        #[tokio::test]
+        async fn new_takes_chain_id_from_node_and_checks_min_gas_price() {
+            let rpc = node(false, true).await;
+            // configured 0.025uatom is below the node's 0.05uatom: warns, still connects
+            let grpc = grpc_with_min_gas("0.001uosmo, 0.05uatom").await;
+            let mut config = mock_config(&rpc.url, &grpc.url);
+            config.chain_name = Some("hub".into());
+            let chain = connect(config).await.unwrap();
+
+            assert_eq!(chain.chain_id().as_str(), "testchain-1");
+            assert_eq!(chain.revision_number(), 1);
+            let label = chain.chain_label().to_string();
+            assert!(
+                label.contains("hub") && label.contains("testchain-1"),
+                "{label}"
+            );
+            assert_eq!(grpc.calls_to(NODE_CONFIG).len(), 1);
+            assert_eq!(rpc.calls()[0].method, "status");
+        }
+
+        #[tokio::test]
+        async fn new_tolerates_node_without_config_service() {
+            let rpc = node(false, true).await;
+            let grpc = spawn_grpc(unimplemented).await;
+            connect(mock_config(&rpc.url, &grpc.url)).await.unwrap();
+            let grpc = spawn_grpc(|_| GrpcReply::Err(tonic::Status::internal("x"))).await;
+            connect(mock_config(&rpc.url, &grpc.url)).await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn new_rejects_node_without_tx_index() {
+            let rpc = node(false, false).await;
+            let grpc = grpc_with_min_gas("").await;
+            let err = connect(mock_config(&rpc.url, &grpc.url)).await.unwrap_err();
+            assert!(err.to_string().contains("tx indexing disabled"), "{err:#}");
+            assert!(grpc.calls().is_empty(), "fails before touching gRPC");
+        }
+
+        #[tokio::test]
+        async fn new_rejects_syncing_node() {
+            let rpc = node(true, true).await;
+            let err = connect(mock_config(&rpc.url, UNREACHABLE_ADDR))
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("still syncing"), "{err:#}");
+        }
+
+        #[tokio::test]
+        async fn new_rejects_invalid_rpc_config_before_any_call() {
+            let rpc = node(false, true).await;
+            let mut config = mock_config(&rpc.url, UNREACHABLE_ADDR);
+            config.rpc_rate_limit = 0;
+            let err = connect(config).await.unwrap_err();
+            assert!(format!("{err:#}").contains("invalid RPC config"), "{err:#}");
+            assert!(rpc.calls().is_empty());
+        }
+
+        #[tokio::test]
+        async fn new_surfaces_status_and_grpc_connect_failures() {
+            let rpc = spawn_rpc(|_| Reply::Error("down".into())).await;
+            let err = connect(mock_config(&rpc.url, UNREACHABLE_ADDR))
+                .await
+                .unwrap_err();
+            assert!(
+                format!("{err:#}").contains("querying chain status"),
+                "{err:#}"
+            );
+
+            let rpc = node(false, true).await;
+            let err = connect(mock_config(&rpc.url, UNREACHABLE_ADDR))
+                .await
+                .unwrap_err();
+            assert!(format!("{err:#}").contains("connecting to gRPC"), "{err:#}");
+
+            let err = connect(mock_config(&rpc.url, "http://bad host"))
+                .await
+                .unwrap_err();
+            assert!(
+                format!("{err:#}").contains("parsing gRPC address"),
+                "{err:#}"
+            );
+        }
+    }
 }

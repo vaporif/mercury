@@ -33,6 +33,9 @@ readme = "README.md"
 keywords = ["ibc", "cosmos", "relayer", "blockchain", "interoperability"]
 categories = ["network-programming"]
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
@@ -69,6 +72,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry", "fmt"] }
 axum = "0.8"
+bolero = "0.13"
 
 mercury-core = { path = "crates/core" }
 mercury-chain-traits = { path = "crates/chain-traits" }
@@ -174,3 +178,10 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 1
 debug = false
+
+# Used by `cargo bolero test` (see `just fuzz`)
+[profile.fuzz]
+inherits = "dev"
+opt-level = 3
+incremental = false
+codegen-units = 1

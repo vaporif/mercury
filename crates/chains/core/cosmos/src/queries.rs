@@ -579,6 +579,22 @@ mod tests {
             };
             assert_eq!(decode(&extract_proof(&response).unwrap()).proofs, vec![]);
         }
+
+        #[test]
+        fn fuzz_extract_proof() {
+            bolero::check!()
+                .with_type::<Vec<Vec<u8>>>()
+                .for_each(|ops| {
+                    let response = AbciQuery {
+                        proof: Some(ProofOps {
+                            ops: ops.iter().cloned().map(op).collect(),
+                        }),
+                        ..Default::default()
+                    };
+                    let merkle = decode(&extract_proof(&response).unwrap());
+                    assert!(merkle.proofs.len() <= ops.len());
+                });
+        }
     }
 
     mod client_state {
@@ -736,6 +752,501 @@ mod tests {
                     .await
                     .unwrap_err()
             ));
+        }
+    }
+
+    mod mocked {
+        use super::*;
+        use crate::chain::test_support::grpc::{GrpcReply, reply, spawn_grpc, unimplemented};
+        use crate::chain::test_support::rpc::{Reply, spawn_rpc};
+        use crate::chain::test_support::tm::{
+            abci_reply, block_time, event, exec_result, proof_ops, status_json, tx_entry,
+            tx_search_reply,
+        };
+        use crate::chain::test_support::{
+            UNREACHABLE_ADDR, mock_chain, mock_config, test_chain_with, tm_client_state,
+        };
+        use ibc::core::host::types::identifiers::ClientId;
+        use ibc_client_tendermint::types::ConsensusState as TmConsensusState;
+        use ibc_proto::ibc::core::client::v1::{
+            QueryClientStateResponse, QueryConsensusStateResponse,
+        };
+        use mercury_core::error::RpcError;
+        use serde_json::Value;
+
+        const CLIENT_STATE_PATH: &str = "/ibc.core.client.v1.Query/ClientState";
+        const CONSENSUS_STATE_PATH: &str = "/ibc.core.client.v1.Query/ConsensusState";
+
+        fn client_id() -> ClientId {
+            "07-tendermint-3".parse().unwrap()
+        }
+
+        fn height(h: u64) -> TmHeight {
+            TmHeight::try_from(h).unwrap()
+        }
+
+        // ibc-go host.PacketCommitmentKey & co: clientID || discriminator || big-endian sequence
+        fn spec_key(client: &str, discriminator: u8, seq: u64) -> Vec<u8> {
+            [client.as_bytes(), &[discriminator], &seq.to_be_bytes()].concat()
+        }
+
+        #[tokio::test]
+        async fn chain_status_reads_latest_block_height_and_time() {
+            let rpc = spawn_rpc(|_| Reply::Result(status_json(321, false, true))).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let status = chain.query_chain_status().await.unwrap();
+            assert_eq!(status.height.value(), 321);
+            assert_eq!(status.timestamp, block_time(321));
+            assert_eq!(rpc.calls()[0].method, "status");
+
+            let free = query_cosmos_status(&rpc.url).await.unwrap();
+            assert_eq!(free.height.value(), 321);
+            assert_eq!(free.timestamp, block_time(321));
+        }
+
+        #[tokio::test]
+        async fn chain_status_rpc_error_and_malformed_body_are_errors() {
+            let rpc = spawn_rpc(|_| Reply::Error("boom".into())).await;
+            let err = mock_chain(&rpc.url, UNREACHABLE_ADDR)
+                .query_chain_status()
+                .await
+                .unwrap_err();
+            assert!(format!("{err:#}").contains("boom"), "{err:#}");
+            assert!(query_cosmos_status(&rpc.url).await.is_err());
+
+            let rpc = spawn_rpc(|_| Reply::Raw("not json".into())).await;
+            assert!(
+                mock_chain(&rpc.url, UNREACHABLE_ADDR)
+                    .query_chain_status()
+                    .await
+                    .is_err()
+            );
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn chain_status_hanging_node_hits_rpc_timeout() {
+            let rpc = spawn_rpc(|_| Reply::Hang).await;
+            let err = mock_chain(&rpc.url, UNREACHABLE_ADDR)
+                .query_chain_status()
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(err.downcast_ref::<RpcError>(), Some(RpcError::Timeout(_))),
+                "{err:#}"
+            );
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn client_state_hanging_grpc_hits_rpc_timeout() {
+            let grpc = spawn_grpc(|_| GrpcReply::Hang).await;
+            let err = mock_chain(UNREACHABLE_ADDR, &grpc.url)
+                .query_client_state(&client_id(), &height(5))
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(err.downcast_ref::<RpcError>(), Some(RpcError::Timeout(_))),
+                "{err:#}"
+            );
+        }
+
+        #[tokio::test]
+        async fn client_state_query_pins_height_and_decodes_any() {
+            let grpc = spawn_grpc(|call| match call.path.as_str() {
+                CLIENT_STATE_PATH => reply(&QueryClientStateResponse {
+                    client_state: Some(tm_client_state(77).into()),
+                    proof: vec![],
+                    proof_height: None,
+                }),
+                _ => unimplemented(call),
+            })
+            .await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            let cs = chain
+                .query_client_state(&client_id(), &height(55))
+                .await
+                .unwrap();
+            let CosmosClientState::Tendermint(tm) = &cs else {
+                panic!("expected tendermint client state, got {cs:?}");
+            };
+            assert_eq!(tm.latest_height.revision_height(), 77);
+
+            let calls = grpc.calls_to(CLIENT_STATE_PATH);
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].height.as_deref(), Some("55"));
+            let req: QueryClientStateRequest = calls[0].decode();
+            assert_eq!(req.client_id, "07-tendermint-3");
+        }
+
+        #[tokio::test]
+        async fn client_state_missing_is_stale_and_bad_any_is_error() {
+            let grpc = spawn_grpc(|_| reply(&QueryClientStateResponse::default())).await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            let err = chain
+                .query_client_state(&client_id(), &height(5))
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(
+                    err.downcast_ref::<QueryError>(),
+                    Some(QueryError::StaleState { .. })
+                ),
+                "{err:#}"
+            );
+
+            let grpc = spawn_grpc(|_| {
+                reply(&QueryClientStateResponse {
+                    client_state: Some(ibc_proto::google::protobuf::Any {
+                        type_url: "/unknown.ClientState".into(),
+                        value: vec![1, 2, 3],
+                    }),
+                    ..Default::default()
+                })
+            })
+            .await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            assert!(
+                chain
+                    .query_client_state(&client_id(), &height(5))
+                    .await
+                    .is_err()
+            );
+        }
+
+        #[tokio::test]
+        async fn client_state_grpc_status_error_propagates() {
+            let grpc =
+                spawn_grpc(|_| GrpcReply::Err(tonic::Status::not_found("client not found"))).await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            let err = chain
+                .query_client_state(&client_id(), &height(5))
+                .await
+                .unwrap_err();
+            assert!(format!("{err:#}").contains("client not found"), "{err:#}");
+            let err = chain
+                .query_consensus_state(&client_id(), &height(4), &height(5))
+                .await
+                .unwrap_err();
+            assert!(format!("{err:#}").contains("client not found"), "{err:#}");
+        }
+
+        #[tokio::test]
+        async fn consensus_state_request_uses_chain_revision_and_query_height() {
+            let header = crate::chain::test_support::tm_ibc_header(40, 0x5a);
+            let cons = TmConsensusState::from(header.signed_header.header);
+            let expected_root = cons.root.clone();
+            let grpc = spawn_grpc(move |call| match call.path.as_str() {
+                CONSENSUS_STATE_PATH => reply(&QueryConsensusStateResponse {
+                    consensus_state: Some(cons.clone().into()),
+                    proof: vec![],
+                    proof_height: None,
+                }),
+                _ => unimplemented(call),
+            })
+            .await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            let got = chain
+                .query_consensus_state(&client_id(), &height(40), &height(90))
+                .await
+                .unwrap();
+            let CosmosConsensusState::Tendermint(got) = got else {
+                panic!("expected tendermint consensus state");
+            };
+            assert_eq!(got.root, expected_root);
+
+            let call = &grpc.calls_to(CONSENSUS_STATE_PATH)[0];
+            assert_eq!(call.height.as_deref(), Some("90"));
+            let req: QueryConsensusStateRequest = call.decode();
+            assert_eq!(req.client_id, "07-tendermint-3");
+            // "testchain-1" encodes revision 1
+            assert_eq!(req.revision_number, 1);
+            assert_eq!(req.revision_height, 40);
+            assert!(!req.latest_height);
+        }
+
+        #[tokio::test]
+        async fn consensus_state_missing_is_stale() {
+            let grpc = spawn_grpc(|_| reply(&QueryConsensusStateResponse::default())).await;
+            let chain = mock_chain(UNREACHABLE_ADDR, &grpc.url);
+            let err = chain
+                .query_consensus_state(&client_id(), &height(4), &height(5))
+                .await
+                .unwrap_err();
+            assert!(matches!(
+                err.downcast_ref::<QueryError>(),
+                Some(QueryError::StaleState { .. })
+            ));
+        }
+
+        fn abci_params(rpc: &crate::chain::test_support::rpc::MockRpc) -> Value {
+            let calls = rpc.calls_to("abci_query");
+            assert_eq!(calls.len(), 1);
+            calls[0].clone()
+        }
+
+        #[tokio::test]
+        async fn packet_commitment_queries_spec_key_one_below_proof_height() {
+            let key = spec_key("07-tendermint-3", 1, 9);
+            let rpc =
+                spawn_rpc(|_| abci_reply(vec![0xc0; 32], Some(proof_ops(&[b"iavl", b"ibc"]))))
+                    .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let (commitment, proof) = chain
+                .query_packet_commitment(&client_id(), PacketSequence(9), &height(20))
+                .await
+                .unwrap();
+            assert_eq!(commitment.unwrap().0, vec![0xc0; 32]);
+            let merkle = ibc_proto::ibc::core::commitment::v1::MerkleProof::decode(
+                proof.proof_bytes.as_slice(),
+            )
+            .unwrap();
+            assert_eq!(merkle.proofs.len(), 2);
+
+            let params = abci_params(&rpc);
+            assert_eq!(params["path"], "store/ibc/key");
+            assert_eq!(params["data"], hex::encode_upper(&key));
+            assert_eq!(params["height"], "19");
+            assert_eq!(params["prove"], true);
+        }
+
+        #[tokio::test]
+        async fn packet_commitment_absent_value_is_none_with_proof() {
+            let rpc = spawn_rpc(|_| abci_reply(vec![], Some(proof_ops(&[b"nonexist"])))).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let (commitment, proof) = chain
+                .query_packet_commitment(&client_id(), PacketSequence(1), &height(2))
+                .await
+                .unwrap();
+            assert!(commitment.is_none());
+            assert_ne!(proof.proof_bytes, Vec::<u8>::new());
+        }
+
+        #[tokio::test]
+        async fn packet_receipt_uses_receipt_discriminator() {
+            let rpc = spawn_rpc(|call| {
+                let present =
+                    call.params["data"] == hex::encode_upper(spec_key("07-tendermint-3", 2, 4));
+                abci_reply(
+                    if present { vec![1] } else { vec![] },
+                    Some(proof_ops(&[b"k"])),
+                )
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let (receipt, _) = chain
+                .query_packet_receipt(&client_id(), PacketSequence(4), &height(8))
+                .await
+                .unwrap();
+            assert!(receipt.is_some(), "mock only answers the spec receipt key");
+            let (receipt, _) = chain
+                .query_packet_receipt(&client_id(), PacketSequence(5), &height(8))
+                .await
+                .unwrap();
+            assert!(receipt.is_none());
+            assert_eq!(rpc.calls_to("abci_query")[0]["height"], "7");
+        }
+
+        #[tokio::test]
+        async fn packet_ack_uses_ack_discriminator() {
+            let rpc = spawn_rpc(|call| {
+                let present =
+                    call.params["data"] == hex::encode_upper(spec_key("07-tendermint-3", 3, 6));
+                abci_reply(
+                    if present { vec![0xac] } else { vec![] },
+                    Some(proof_ops(&[b"k"])),
+                )
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let (ack, _) = chain
+                .query_packet_acknowledgement(&client_id(), PacketSequence(6), &height(3))
+                .await
+                .unwrap();
+            assert_eq!(ack.unwrap().0, vec![0xac]);
+        }
+
+        #[tokio::test]
+        async fn packet_queries_without_proof_are_proof_missing() {
+            let rpc = spawn_rpc(|_| abci_reply(vec![1], None)).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let is_missing = |e: eyre::Report| {
+                matches!(e.downcast_ref::<ProofError>(), Some(ProofError::Missing))
+            };
+            let seq = PacketSequence(1);
+            assert!(is_missing(
+                chain
+                    .query_packet_commitment(&client_id(), seq, &height(3))
+                    .await
+                    .unwrap_err()
+            ));
+            assert!(is_missing(
+                chain
+                    .query_packet_receipt(&client_id(), seq, &height(3))
+                    .await
+                    .unwrap_err()
+            ));
+            assert!(is_missing(
+                chain
+                    .query_packet_acknowledgement(&client_id(), seq, &height(3))
+                    .await
+                    .unwrap_err()
+            ));
+        }
+
+        fn packet_hex(seq: u64, source: &str, dest: &str) -> String {
+            hex::encode(
+                ibc_proto::ibc::core::channel::v2::Packet {
+                    sequence: seq,
+                    source_client: source.into(),
+                    destination_client: dest.into(),
+                    timeout_timestamp: 0,
+                    payloads: vec![],
+                }
+                .encode_to_vec(),
+            )
+        }
+
+        fn packet_tx(kind: &str, seq: u64, source: &str, dest: &str) -> Value {
+            tx_entry(
+                tendermint::Hash::Sha256([u8::try_from(seq % 256).unwrap(); 32]),
+                10,
+                exec_result(
+                    0,
+                    "",
+                    vec![event(
+                        kind,
+                        &[(ENCODED_PACKET_HEX, &packet_hex(seq, source, dest))],
+                    )],
+                ),
+            )
+        }
+
+        #[tokio::test]
+        async fn commitment_sequences_filter_by_source_client_dedup_and_sort() {
+            let ours = "07-tendermint-3";
+            let rpc = spawn_rpc(move |_| {
+                tx_search_reply(vec![
+                    packet_tx("send_packet", 7, ours, "x"),
+                    packet_tx("send_packet", 2, ours, "x"),
+                    packet_tx("send_packet", 7, ours, "x"),
+                    packet_tx("send_packet", 5, "07-tendermint-9", "x"),
+                    // right client but wrong event kind
+                    packet_tx("write_acknowledgement", 4, ours, "x"),
+                ])
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let seqs = chain
+                .query_commitment_sequences(&client_id(), &height(1))
+                .await
+                .unwrap();
+            assert_eq!(seqs, vec![PacketSequence(2), PacketSequence(7)]);
+
+            let params = &rpc.calls_to("tx_search")[0];
+            assert_eq!(
+                params["query"],
+                "tm.event = 'Tx' AND send_packet.encoded_packet_hex EXISTS"
+            );
+            assert_eq!(params["page"], "1");
+            assert_eq!(params["per_page"], "100");
+            assert_eq!(params["order_by"], "asc");
+        }
+
+        #[tokio::test]
+        async fn ack_sequences_filter_by_destination_client() {
+            let ours = "07-tendermint-3";
+            let rpc = spawn_rpc(move |_| {
+                tx_search_reply(vec![
+                    packet_tx("write_acknowledgement", 3, "other", ours),
+                    packet_tx("write_acknowledgement", 8, ours, "other"),
+                ])
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let seqs = chain
+                .query_ack_sequences(&client_id(), &height(1))
+                .await
+                .unwrap();
+            assert_eq!(seqs, vec![PacketSequence(3)]);
+            assert_eq!(
+                rpc.calls_to("tx_search")[0]["query"],
+                "tm.event = 'Tx' AND write_acknowledgement.encoded_packet_hex EXISTS"
+            );
+        }
+
+        #[tokio::test]
+        async fn sequences_skip_undecodable_packets() {
+            let rpc = spawn_rpc(|_| {
+                tx_search_reply(vec![
+                    tx_entry(
+                        tendermint::Hash::Sha256([1; 32]),
+                        1,
+                        exec_result(
+                            0,
+                            "",
+                            vec![event("send_packet", &[(ENCODED_PACKET_HEX, "zz")])],
+                        ),
+                    ),
+                    tx_entry(
+                        tendermint::Hash::Sha256([2; 32]),
+                        1,
+                        exec_result(
+                            0,
+                            "",
+                            vec![event("send_packet", &[(ENCODED_PACKET_HEX, "ffff")])],
+                        ),
+                    ),
+                    packet_tx("send_packet", 11, "07-tendermint-3", "x"),
+                ])
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let seqs = chain
+                .query_commitment_sequences(&client_id(), &height(1))
+                .await
+                .unwrap();
+            assert_eq!(seqs, vec![PacketSequence(11)]);
+        }
+
+        #[tokio::test]
+        async fn sequences_follow_full_pages_until_a_short_one() {
+            let ours = "07-tendermint-3";
+            let rpc = spawn_rpc(move |call| {
+                let page: u64 = call.params["page"].as_str().unwrap().parse().unwrap();
+                let count = if page == 1 { 100 } else { 3 };
+                let base = (page - 1) * 100;
+                tx_search_reply(
+                    (1..=count)
+                        .map(|i| packet_tx("send_packet", base + i, ours, "x"))
+                        .collect(),
+                )
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let seqs = chain
+                .query_commitment_sequences(&client_id(), &height(1))
+                .await
+                .unwrap();
+            assert_eq!(seqs.len(), 103);
+            assert_eq!(seqs.first(), Some(&PacketSequence(1)));
+            assert_eq!(seqs.last(), Some(&PacketSequence(103)));
+            let pages: Vec<_> = rpc
+                .calls_to("tx_search")
+                .iter()
+                .map(|p| p["page"].clone())
+                .collect();
+            assert_eq!(pages, vec!["1", "2"]);
+        }
+
+        #[tokio::test]
+        async fn sequences_rpc_error_propagates() {
+            let rpc = spawn_rpc(|_| Reply::Error("index disabled".into())).await;
+            let chain = test_chain_with(mock_config(&rpc.url, UNREACHABLE_ADDR));
+            assert!(
+                chain
+                    .query_commitment_sequences(&client_id(), &height(1))
+                    .await
+                    .is_err()
+            );
         }
     }
 }

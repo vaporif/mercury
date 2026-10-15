@@ -171,3 +171,96 @@ pub fn register(registry: &mut ChainRegistry) {
     registry.register_pair(CosmosToEthereumRelay);
     registry.register_pair(EthereumToCosmosRelay);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ibc::core::host::types::identifiers::ClientId;
+    use mercury_ethereum_counterparties::types::EvmClientId;
+
+    fn not_a_chain() -> AnyChain {
+        Arc::new(())
+    }
+
+    fn cosmos_client_id() -> AnyClientId {
+        Box::new(ClientId::new("08-wasm", 0).unwrap())
+    }
+
+    fn evm_client_id() -> AnyClientId {
+        Box::new(EvmClientId("client-0".to_string()))
+    }
+
+    #[test]
+    fn registers_both_directions() {
+        let mut registry = ChainRegistry::new();
+        register(&mut registry);
+        for (src, dst) in [("cosmos", "ethereum"), ("ethereum", "cosmos")] {
+            let pair = registry.pair(src, dst).unwrap();
+            assert_eq!((pair.src_type(), pair.dst_type()), (src, dst));
+        }
+        assert!(registry.pair("cosmos", "cosmos").is_err());
+        assert!(registry.pair("ethereum", "ethereum").is_err());
+    }
+
+    #[test]
+    fn cosmos_to_ethereum_checks_source_is_cosmos() {
+        let err = CosmosToEthereumRelay
+            .build_relay(
+                &not_a_chain(),
+                &not_a_chain(),
+                &cosmos_client_id(),
+                &evm_client_id(),
+            )
+            .err()
+            .unwrap();
+        assert_eq!(err.to_string(), "expected cosmos chain handle");
+    }
+
+    #[test]
+    fn ethereum_to_cosmos_checks_source_is_ethereum() {
+        let err = EthereumToCosmosRelay
+            .build_relay(
+                &not_a_chain(),
+                &not_a_chain(),
+                &evm_client_id(),
+                &cosmos_client_id(),
+            )
+            .err()
+            .unwrap();
+        assert_eq!(err.to_string(), "expected ethereum chain handle");
+    }
+
+    #[test]
+    fn eth_handle_downcast_rejects_other_types() {
+        assert_eq!(
+            downcast_eth(&not_a_chain()).err().unwrap().to_string(),
+            "expected ethereum chain handle"
+        );
+    }
+
+    #[test]
+    fn client_id_downcasts_reject_the_other_chains_id() {
+        assert_eq!(
+            downcast_cosmos_client_id(&cosmos_client_id())
+                .unwrap()
+                .as_str(),
+            "08-wasm-0"
+        );
+        assert_eq!(
+            downcast_evm_client_id(&evm_client_id()).unwrap().0,
+            "client-0"
+        );
+        assert_eq!(
+            downcast_cosmos_client_id(&evm_client_id())
+                .unwrap_err()
+                .to_string(),
+            "expected cosmos client ID"
+        );
+        assert_eq!(
+            downcast_evm_client_id(&cosmos_client_id())
+                .unwrap_err()
+                .to_string(),
+            "expected ethereum client ID"
+        );
+    }
+}

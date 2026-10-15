@@ -653,4 +653,28 @@ mod tests {
                 .is_none()
         );
     }
+
+    #[test]
+    fn fuzz_extract_events() {
+        bolero::check!()
+            .with_type::<(u8, Vec<[u8; 32]>, Vec<u8>)>()
+            .for_each(|(selector, extra_topics, data)| {
+                let mut topics = match selector % 3 {
+                    0 => vec![ICS26Router::SendPacket::SIGNATURE_HASH],
+                    1 => vec![ICS26Router::WriteAcknowledgement::SIGNATURE_HASH],
+                    _ => Vec::new(),
+                };
+                topics.extend(extra_topics.iter().map(|t| B256::from(*t)));
+                let event = EvmEvent {
+                    address: ROUTER,
+                    topics,
+                    data: data.clone(),
+                    block_number: BlockNumber(42),
+                    tx_hash: B256::ZERO,
+                    log_index: LogIndex(0),
+                };
+                let _ = EthereumChain::try_extract_send_packet_event(&event);
+                let _ = EthereumChain::try_extract_write_ack_event(&event);
+            });
+    }
 }

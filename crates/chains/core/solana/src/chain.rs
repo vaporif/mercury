@@ -857,6 +857,9 @@ impl MisbehaviourQuery<Self> for SolanaChain {
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1096,7 +1099,9 @@ mod tests {
 
     fn write_keypair(kp: &Keypair) -> std::path::PathBuf {
         let path =
-            std::env::temp_dir().join(format!("mercury-solana-{}.json", Pubkey::new_unique()));
+            // `Pubkey::new_unique` repeats across nextest's per-test processes; the
+            // keypair's own random pubkey does not.
+            std::env::temp_dir().join(format!("mercury-solana-{}.json", kp.pubkey()));
         std::fs::write(
             &path,
             serde_json::to_string(&kp.to_bytes().to_vec()).unwrap(),
@@ -1869,5 +1874,183 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    // --- trait accessors ---
+
+    #[test]
+    fn chain_types_expose_status_and_config() {
+        let c = chain(FakeRpc::default());
+        let status = SolanaChainStatus {
+            height: SolanaHeight(12),
+            timestamp: SolanaTimestamp(34),
+        };
+        assert_eq!(SolanaChain::chain_status_height(&status), &SolanaHeight(12));
+        assert_eq!(
+            SolanaChain::chain_status_timestamp(&status),
+            &SolanaTimestamp(34)
+        );
+        assert_eq!(SolanaChain::chain_status_timestamp_secs(&status), 34);
+        assert_eq!(c.revision_number(), 0);
+        assert_eq!(c.block_time(), Duration::from_millis(400));
+        assert_eq!(c.chain_id().to_string(), SolanaChainId.to_string());
+        assert_eq!(c.chain_label().name(), "solana");
+        assert_eq!(c.chain_label().id(), None);
+
+        let p = packet(1);
+        assert_eq!(SolanaChain::packet_sequence(&p), PacketSequence(3));
+        assert_eq!(
+            SolanaChain::packet_timeout_timestamp(&p),
+            TimeoutTimestamp(1_000)
+        );
+    }
+
+    #[tokio::test]
+    async fn send_and_ack_events_round_trip_through_trait_helpers() {
+        let ics26 = Pubkey::new_unique();
+        let mut rpc = FakeRpc::default();
+        rpc.blocks.insert(
+            1,
+            block(&[tx(&ics26, Some(vec![send_log(9), ack_log(9)]), false)]),
+        );
+        let events = chain_with(ics26, rpc)
+            .query_block_events(&SolanaHeight(1))
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 2);
+
+        let send = SolanaChain::try_extract_send_packet_event(&events[0]).unwrap();
+        assert_eq!(
+            SolanaChain::packet_from_send_event(&send).sequence,
+            PacketSequence(9)
+        );
+        assert!(SolanaChain::try_extract_write_ack_event(&events[0]).is_none());
+        let ack = SolanaChain::try_extract_write_ack_event(&events[1]).unwrap();
+        assert_eq!(
+            SolanaChain::packet_from_write_ack_event(&ack).0.sequence,
+            PacketSequence(9)
+        );
+    }
+
+    // --- attestation ---
+
+    fn attestation(quorum: u32) -> crate::config::AttestationConfig {
+        crate::config::AttestationConfig {
+            endpoints: vec!["http://127.0.0.1:1".into(), "http://127.0.0.1:2".into()],
+            attestor_addresses: vec![
+                format!("0x{}", "11".repeat(20)),
+                format!("0x{}", "22".repeat(20)),
+            ],
+            min_required_sigs: quorum,
+            timeout_secs: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn new_builds_attestor_from_attestation_config() {
+        let path = write_keypair(&Keypair::new());
+        let mut cfg = config(path.clone());
+        cfg.attestation = Some(attestation(2));
+        let c = SolanaChain::new(cfg.clone()).unwrap();
+        let aggregator = c.attestor.clone().unwrap();
+        assert_eq!(aggregator.quorum(), 2);
+        assert_eq!(aggregator.attestor_addresses().len(), 2);
+        assert!(matches!(
+            c.commitment_proof(),
+            SolanaCommitmentProof::Attested(_)
+        ));
+        // Attested clients only hold consensus states at heights they were updated to.
+        assert_eq!(
+            <SolanaChain as ClientPayloadBuilder<SolanaChain>>::proof_height_without_update(
+                &c,
+                &SolanaHeight(90),
+                &SolanaHeight(100),
+            ),
+            SolanaHeight(100)
+        );
+
+        cfg.attestation = Some(attestation(3));
+        let err = SolanaChain::new(cfg).unwrap_err();
+        assert!(err.to_string().contains("exceeds"), "{err}");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn attested_create_payload_fails_without_a_reachable_quorum() {
+        let path = write_keypair(&Keypair::new());
+        let mut cfg = config(path.clone());
+        cfg.attestation = Some(attestation(1));
+        let c = SolanaChain::new(cfg).unwrap();
+        // Never falls back to the dummy payload, even though the RPC would answer.
+        let c = SolanaChain {
+            rpc: FakeRpc {
+                slot: Some(1),
+                block_time: Some(1),
+                ..FakeRpc::default()
+            }
+            .into_client(),
+            ..c
+        };
+        assert!(
+            <SolanaChain as ClientPayloadBuilder<SolanaChain>>::build_create_client_payload(&c)
+                .await
+                .is_err()
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    // --- address lookup table ---
+
+    // Address lookup table program account layout: bincode `ProgramState::LookupTable`
+    // (u32 tag 1) + `LookupTableMeta` padded to 56 bytes, then the addresses.
+    fn alt_account(authority: &Pubkey, addresses: &[Pubkey]) -> Vec<u8> {
+        let mut data = 1u32.to_le_bytes().to_vec();
+        data.extend(u64::MAX.to_le_bytes()); // deactivation_slot: active
+        data.extend(0u64.to_le_bytes()); // last_extended_slot
+        data.push(0); // last_extended_slot_start_index
+        data.push(1); // Some(authority)
+        data.extend(authority.to_bytes());
+        data.extend([0u8; 2]); // padding
+        assert_eq!(data.len(), 56);
+        for a in addresses {
+            data.extend(a.to_bytes());
+        }
+        data
+    }
+
+    #[tokio::test]
+    async fn load_alt_cache_reads_table_and_shrinks_transactions() {
+        let alt = Pubkey::new_unique();
+        let shared: Vec<Pubkey> = (0..4).map(|_| Pubkey::new_unique()).collect();
+        let rpc = FakeRpc::default().with_account(alt, alt_account(&Pubkey::new_unique(), &shared));
+        let sent = rpc.sent_txs.clone();
+        let mut c = chain(rpc);
+        c.config.alt_address = Some(alt.to_string());
+        c.load_alt_cache().await.unwrap();
+        let cached = c.alt_cache.clone().unwrap();
+        assert_eq!(cached.key, alt);
+        assert_eq!(cached.addresses, shared);
+
+        let ix = Instruction::new_with_bytes(
+            Pubkey::new_unique(),
+            &[1],
+            shared
+                .iter()
+                .map(|k| AccountMeta::new_readonly(*k, false))
+                .collect(),
+        );
+        let msg = || SolanaMessage {
+            instructions: vec![ix.clone()],
+        };
+        c.send_messages(vec![msg()]).await.unwrap();
+        c.alt_cache = None;
+        c.send_messages(vec![msg()]).await.unwrap();
+        let sizes: Vec<usize> = sent.lock().unwrap().iter().map(Vec::len).collect();
+        // Four 32-byte keys become 1-byte indexes behind a 32-byte table key.
+        assert!(sizes[0] < sizes[1], "{sizes:?}");
+
+        c.config.alt_address = Some("not-a-pubkey".into());
+        let err = c.load_alt_cache().await.unwrap_err();
+        assert!(err.to_string().contains("invalid alt_address"), "{err}");
     }
 }

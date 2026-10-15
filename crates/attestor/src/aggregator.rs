@@ -284,6 +284,13 @@ fn aggregate(
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::result_large_err,
+    reason = "mock attestor handlers return tonic::Status"
+)]
+mod mock_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use alloy::signers::SignerSync;

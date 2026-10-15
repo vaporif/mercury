@@ -235,4 +235,50 @@ mod tests {
         let body = ("07-tendermint-0".to_string(), 7u64);
         assert!(try_decode_send_packet(&event(*SEND_PACKET_DISC, &body)).is_none());
     }
+
+    #[test]
+    fn fuzz_decode_events() {
+        bolero::check!()
+            .with_type::<(u8, Vec<u8>)>()
+            .for_each(|(selector, body)| {
+                let mut data = match selector % 3 {
+                    0 => SEND_PACKET_DISC.to_vec(),
+                    1 => WRITE_ACK_DISC.to_vec(),
+                    _ => Vec::new(),
+                };
+                data.extend_from_slice(body);
+                let event = SolanaEvent {
+                    program_id: String::new(),
+                    data,
+                };
+                let _ = try_decode_send_packet(&event);
+                if let Some(ev) = try_decode_write_ack(&event) {
+                    assert!(Acknowledgement::decode(ev.ack.0.as_slice()).is_ok());
+                }
+            });
+    }
+
+    #[test]
+    fn fuzz_extract_events_from_logs() {
+        const PROGRAM: &str = "ics26";
+
+        bolero::check!()
+            .with_type::<Vec<(u8, String)>>()
+            .for_each(|lines| {
+                let logs: Vec<String> = lines
+                    .iter()
+                    .map(|(selector, text)| match selector % 5 {
+                        0 => format!("Program {PROGRAM} invoke [1]"),
+                        1 => format!("Program {PROGRAM} success"),
+                        2 => format!("Program {PROGRAM} failed: {text}"),
+                        3 => format!("{PROGRAM_DATA_PREFIX}{text}"),
+                        _ => text.clone(),
+                    })
+                    .collect();
+                for event in extract_events_from_logs(&logs, PROGRAM) {
+                    assert_eq!(event.program_id, PROGRAM);
+                    assert!(event.data.len() >= ANCHOR_DISCRIMINATOR_LEN);
+                }
+            });
+    }
 }
