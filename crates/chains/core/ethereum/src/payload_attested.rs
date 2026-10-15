@@ -123,6 +123,34 @@ mod tests {
         assert_eq!(payload.consensus_state, Vec::<u8>::new());
     }
 
+    // Attestation light clients (ibc-go attestations.v1, Solidity, Solana)
+    // check recovered ECDSA signers against `attestor_addresses`, so every
+    // entry must be an Ethereum address, not an attestor RPC endpoint.
+    #[tokio::test]
+    #[ignore = "bug: attested client state lists attestor endpoint URLs as attestor_addresses"]
+    async fn create_payload_attestor_addresses_are_ethereum_addresses() {
+        let rpc = spawn_rpc(|method, _| match method {
+            "eth_blockNumber" => Ok(json!("0x64")),
+            "eth_getBlockByNumber" => Ok(serde_json::to_value(alloy::rpc::types::Block::<
+                alloy::rpc::types::Transaction,
+            >::default())
+            .unwrap()),
+            other => Err(format!("unexpected {other}")),
+        })
+        .await;
+        let chain = attested_chain(&rpc, vec!["http://attestor-0:8080".to_string()], 1);
+
+        let payload = chain.build_create_client_payload_attested().await.unwrap();
+        let cs: Value = serde_json::from_slice(&payload.client_state).unwrap();
+        for entry in cs["attestor_addresses"].as_array().unwrap() {
+            let entry = entry.as_str().unwrap();
+            assert!(
+                entry.parse::<alloy::primitives::Address>().is_ok(),
+                "attestor_addresses entry {entry:?} is not an Ethereum address"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn create_payload_propagates_status_failure() {
         let rpc = spawn_rpc(|_, _| Err("down".to_string())).await;

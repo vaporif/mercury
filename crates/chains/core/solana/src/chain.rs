@@ -1385,6 +1385,22 @@ mod tests {
         assert_eq!(seqs, vec![PacketSequence(1)]);
     }
 
+    // The router takes `MsgSendPacket.sequence` from the caller with no
+    // on-chain counter (ics26-router send_packet.rs), so live sequences need
+    // not start at 1 or be dense.
+    #[tokio::test]
+    #[ignore = "bug: commitment scan misses caller-chosen sequences beyond a 10-slot gap"]
+    async fn commitment_scan_finds_caller_chosen_sequences() {
+        let ics26 = Pubkey::new_unique();
+        let caller_chosen = [50, 10_001, 0x9E37_79B9_7F4A_7C15];
+        let c = chain_with(ics26, seed_commitments(&ics26, &caller_chosen));
+        let seqs = c
+            .query_commitment_sequences(&SolanaClientId(CLIENT.into()), &SolanaHeight(0))
+            .await
+            .unwrap();
+        assert_eq!(seqs, caller_chosen.map(PacketSequence).to_vec());
+    }
+
     #[tokio::test]
     async fn ack_scan_uses_ack_pdas() {
         let ics26 = Pubkey::new_unique();
