@@ -59,3 +59,36 @@ impl CreateClientCmd {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{HUB, OSMO, err_string, example_config};
+
+    fn cmd(config: &Path, host: &str, reference: &str) -> CreateCmd {
+        CreateCmd::Client(CreateClientCmd {
+            config: config.into(),
+            host_chain: host.into(),
+            reference_chain: reference.into(),
+        })
+    }
+
+    #[tokio::test]
+    async fn unknown_host_or_reference_chain_is_reported() {
+        let cfg = example_config();
+        for (host, reference) in [("juno-1", OSMO), (HUB, "juno-1")] {
+            let err = err_string(cmd(&cfg.path, host, reference).run().await);
+            assert_eq!(err, "chain 'juno-1' not found in config");
+        }
+    }
+
+    #[tokio::test]
+    async fn host_connect_failure_aborts_creation() {
+        let cfg = example_config();
+        let err = err_string(cmd(&cfg.path, HUB, OSMO).run().await);
+        assert!(
+            err.starts_with(&format!("loading signer for '{HUB}'")),
+            "{err}"
+        );
+    }
+}

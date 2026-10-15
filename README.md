@@ -21,6 +21,8 @@ Adding a new chain doesn't touch Mercury's core. Chain support goes in independe
 
 Early development. Not tested against live chains yet, so use at your own risk. Core implementation complete for all chains.
 
+Mercury is an independent project. It isn't affiliated with Cosmos Labs and has no production support. Cosmos Labs licenses its own IBC v2 relayer through Cosmos Enterprise; the public mirror, [cosmos/ibc-relayer](https://github.com/cosmos/ibc-relayer), was archived in August 2026. Mercury explores a simpler relayer design that shares one set of traits across Cosmos, EVM, and Solana. See [why rewrite](./docs/why-rewrite.md#cosmos-labs-relayer-request-driven-and-no-longer-open) for how the two compare.
+
 | Feature | Cosmos↔Cosmos | Cosmos↔EVM | Cosmos↔Solana |
 |---------|:---:|:---:|:---:|
 | Basic transfer | E2E | E2E | E2E |

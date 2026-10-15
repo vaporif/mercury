@@ -618,3 +618,6 @@ macro_rules! delegate_chain {
         }
     };
 }
+
+#[cfg(test)]
+mod tests;

@@ -140,3 +140,113 @@ impl PacketMessageBuilder<Self> for EthereumChain {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::{B256, Bytes};
+    use alloy::sol_types::SolValue;
+    use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+
+    use super::*;
+    use crate::chain::test_support::{ROUTER, offline_chain};
+    use crate::types::{EvmPayload, ProofHeight};
+
+    type ProofTuple = (B256, Vec<Bytes>, B256, U256, Vec<Bytes>);
+
+    fn proof() -> EvmCommitmentProof {
+        EvmCommitmentProof {
+            proof_height: ProofHeight(10),
+            storage_root: B256::repeat_byte(1),
+            account_proof: vec![vec![2, 2], vec![3]],
+            storage_key: B256::repeat_byte(4),
+            storage_value: U256::from(5),
+            storage_proof: vec![vec![6]],
+        }
+    }
+
+    fn packet() -> EvmPacket {
+        EvmPacket {
+            source_client: "src-0".to_string(),
+            dest_client: "dst-0".to_string(),
+            sequence: PacketSequence(12),
+            timeout_timestamp: TimeoutTimestamp(1_800_000_000),
+            payloads: vec![EvmPayload {
+                source_port: Port("transfer".to_string()),
+                dest_port: Port("transfer".to_string()),
+                version: "ics20-1".to_string(),
+                encoding: "application/x-solidity-abi".to_string(),
+                value: vec![0xde, 0xad],
+            }],
+        }
+    }
+
+    fn assert_packet(sol: &IICS26RouterMsgs::Packet) {
+        assert_eq!(sol.sequence, 12);
+        assert_eq!(sol.sourceClient, "src-0");
+        assert_eq!(sol.destClient, "dst-0");
+        assert_eq!(sol.timeoutTimestamp, 1_800_000_000);
+        assert_eq!(sol.payloads.len(), 1);
+        assert_eq!(sol.payloads[0].sourcePort, "transfer");
+        assert_eq!(sol.payloads[0].version, "ics20-1");
+        assert_eq!(sol.payloads[0].encoding, "application/x-solidity-abi");
+        assert_eq!(sol.payloads[0].value.as_ref(), &[0xde, 0xad]);
+    }
+
+    fn assert_proof(bytes: &[u8]) {
+        let (root, account, key, value, storage) = ProofTuple::abi_decode(bytes).unwrap();
+        let p = proof();
+        assert_eq!(root, p.storage_root);
+        let to_vecs = |v: Vec<Bytes>| v.into_iter().map(|b| b.to_vec()).collect::<Vec<_>>();
+        assert_eq!(to_vecs(account), p.account_proof);
+        assert_eq!(key, p.storage_key);
+        assert_eq!(value, p.storage_value);
+        assert_eq!(to_vecs(storage), p.storage_proof);
+    }
+
+    #[test]
+    fn encode_evm_proof_roundtrips_as_abi_tuple() {
+        assert_proof(&encode_evm_proof(&proof()));
+    }
+
+    #[tokio::test]
+    async fn recv_packet_message() {
+        let msg = offline_chain()
+            .build_receive_packet_message(&packet(), proof(), EvmHeight(99), 3)
+            .await
+            .unwrap();
+        assert_eq!(msg.to, ROUTER);
+        assert_eq!(msg.value, U256::ZERO);
+        let call = ICS26Router::recvPacketCall::abi_decode(&msg.calldata).unwrap();
+        assert_packet(&call.msg_.packet);
+        assert_proof(&call.msg_.proofCommitment);
+        assert_eq!(call.msg_.proofHeight.revisionNumber, 3);
+        assert_eq!(call.msg_.proofHeight.revisionHeight, 99);
+    }
+
+    #[tokio::test]
+    async fn ack_packet_message() {
+        let ack = EvmAcknowledgement(vec![7, 7, 7]);
+        let msg = offline_chain()
+            .build_ack_packet_message(&packet(), &ack, proof(), EvmHeight(5), 0)
+            .await
+            .unwrap();
+        let call = ICS26Router::ackPacketCall::abi_decode(&msg.calldata).unwrap();
+        assert_packet(&call.msg_.packet);
+        assert_eq!(call.msg_.acknowledgement.as_ref(), &[7, 7, 7]);
+        assert_proof(&call.msg_.proofAcked);
+        assert_eq!(call.msg_.proofHeight.revisionHeight, 5);
+    }
+
+    #[tokio::test]
+    async fn timeout_packet_message() {
+        let msg = offline_chain()
+            .build_timeout_packet_message(&packet(), proof(), EvmHeight(8), 1)
+            .await
+            .unwrap();
+        let call = ICS26Router::timeoutPacketCall::abi_decode(&msg.calldata).unwrap();
+        assert_packet(&call.msg_.packet);
+        assert_proof(&call.msg_.proofTimeout);
+        assert_eq!(call.msg_.proofHeight.revisionNumber, 1);
+        assert_eq!(call.msg_.proofHeight.revisionHeight, 8);
+    }
+}

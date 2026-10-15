@@ -23,9 +23,11 @@ use crate::workers::{DstTxRequest, SrcTxRequest};
 /// `(proof_height, message_proof_height, update messages)`; see
 /// `build_dst_update_client_payload` for the two heights.
 type UpdateClientResult<Height, Message> = Result<(Height, Option<Height>, Vec<Message>)>;
-type BuildMessagesResult<Message, R> = (
+/// `(messages, built, unbuilt, membership entries)`.
+type BuildMessagesResult<Message, E> = (
     Vec<Message>,
-    Vec<PendingSend<SendEvent<R>>>,
+    Vec<E>,
+    Vec<E>,
     Vec<mercury_core::MembershipProofEntry>,
 );
 
@@ -222,7 +224,7 @@ where
         send_packets: Vec<PendingSend<SendEvent<R>>>,
         src_height: &SrcHeight<R>,
         message_proof_height: Option<&SrcHeight<R>>,
-    ) -> BuildMessagesResult<DstMessage<R>, R> {
+    ) -> BuildMessagesResult<DstMessage<R>, PendingSend<SendEvent<R>>> {
         type SrcChain<R> = <R as Relay>::SrcChain;
 
         let relay = &self.relay;
@@ -252,29 +254,28 @@ where
             .await;
 
         let mut messages = Vec::new();
-        let mut still_pending = Vec::new();
+        let mut built = Vec::new();
+        let mut unbuilt = Vec::new();
         let mut membership_entries = Vec::new();
-        let now = Instant::now();
 
-        for (mut ps, result) in results {
+        for (ps, result) in results {
             match result {
                 Ok((msgs, _entries)) if msgs.is_empty() => {
-                    still_pending.push(ps);
+                    unbuilt.push(ps);
                 }
                 Ok((msgs, entries)) => {
                     messages.extend(msgs);
                     membership_entries.extend(entries);
-                    ps.recv_sent_at = Some(now);
-                    still_pending.push(ps);
+                    built.push(ps);
                 }
                 Err(e) => {
                     warn!(error = %e, "recv proof fetch failed after retries, will retry");
-                    still_pending.push(ps);
+                    unbuilt.push(ps);
                 }
             }
         }
 
-        (messages, still_pending, membership_entries)
+        (messages, built, unbuilt, membership_entries)
     }
 
     fn record_backlog_metrics(
@@ -360,11 +361,7 @@ where
         write_acks: WriteAckEvents<R>,
         src_height: &SrcHeight<R>,
         message_proof_height: Option<&SrcHeight<R>>,
-    ) -> (
-        Vec<DstMessage<R>>,
-        WriteAckEvents<R>,
-        Vec<mercury_core::MembershipProofEntry>,
-    ) {
+    ) -> BuildMessagesResult<DstMessage<R>, WriteAckEvent<R>> {
         type SrcChain<R> = <R as Relay>::SrcChain;
 
         let relay = &self.relay;
@@ -395,6 +392,7 @@ where
             .await;
 
         let mut messages = Vec::new();
+        let mut built = Vec::new();
         let mut failed = Vec::new();
         let mut membership_entries = Vec::new();
 
@@ -406,6 +404,7 @@ where
                 Ok((msgs, entries)) => {
                     messages.extend(msgs);
                     membership_entries.extend(entries);
+                    built.push(event);
                 }
                 Err(e) => {
                     warn!(error = %e, "ack proof fetch failed after retries, will retry");
@@ -414,7 +413,75 @@ where
             }
         }
 
-        (messages, failed, membership_entries)
+        (messages, built, failed, membership_entries)
+    }
+
+    /// Combines the client update with packet messages into one dst batch.
+    /// `None` means the batch was given up and its packets must be retried.
+    async fn build_dst_batch(
+        &self,
+        maybe_payload: Option<<R::DstChain as ClientMessageBuilder<SrcCore<R>>>::UpdateClientPayload>,
+        mut packet_msgs: Vec<DstMessage<R>>,
+        membership_entries: &[mercury_core::MembershipProofEntry],
+    ) -> Option<Vec<DstMessage<R>>> {
+        let Some(payload) = maybe_payload else {
+            if !packet_msgs.is_empty() {
+                info!(
+                    count = packet_msgs.len(),
+                    "client up to date, sending packet messages only"
+                );
+            }
+            return Some(packet_msgs);
+        };
+
+        if packet_msgs.is_empty() {
+            return self
+                .build_dst_update_client_message(payload, &[])
+                .await
+                .inspect_err(|e| warn!(error = %e, "failed to build update client message, skipping"))
+                .ok()
+                .map(|output| output.messages);
+        }
+
+        debug!(
+            membership_entries = membership_entries.len(),
+            packet_msgs = packet_msgs.len(),
+            "building update client message with membership proofs"
+        );
+
+        let mut update_output = self
+            .build_dst_update_client_message(payload, membership_entries)
+            .await
+            .inspect_err(|e| warn!(error = %e, "failed to build update client message with proofs, skipping batch"))
+            .ok()?;
+        let update_msg_count = update_output.messages.len();
+
+        debug!(
+            update_msgs = update_msg_count,
+            packet_msgs = packet_msgs.len(),
+            has_membership_proof = update_output.membership_proof.is_some(),
+            "pre-finalize message counts"
+        );
+
+        if update_msg_count == 0 && update_output.membership_proof.is_none() {
+            warn!("client update produced no messages, deferring packet batch until finality advances");
+            return None;
+        }
+
+        self.relay
+            .dst_chain()
+            .finalize_batch(&mut update_output, &mut packet_msgs);
+
+        let mut messages = update_output.messages;
+        messages.extend(packet_msgs);
+
+        info!(
+            total = messages.len(),
+            update = update_msg_count,
+            packet = messages.len() - update_msg_count,
+            "sending batch to tx_worker"
+        );
+        Some(messages)
     }
 
     #[instrument(skip_all, name = "build_timeout", fields(src_chain = %self.relay.src_chain().chain_label(), dst_chain = %self.relay.dst_chain().chain_label()))]
@@ -473,7 +540,8 @@ where
 }
 
 type SendEvent<R> = <<R as Relay>::SrcChain as PacketEvents>::SendPacketEvent;
-type WriteAckEvents<R> = Vec<<<R as Relay>::SrcChain as PacketEvents>::WriteAckEvent>;
+type WriteAckEvent<R> = <<R as Relay>::SrcChain as PacketEvents>::WriteAckEvent;
+type WriteAckEvents<R> = Vec<WriteAckEvent<R>>;
 type SrcHeight<R> = <<R as Relay>::SrcChain as ChainTypes>::Height;
 type DstHeight<R> = <<R as Relay>::DstChain as ChainTypes>::Height;
 type DstMessage<R> = <<R as Relay>::DstChain as ChainTypes>::Message;
@@ -566,6 +634,7 @@ where
                     |e| warn!(error = %e, "failed to query dst chain status, skipping iteration"),
                 )
             else {
+                pending_acks = write_acks;
                 continue;
             };
             let dst_timestamp_secs = DstChain::<R>::chain_status_timestamp_secs(&dst_status);
@@ -594,6 +663,7 @@ where
                         pending.extend(in_flight_expired);
                         pending.extend(in_flight);
                         pending.extend(new_sends);
+                        pending_acks = write_acks;
                         continue;
                     }
                 };
@@ -635,16 +705,16 @@ where
             if !deliverable.is_empty() || !write_acks.is_empty() {
                 match self.build_dst_update_client_payload().await {
                     Ok((src_height, message_proof_height, maybe_payload)) => {
-                        let (recv_msgs, recv_pending, recv_entries) = self
+                        let (recv_msgs, recv_built, recv_unbuilt, recv_entries) = self
                             .build_recv_messages_tracked(
                                 deliverable,
                                 &src_height,
                                 message_proof_height.as_ref(),
                             )
                             .await;
-                        pending.extend(recv_pending);
+                        pending.extend(recv_unbuilt);
 
-                        let (ack_msgs, ack_failed, ack_entries) = self
+                        let (ack_msgs, ack_built, ack_failed, ack_entries) = self
                             .build_ack_messages_tracked(
                                 write_acks,
                                 &src_height,
@@ -656,110 +726,37 @@ where
                         self.metrics.record_recv(recv_msgs.len());
                         self.metrics.record_ack(ack_msgs.len());
 
-                        let mut packet_msgs: Vec<_> =
-                            recv_msgs.into_iter().chain(ack_msgs).collect();
+                        let packet_msgs: Vec<_> = recv_msgs.into_iter().chain(ack_msgs).collect();
+                        let all_entries: Vec<_> =
+                            recv_entries.into_iter().chain(ack_entries).collect();
 
-                        if packet_msgs.is_empty() {
-                            if let Some(payload) = maybe_payload {
-                                let Ok(update_output) = self
-                                    .build_dst_update_client_message(payload, &[])
-                                    .await
-                                    .inspect_err(|e| warn!(error = %e, "failed to build update client message, skipping"))
-                                else {
-                                    continue;
-                                };
-                                if !update_output.messages.is_empty()
-                                    && send_or_cancel(
-                                        &self.sender,
-                                        DstTxRequest {
-                                            messages: update_output.messages,
-                                            created_at: std::time::Instant::now(),
-                                        },
-                                        &self.token,
-                                        "tx_worker",
-                                    )
-                                    .await
-                                {
-                                    return Ok(());
-                                }
-                            }
-                        } else if let Some(payload) = maybe_payload {
-                            let all_entries: Vec<_> =
-                                recv_entries.into_iter().chain(ack_entries).collect();
-
-                            debug!(
-                                membership_entries = all_entries.len(),
-                                packet_msgs = packet_msgs.len(),
-                                "building update client message with membership proofs"
-                            );
-
-                            let Ok(mut update_output) = self
-                                .build_dst_update_client_message(payload, &all_entries)
+                        if let Some(messages) = self
+                            .build_dst_batch(maybe_payload, packet_msgs, &all_entries)
+                            .await
+                        {
+                            if !messages.is_empty()
+                                && send_or_cancel(
+                                    &self.sender,
+                                    DstTxRequest {
+                                        messages,
+                                        created_at: std::time::Instant::now(),
+                                    },
+                                    &self.token,
+                                    "tx_worker",
+                                )
                                 .await
-                                .inspect_err(|e| warn!(error = %e, "failed to build update client message with proofs, skipping batch"))
-                            else {
-                                continue;
-                            };
-                            let update_msg_count = update_output.messages.len();
-
-                            debug!(
-                                update_msgs = update_msg_count,
-                                packet_msgs = packet_msgs.len(),
-                                has_membership_proof = update_output.membership_proof.is_some(),
-                                "pre-finalize message counts"
-                            );
-
-                            if update_msg_count == 0
-                                && update_output.membership_proof.is_none()
-                            {
-                                warn!("client update produced no messages, deferring packet batch until finality advances");
-                                continue;
-                            }
-
-                            self.relay
-                                .dst_chain()
-                                .finalize_batch(&mut update_output, &mut packet_msgs);
-
-                            let mut messages = update_output.messages;
-                            messages.extend(packet_msgs);
-
-                            info!(
-                                total = messages.len(),
-                                update = update_msg_count,
-                                packet = messages.len() - update_msg_count,
-                                "sending batch to tx_worker"
-                            );
-                            if send_or_cancel(
-                                &self.sender,
-                                DstTxRequest {
-                                    messages,
-                                    created_at: std::time::Instant::now(),
-                                },
-                                &self.token,
-                                "tx_worker",
-                            )
-                            .await
                             {
                                 return Ok(());
                             }
+                            let sent_at = Some(Instant::now());
+                            pending.extend(
+                                recv_built
+                                    .into_iter()
+                                    .map(|ps| PendingSend { recv_sent_at: sent_at, ..ps }),
+                            );
                         } else {
-                            info!(
-                                count = packet_msgs.len(),
-                                "client up to date, sending packet messages only"
-                            );
-                            if send_or_cancel(
-                                &self.sender,
-                                DstTxRequest {
-                                    messages: packet_msgs,
-                                    created_at: std::time::Instant::now(),
-                                },
-                                &self.token,
-                                "tx_worker",
-                            )
-                            .await
-                            {
-                                return Ok(());
-                            }
+                            pending.extend(recv_built);
+                            pending_acks.extend(ack_built);
                         }
                     }
                     Err(e) => {
@@ -886,5 +883,439 @@ mod tests {
         let worker = make_worker(MockState::default(), dst);
         let (proof, msg, _) = worker.build_src_update_client_messages().await.unwrap();
         assert_eq!((proof, msg), (120, None));
+    }
+
+    struct Harness {
+        events: mpsc::Sender<Vec<IbcEvent<MockRelay>>>,
+        dst_rx: mpsc::Receiver<DstTxRequest<MockRelay>>,
+        src_rx: mpsc::Receiver<SrcTxRequest<MockRelay>>,
+        token: CancellationToken,
+        handle: tokio::task::JoinHandle<Result<()>>,
+        src: SharedState,
+        dst: SharedState,
+    }
+
+    impl Harness {
+        fn start(src: MockState, dst: MockState) -> Self {
+            let (relay, src, dst) = mock_relay(src, dst);
+            let (events, receiver) = mpsc::channel(8);
+            let (sender, dst_rx) = mpsc::channel(8);
+            let (src_sender, src_rx) = mpsc::channel(8);
+            let token = CancellationToken::new();
+            let worker = PacketWorker {
+                relay,
+                receiver,
+                sender,
+                src_sender,
+                token: token.clone(),
+                metrics: PacketMetrics::new(&mock_label()),
+            };
+            let handle = tokio::spawn(worker.run());
+            Self {
+                events,
+                dst_rx,
+                src_rx,
+                token,
+                handle,
+                src,
+                dst,
+            }
+        }
+
+        async fn send(&self, events: Vec<IbcEvent<MockRelay>>) {
+            self.events.send(events).await.unwrap();
+        }
+
+        async fn stop(self) {
+            self.token.cancel();
+            self.handle.await.unwrap().unwrap();
+        }
+    }
+
+    fn send_packet(packet: MockPacket) -> IbcEvent<MockRelay> {
+        IbcEvent::SendPacket(MockSendPacketEvent(packet))
+    }
+
+    fn write_ack(seq: u64) -> IbcEvent<MockRelay> {
+        IbcEvent::WriteAck(MockWriteAckEvent(MockPacket::new(seq)))
+    }
+
+    fn builds(msgs: usize) -> MockState {
+        MockState {
+            build_msgs: msgs,
+            ..MockState::default()
+        }
+    }
+
+    /// Src ahead of the dst client (trusted at 100), so an update is needed.
+    fn src_ahead() -> MockState {
+        MockState {
+            latest_height: 150,
+            ..MockState::default()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn recv_sent_without_update_when_client_current() {
+        let mut h = Harness::start(MockState::default(), builds(1));
+        h.send(vec![send_packet(MockPacket::new(1)), write_ack(2)])
+            .await;
+
+        let req = recv(&mut h.dst_rx).await;
+        assert_eq!(req.messages.len(), 2, "one recv + one ack message");
+        assert_eq!(h.src.lock().unwrap().update_payload_calls, 0);
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn recv_batched_behind_client_update() {
+        let dst = MockState {
+            update_messages: 1,
+            ..builds(2)
+        };
+        let mut h = Harness::start(src_ahead(), dst);
+        h.send(vec![send_packet(MockPacket::new(1))]).await;
+
+        let req = recv(&mut h.dst_rx).await;
+        assert_eq!(req.messages.len(), 3, "update + two packet messages");
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn update_only_sent_when_no_packet_messages_built() {
+        let dst = MockState {
+            update_messages: 1,
+            ..builds(0)
+        };
+        let mut h = Harness::start(src_ahead(), dst);
+        h.send(vec![send_packet(MockPacket::new(1))]).await;
+
+        let req = recv(&mut h.dst_rx).await;
+        assert_eq!(req.messages.len(), 1);
+        h.stop().await;
+    }
+
+    /// Receives within one pending recheck, i.e. without waiting out the
+    /// in-flight grace period.
+    async fn recv_on_recheck<T>(rx: &mut mpsc::Receiver<T>) -> T {
+        tokio::time::timeout(PENDING_RECHECK_INTERVAL + Duration::from_secs(1), recv(rx))
+            .await
+            .expect("not retried on the next recheck")
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn packet_batch_deferred_when_update_yields_nothing() {
+        let mut h = Harness::start(src_ahead(), builds(1));
+        h.send(vec![send_packet(MockPacket::new(1)), write_ack(2)])
+            .await;
+
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert!(h.dst_rx.try_recv().is_err());
+
+        h.dst.lock().unwrap().update_messages = 1;
+        let req = recv_on_recheck(&mut h.dst_rx).await;
+        assert_eq!(req.messages.len(), 3, "update + recv + ack after retry");
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn update_message_error_keeps_batch_pending() {
+        let dst = MockState {
+            update_message_error: true,
+            update_messages: 1,
+            ..builds(1)
+        };
+        let mut h = Harness::start(src_ahead(), dst);
+        h.send(vec![send_packet(MockPacket::new(1)), write_ack(2)])
+            .await;
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(h.dst_rx.try_recv().is_err());
+
+        h.dst.lock().unwrap().update_message_error = false;
+        let req = recv_on_recheck(&mut h.dst_rx).await;
+        assert_eq!(req.messages.len(), 3, "update + recv + ack after retry");
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn update_message_error_still_relays_timeouts() {
+        let src = MockState {
+            build_msgs: 1,
+            ..src_ahead()
+        };
+        let dst = MockState {
+            timestamp_secs: 60,
+            update_message_error: true,
+            ..builds(1)
+        };
+        let mut h = Harness::start(src, dst);
+        h.send(vec![
+            send_packet(MockPacket::with_timeout(1, 50)),
+            send_packet(MockPacket::new(2)),
+        ])
+        .await;
+
+        assert_eq!(recv_on_recheck(&mut h.src_rx).await.messages.len(), 1);
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dst_status_failure_keeps_acks_pending() {
+        let dst = MockState {
+            status_error: true,
+            ..builds(1)
+        };
+        let mut h = Harness::start(MockState::default(), dst);
+        h.send(vec![write_ack(2)]).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(h.dst_rx.try_recv().is_err());
+
+        h.dst.lock().unwrap().status_error = false;
+        assert_eq!(recv_on_recheck(&mut h.dst_rx).await.messages.len(), 1);
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn update_payload_error_keeps_packets_pending() {
+        let src = MockState {
+            update_payload_error: true,
+            ..src_ahead()
+        };
+        let dst = MockState {
+            update_messages: 1,
+            ..builds(1)
+        };
+        let mut h = Harness::start(src, dst);
+        h.send(vec![send_packet(MockPacket::new(1)), write_ack(2)])
+            .await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(h.dst_rx.try_recv().is_err());
+
+        h.src.lock().unwrap().update_payload_error = false;
+        let req = recv(&mut h.dst_rx).await;
+        assert_eq!(req.messages.len(), 3, "update + recv + ack after retry");
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn ack_build_failure_retries_then_succeeds_on_recheck() {
+        let dst = MockState {
+            build_error: true,
+            ..builds(1)
+        };
+        let mut h = Harness::start(MockState::default(), dst);
+        h.send(vec![write_ack(2)]).await;
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(h.dst.lock().unwrap().build_calls, PROOF_FETCH_MAX_RETRIES);
+        assert!(h.dst_rx.try_recv().is_err());
+
+        h.dst.lock().unwrap().build_error = false;
+        assert_eq!(recv(&mut h.dst_rx).await.messages.len(), 1);
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn timed_out_packet_relayed_to_src() {
+        let src = MockState {
+            build_msgs: 1,
+            ..MockState::default()
+        };
+        let dst = MockState {
+            timestamp_secs: 60,
+            ..builds(1)
+        };
+        let mut h = Harness::start(src, dst);
+        h.send(vec![
+            send_packet(MockPacket::with_timeout(1, 50)),
+            send_packet(MockPacket::with_timeout(2, 1000)),
+        ])
+        .await;
+
+        assert_eq!(recv(&mut h.src_rx).await.messages.len(), 1);
+        assert_eq!(recv(&mut h.dst_rx).await.messages.len(), 1);
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn timeout_includes_src_client_update_when_lagging() {
+        let src = MockState {
+            build_msgs: 1,
+            update_messages: 1,
+            ..MockState::default()
+        };
+        let dst = MockState {
+            latest_height: 150,
+            timestamp_secs: 60,
+            ..MockState::default()
+        };
+        let mut h = Harness::start(src, dst);
+        h.send(vec![send_packet(MockPacket::with_timeout(1, 50))])
+            .await;
+
+        assert_eq!(recv(&mut h.src_rx).await.messages.len(), 2);
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn timeout_build_failure_retries_on_recheck() {
+        let src = MockState {
+            build_msgs: 1,
+            build_error: true,
+            ..MockState::default()
+        };
+        let dst = MockState {
+            timestamp_secs: 60,
+            ..MockState::default()
+        };
+        let mut h = Harness::start(src, dst);
+        h.send(vec![send_packet(MockPacket::with_timeout(1, 50))])
+            .await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(h.src_rx.try_recv().is_err());
+
+        h.src.lock().unwrap().build_error = false;
+        assert_eq!(recv(&mut h.src_rx).await.messages.len(), 1);
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn src_update_failure_keeps_timeouts_pending() {
+        let src = MockState {
+            build_msgs: 1,
+            ..MockState::default()
+        };
+        let dst = MockState {
+            latest_height: 150,
+            timestamp_secs: 60,
+            update_payload_error: true,
+            ..MockState::default()
+        };
+        let mut h = Harness::start(src, dst);
+        h.send(vec![send_packet(MockPacket::with_timeout(1, 50))])
+            .await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(h.src_rx.try_recv().is_err());
+
+        h.dst.lock().unwrap().update_payload_error = false;
+        assert_eq!(recv(&mut h.src_rx).await.messages.len(), 1);
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn drift_zone_packet_deferred_until_timeout() {
+        let src = MockState {
+            build_msgs: 1,
+            ..MockState::default()
+        };
+        let dst = MockState {
+            timestamp_secs: 45,
+            max_clock_drift_secs: 10,
+            ..builds(1)
+        };
+        let mut h = Harness::start(src, dst);
+        h.send(vec![send_packet(MockPacket::with_timeout(1, 50))])
+            .await;
+
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert!(
+            h.dst_rx.try_recv().is_err(),
+            "not delivered inside drift zone"
+        );
+        assert!(h.src_rx.try_recv().is_err(), "not yet timed out");
+
+        h.dst.lock().unwrap().timestamp_secs = 50;
+        assert_eq!(recv(&mut h.src_rx).await.messages.len(), 1);
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dst_status_failure_keeps_send_packets_pending() {
+        let dst = MockState {
+            status_error: true,
+            ..builds(1)
+        };
+        let mut h = Harness::start(MockState::default(), dst);
+        h.send(vec![send_packet(MockPacket::new(1))]).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(h.dst_rx.try_recv().is_err());
+
+        h.dst.lock().unwrap().status_error = false;
+        assert_eq!(recv(&mut h.dst_rx).await.messages.len(), 1);
+        h.stop().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn closed_dst_channel_cancels_relay() {
+        let h = Harness::start(MockState::default(), builds(1));
+        let Harness {
+            events,
+            dst_rx,
+            token,
+            handle,
+            ..
+        } = h;
+        drop(dst_rx);
+        events
+            .send(vec![send_packet(MockPacket::new(1))])
+            .await
+            .unwrap();
+        handle.await.unwrap().unwrap();
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn closed_src_channel_cancels_relay() {
+        let src = MockState {
+            build_msgs: 1,
+            ..MockState::default()
+        };
+        let dst = MockState {
+            timestamp_secs: 60,
+            ..MockState::default()
+        };
+        let h = Harness::start(src, dst);
+        let Harness {
+            events,
+            src_rx,
+            token,
+            handle,
+            ..
+        } = h;
+        drop(src_rx);
+        events
+            .send(vec![send_packet(MockPacket::with_timeout(1, 50))])
+            .await
+            .unwrap();
+        handle.await.unwrap().unwrap();
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_proof_fetch_gives_up_after_max_attempts() {
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let result: Result<()> = retry_proof_fetch(|| async {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(eyre::eyre!("nope"))
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(calls.into_inner(), PROOF_FETCH_MAX_RETRIES);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_proof_fetch_returns_first_success() {
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let result = retry_proof_fetch(|| async {
+            let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n == 0 {
+                Err(eyre::eyre!("transient"))
+            } else {
+                Ok(n)
+            }
+        })
+        .await;
+        assert_eq!(result.unwrap(), 1);
     }
 }

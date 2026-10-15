@@ -355,4 +355,138 @@ mod tests {
         }
         assert!(start.elapsed() < Duration::from_millis(100));
     }
+
+    #[test]
+    fn serde_default_helpers_match_rpc_config_default() {
+        let config = RpcConfig::default();
+        assert_eq!(
+            Duration::from_secs(default_timeout_secs()),
+            config.rpc_timeout
+        );
+        assert_eq!(default_rate_limit(), config.rate_limit);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn debug_shows_chain_and_limits_only() {
+        let guard = RpcGuard::new(
+            "osmosis-1",
+            RpcConfig {
+                rpc_timeout: Duration::from_secs(5),
+                rate_limit: 7,
+            },
+        );
+        let dbg = format!("{guard:?}");
+        assert!(dbg.starts_with("RpcGuard {"), "{dbg}");
+        assert!(dbg.contains("chain_id: \"osmosis-1\""), "{dbg}");
+        assert!(dbg.contains("timeout: 5s"), "{dbg}");
+        assert!(dbg.contains("rate_limit: 7"), "{dbg}");
+        assert!(dbg.ends_with(".. }"), "{dbg}");
+    }
+
+    #[tokio::test]
+    async fn unvalidated_zero_rate_limit_falls_back_to_one_per_second() {
+        // validate() rejects 0; constructing anyway must not panic and
+        // must still let requests through.
+        let guard = RpcGuard::new(
+            "test",
+            RpcConfig {
+                rpc_timeout: Duration::from_secs(5),
+                rate_limit: 0,
+            },
+        );
+        let start = std::time::Instant::now();
+        for _ in 0..2 {
+            guard
+                .guarded(|| async { Ok::<_, eyre::Report>(()) })
+                .await
+                .unwrap();
+        }
+        assert!(start.elapsed() >= Duration::from_millis(900));
+    }
+
+    #[tokio::test]
+    async fn rate_limit_above_u32_saturates_instead_of_panicking() {
+        let guard = RpcGuard::new(
+            "test",
+            RpcConfig {
+                rpc_timeout: Duration::from_secs(5),
+                rate_limit: u64::MAX,
+            },
+        );
+        let start = std::time::Instant::now();
+        for _ in 0..100 {
+            guard
+                .guarded(|| async { Ok::<_, eyre::Report>(()) })
+                .await
+                .unwrap();
+        }
+        assert!(start.elapsed() < Duration::from_millis(500));
+    }
+
+    #[tokio::test]
+    async fn guarded_pair_propagates_error_from_either_side() {
+        let guard = RpcGuard::new("test-chain", RpcConfig::default());
+        let err = guard
+            .guarded_pair(
+                || async { Ok::<_, eyre::Report>(1) },
+                || async { Err::<i32, _>(eyre::eyre!("second failed")) },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.to_string(), "second failed");
+
+        let err = guard
+            .guarded_pair(
+                || async { Err::<i32, _>(eyre::eyre!("first failed")) },
+                || async { Ok::<_, eyre::Report>(2) },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.to_string(), "first failed");
+    }
+
+    #[tokio::test]
+    async fn guarded_pair_timeout_is_typed_rpc_timeout() {
+        let config = RpcConfig {
+            rpc_timeout: Duration::from_millis(50),
+            rate_limit: 1000,
+        };
+        let guard = RpcGuard::new("test-chain", config);
+        let err = guard
+            .guarded_pair(
+                || async {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    Ok::<_, eyre::Report>(1)
+                },
+                || async { Ok::<_, eyre::Report>(2) },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<RpcError>(),
+            Some(RpcError::Timeout(d)) if *d == Duration::from_millis(50)
+        ));
+    }
+
+    #[tokio::test]
+    async fn guarded_pair_waits_on_shared_rate_limit() {
+        let config = RpcConfig {
+            rpc_timeout: Duration::from_secs(10),
+            rate_limit: 10,
+        };
+        let guard = RpcGuard::new("test-chain", config);
+        let start = std::time::Instant::now();
+        for _ in 0..15 {
+            guard
+                .guarded_pair(
+                    || async { Ok::<_, eyre::Report>(()) },
+                    || async { Ok::<_, eyre::Report>(()) },
+                )
+                .await
+                .unwrap();
+        }
+        // One permit per pair: 15 pairs at 10/s needs ~0.5s once the burst is spent.
+        assert!(start.elapsed() >= Duration::from_millis(400));
+    }
 }

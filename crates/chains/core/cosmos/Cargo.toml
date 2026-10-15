@@ -47,3 +47,6 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 proptest = "1"
+tokio = { workspace = true, features = ["test-util"] }
+bolero = { workspace = true }
+tendermint-light-client-verifier = { workspace = true }

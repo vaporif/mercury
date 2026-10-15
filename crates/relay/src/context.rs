@@ -224,38 +224,30 @@ where
         let src_tx_worker_handle = spawn_worker(src_tx_worker);
         let client_refresh_handle = spawn_worker(client_refresh);
 
-        let sweep_handle = config.sweep_interval.map_or_else(
-            || tokio::spawn(futures::future::pending()),
-            |interval| {
-                let packet_sweeper = PacketSweeper {
-                    relay: Arc::clone(self),
-                    sender: event_tx,
-                    token: pipeline_token.clone(),
-                    interval,
-                    packet_filter: config.packet_filter.clone(),
-                    metrics: SweepMetrics::new(&src_label).with_counterparty(&dst_label),
-                    clear_on_start: config.clear_on_start,
-                    clear_limit: config.clear_limit,
-                    excluded_sequences: config.excluded_sequences.clone(),
-                };
-                spawn_worker(packet_sweeper)
-            },
-        );
+        let sweep_handle = config.sweep_interval.map(|interval| {
+            spawn_worker(PacketSweeper {
+                relay: Arc::clone(self),
+                sender: event_tx,
+                token: pipeline_token.clone(),
+                interval,
+                packet_filter: config.packet_filter.clone(),
+                metrics: SweepMetrics::new(&src_label).with_counterparty(&dst_label),
+                clear_on_start: config.clear_on_start,
+                clear_limit: config.clear_limit,
+                excluded_sequences: config.excluded_sequences.clone(),
+            })
+        });
 
-        let misbehaviour_handle = config.misbehaviour_scan_interval.map_or_else(
-            || tokio::spawn(futures::future::pending()),
-            |interval| {
-                let misbehaviour_worker = MisbehaviourWorker {
-                    relay: Arc::clone(self),
-                    token: pipeline_token.clone(),
-                    scan_interval: interval,
-                    metrics: MisbehaviourMetrics::new(&src_label)
-                        .with_counterparty(&dst_label)
-                        .with_client_id(self.dst_client_id.to_string()),
-                };
-                spawn_worker(misbehaviour_worker)
-            },
-        );
+        let misbehaviour_handle = config.misbehaviour_scan_interval.map(|interval| {
+            spawn_worker(MisbehaviourWorker {
+                relay: Arc::clone(self),
+                token: pipeline_token.clone(),
+                scan_interval: interval,
+                metrics: MisbehaviourMetrics::new(&src_label)
+                    .with_counterparty(&dst_label)
+                    .with_client_id(self.dst_client_id.to_string()),
+            })
+        });
 
         // RAII guards: gauge increments on creation, decrements on drop.
         let _guards = [
@@ -277,7 +269,11 @@ where
         // Tear down remaining workers from this pipeline iteration.
         pipeline_token.cancel();
 
-        let _ = tokio::join!(client_refresh_handle, sweep_handle, misbehaviour_handle);
+        let optional_handles = sweep_handle.into_iter().chain(misbehaviour_handle);
+        let _ = tokio::join!(
+            client_refresh_handle,
+            futures::future::join_all(optional_handles)
+        );
 
         match result {
             Ok(worker_result) => worker_result,
@@ -290,5 +286,177 @@ where
 
     pub async fn run(self: Arc<Self>, config: RelayWorkerConfig) -> Result<()> {
         self.run_with_token(CancellationToken::new(), config).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Mutex;
+
+    use super::*;
+    use crate::testhelpers::*;
+
+    type MockContext = RelayContext<MockChain, MockChain>;
+
+    fn context(src: MockState, dst: MockState) -> (Arc<MockContext>, SharedState, SharedState) {
+        let src = Arc::new(Mutex::new(src));
+        let dst = Arc::new(Mutex::new(dst));
+        let ctx = RelayContext {
+            src_chain: MockChain::new(Arc::clone(&src)),
+            dst_chain: MockChain::new(Arc::clone(&dst)),
+            src_client_id: "src-client".to_owned(),
+            dst_client_id: "dst-client".to_owned(),
+        };
+        (Arc::new(ctx), src, dst)
+    }
+
+    /// Optional sweeper and misbehaviour workers disabled.
+    fn config() -> RelayWorkerConfig {
+        RelayWorkerConfig::default()
+    }
+
+    async fn join_within(handle: tokio::task::JoinHandle<Result<()>>) -> Result<()> {
+        tokio::time::timeout(Duration::from_secs(60), handle)
+            .await
+            .expect("relay did not shut down")
+            .unwrap()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelled_pipeline_shuts_down_cleanly() {
+        let (ctx, _, _) = context(MockState::default(), MockState::default());
+        let token = CancellationToken::new();
+        let handle = tokio::spawn(ctx.run_with_token(token.clone(), config()));
+
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        token.cancel();
+        join_within(handle).await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelled_pipeline_shuts_down_with_optional_workers_enabled() {
+        let (ctx, _, _) = context(MockState::default(), MockState::default());
+        let config = RelayWorkerConfig {
+            sweep_interval: Some(Duration::from_secs(3600)),
+            misbehaviour_scan_interval: Some(Duration::from_secs(3600)),
+            ..config()
+        };
+        let token = CancellationToken::new();
+        let handle = tokio::spawn(ctx.run_with_token(token.clone(), config));
+
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        token.cancel();
+        join_within(handle).await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn failed_worker_restarts_pipeline() {
+        // Without lookback the event watcher queries src status itself and fails.
+        let src = MockState {
+            status_error: true,
+            ..Default::default()
+        };
+        let (ctx, src_state, _) = context(src, MockState::default());
+        let token = CancellationToken::new();
+        let handle = tokio::spawn(ctx.run_with_token(token.clone(), config()));
+
+        tokio::time::sleep(Duration::from_millis(7500)).await;
+        token.cancel();
+
+        assert!(join_within(handle).await.is_err());
+        assert!(src_state.lock().unwrap().status_queries >= 4);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn misbehaviour_stops_pipeline_without_restart() {
+        let src = MockState {
+            check_results: HashMap::from([(5, CheckResult::Evidence)]),
+            ..Default::default()
+        };
+        let dst = MockState {
+            consensus_heights: vec![5],
+            ..Default::default()
+        };
+        let (ctx, _, dst_state) = context(src, dst);
+        let config = RelayWorkerConfig {
+            misbehaviour_scan_interval: Some(Duration::from_secs(10)),
+            ..config()
+        };
+
+        join_within(tokio::spawn(ctx.run(config))).await.unwrap();
+
+        assert_eq!(dst_state.lock().unwrap().messages_sent.len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn failed_pipeline_restarts_with_exponential_backoff() {
+        let src = MockState {
+            status_error: true,
+            ..Default::default()
+        };
+        let (ctx, src_state, _) = context(src, MockState::default());
+        let config = RelayWorkerConfig {
+            lookback: Some(Duration::from_secs(60)),
+            ..config()
+        };
+        let token = CancellationToken::new();
+        let handle = tokio::spawn(ctx.run_with_token(token.clone(), config));
+
+        // Attempts at t = 0, 1, 3, 7 (backoff 1s, 2s, 4s).
+        tokio::time::sleep(Duration::from_millis(7500)).await;
+        token.cancel();
+
+        assert!(join_within(handle).await.is_err());
+        assert_eq!(src_state.lock().unwrap().status_queries, 4);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lookback_starts_watcher_in_the_past() {
+        let (ctx, src_state, _) = context(MockState::default(), MockState::default());
+        let config = RelayWorkerConfig {
+            lookback: Some(Duration::from_secs(3)),
+            ..config()
+        };
+        let token = CancellationToken::new();
+        let handle = tokio::spawn(ctx.run_with_token(token.clone(), config));
+
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        token.cancel();
+        join_within(handle).await.unwrap();
+
+        // 3s lookback at 1s blocks from height 100 starts at 97.
+        assert_eq!(src_state.lock().unwrap().queried_blocks, vec![98, 99]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn swept_packet_flows_through_pipeline_to_dst() {
+        let src = MockState {
+            commitment_seqs: vec![1],
+            committed: HashSet::from([1]),
+            send_packets: HashMap::from([(1, MockPacket::new(1))]),
+            ..Default::default()
+        };
+        let (ctx, _, dst_state) = context(src, MockState::default());
+        let config = RelayWorkerConfig {
+            sweep_interval: Some(Duration::from_secs(3600)),
+            clear_on_start: true,
+            clear_limit: 10,
+            ..config()
+        };
+        let token = CancellationToken::new();
+        let handle = tokio::spawn(ctx.run_with_token(token.clone(), config));
+
+        tokio::time::timeout(Duration::from_secs(60), async {
+            while dst_state.lock().unwrap().messages_sent.is_empty() {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("recv message never reached dst");
+        token.cancel();
+        join_within(handle).await.unwrap();
+
+        assert_eq!(dst_state.lock().unwrap().tx_batches, vec![1]);
     }
 }

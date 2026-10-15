@@ -336,24 +336,24 @@ mod tests {
     #[test]
     fn trusting_period_exceeds_unbonding_fails() {
         let mut cfg = valid_config();
-        cfg.trusting_period = Some(Duration::from_secs(86400 * 21));
-        cfg.unbonding_period = Some(Duration::from_secs(86400 * 14));
+        cfg.trusting_period = Some(Duration::from_hours(21 * 24));
+        cfg.unbonding_period = Some(Duration::from_hours(14 * 24));
         assert!(cfg.validate().is_err());
     }
 
     #[test]
     fn trusting_period_equals_unbonding_fails() {
         let mut cfg = valid_config();
-        cfg.trusting_period = Some(Duration::from_secs(86400 * 14));
-        cfg.unbonding_period = Some(Duration::from_secs(86400 * 14));
+        cfg.trusting_period = Some(Duration::from_hours(14 * 24));
+        cfg.unbonding_period = Some(Duration::from_hours(14 * 24));
         assert!(cfg.validate().is_err());
     }
 
     #[test]
     fn trusting_period_less_than_unbonding_passes() {
         let mut cfg = valid_config();
-        cfg.trusting_period = Some(Duration::from_secs(86400 * 14));
-        cfg.unbonding_period = Some(Duration::from_secs(86400 * 21));
+        cfg.trusting_period = Some(Duration::from_hours(14 * 24));
+        cfg.unbonding_period = Some(Duration::from_hours(21 * 24));
         assert!(cfg.validate().is_ok());
     }
 
@@ -424,7 +424,7 @@ mod tests {
     #[test]
     fn trusting_period_without_unbonding_passes() {
         let mut cfg = valid_config();
-        cfg.trusting_period = Some(Duration::from_secs(86400 * 14));
+        cfg.trusting_period = Some(Duration::from_hours(14 * 24));
         assert!(cfg.validate().is_ok());
     }
 

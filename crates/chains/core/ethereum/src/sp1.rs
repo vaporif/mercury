@@ -527,3 +527,109 @@ impl EthereumChain {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ibc_proto_eureka::ibc::core::commitment::v1::MerkleProof as RawMerkleProof;
+    use mercury_core::MembershipProofEntry;
+
+    use super::*;
+
+    fn entry(path: Vec<Vec<u8>>, value: &[u8], proof: Vec<u8>) -> MembershipProofEntry {
+        MembershipProofEntry {
+            path,
+            value: value.to_vec(),
+            proof,
+        }
+    }
+
+    fn encoded_proof(count: usize) -> Vec<u8> {
+        RawMerkleProof {
+            proofs: std::iter::repeat_with(Default::default)
+                .take(count)
+                .collect(),
+        }
+        .encode_to_vec()
+    }
+
+    #[test]
+    fn convert_membership_proofs_maps_path_value_and_proof() {
+        let proofs = MembershipProofs(vec![
+            entry(
+                vec![b"ibc".to_vec(), b"commitments/1".to_vec()],
+                b"v1",
+                encoded_proof(2),
+            ),
+            entry(vec![], b"", encoded_proof(0)),
+        ]);
+        let converted = convert_membership_proofs(&proofs).unwrap();
+        assert_eq!(converted.len(), 2);
+
+        let (kv, proof) = &converted[0];
+        assert_eq!(kv.path.len(), 2);
+        assert_eq!(kv.path[0].as_ref(), b"ibc");
+        assert_eq!(kv.path[1].as_ref(), b"commitments/1");
+        assert_eq!(kv.value.as_ref(), b"v1");
+        assert_eq!(proof.proofs.len(), 2);
+
+        let (kv, proof) = &converted[1];
+        assert_eq!(kv.path.len(), 0);
+        assert_eq!(kv.value.len(), 0);
+        assert_eq!(proof.proofs.len(), 0);
+    }
+
+    #[test]
+    fn convert_membership_proofs_rejects_malformed_proof() {
+        let proofs = MembershipProofs(vec![
+            entry(vec![b"ok".to_vec()], b"v", encoded_proof(1)),
+            entry(vec![b"bad".to_vec()], b"v", vec![0xff, 0xff, 0xff]),
+        ]);
+        let err = convert_membership_proofs(&proofs).err().unwrap();
+        assert!(err.to_string().contains("membership merkle proof"), "{err}");
+    }
+
+    #[test]
+    fn convert_membership_proofs_empty() {
+        assert!(
+            convert_membership_proofs(&MembershipProofs::new())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn decode_header_rejects_garbage() {
+        let err = decode_header_for_prover(&[0xff, 0xff, 0xff]).unwrap_err();
+        assert!(err.to_string().contains("decoding header"), "{err}");
+    }
+
+    #[test]
+    fn decode_header_roundtrip() {
+        let header = EurekaHeader {
+            trusted_height: Some(ibc_proto_eureka::ibc::core::client::v1::Height {
+                revision_number: 1,
+                revision_height: 42,
+            }),
+            ..Default::default()
+        };
+        let decoded = decode_header_for_prover(&header.encode_to_vec()).unwrap();
+        assert_eq!(decoded.trusted_height.unwrap().revision_height, 42);
+    }
+
+    #[test]
+    fn create_instance_fails_on_missing_elf() {
+        let config = Sp1ProverConfig {
+            elf_dir: std::path::PathBuf::from("/nonexistent/mercury-sp1-elfs"),
+            zk_algorithm: ZkAlgorithm::Groth16,
+            prover_mode: ProverMode::Mock,
+            proof_timeout_secs: 1,
+            max_concurrent_proofs: 1,
+        };
+        let err = create_sp1_instance(&config).err().unwrap();
+        assert!(
+            err.to_string()
+                .contains("sp1-ics07-tendermint-update-client"),
+            "{err}"
+        );
+    }
+}

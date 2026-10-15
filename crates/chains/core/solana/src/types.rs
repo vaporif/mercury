@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(msg.source_client, "07-tendermint-0");
         match &msg.payloads[0].data {
             ibc_types::Delivery::Inline { data } => assert_eq!(data, &[1, 2, 3]),
-            _ => panic!("expected inline delivery"),
+            ibc_types::Delivery::Chunked { .. } => panic!("expected inline delivery"),
         }
     }
 }

@@ -119,3 +119,91 @@ impl ClearPacketsCmd {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{HUB, OSMO, err_string, example_config};
+
+    #[test]
+    fn parses_documented_sequence_syntax() {
+        // Matches the `--sequences` help text example: "1,5,10..20".
+        let mut expected = vec![1, 5];
+        expected.extend(10..=20);
+        assert_eq!(parse_sequences("1,5,10..20").unwrap(), expected);
+    }
+
+    #[test]
+    fn range_bounds_are_inclusive_and_whitespace_tolerant() {
+        assert_eq!(parse_sequences(" 3 .. 5 , 9 ").unwrap(), vec![3, 4, 5, 9]);
+        assert_eq!(parse_sequences("7..7").unwrap(), vec![7]);
+    }
+
+    #[test]
+    fn keeps_input_order_and_duplicates() {
+        assert_eq!(parse_sequences("5,1,1,2..3").unwrap(), vec![5, 1, 1, 2, 3]);
+    }
+
+    #[test]
+    fn rejects_reversed_range() {
+        assert_eq!(
+            err_string(parse_sequences("5..3")),
+            "invalid sequence range: 5..3"
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_entries() {
+        for (input, prefix) in [
+            ("abc", "invalid sequence 'abc'"),
+            ("1,", "invalid sequence ''"),
+            ("", "invalid sequence ''"),
+            ("-1", "invalid sequence '-1'"),
+            ("x..3", "invalid sequence range start 'x'"),
+            ("1..", "invalid sequence range end ''"),
+            ("1..=3", "invalid sequence range end '=3'"),
+        ] {
+            let err = err_string(parse_sequences(input));
+            assert!(err.starts_with(prefix), "{input:?}: {err}");
+        }
+    }
+
+    fn cmd(config: &std::path::Path, chain: &str, counterparty: &str) -> ClearPacketsCmd {
+        ClearPacketsCmd {
+            config: config.to_path_buf(),
+            chain: chain.into(),
+            client: "07-tendermint-0".into(),
+            counterparty_chain: counterparty.into(),
+            counterparty_client: "07-tendermint-0".into(),
+            sequences: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_source_chain_is_reported() {
+        let cfg = example_config();
+        let err = err_string(
+            ClearCmd::Packets(cmd(&cfg.path, "juno-1", OSMO))
+                .run()
+                .await,
+        );
+        assert_eq!(err, "chain 'juno-1' not found in config");
+    }
+
+    #[tokio::test]
+    async fn unknown_counterparty_chain_is_reported() {
+        let cfg = example_config();
+        let err = err_string(cmd(&cfg.path, HUB, "juno-1").run().await);
+        assert_eq!(err, "chain 'juno-1' not found in config");
+    }
+
+    #[tokio::test]
+    async fn connect_failure_is_reported_before_any_clearing() {
+        let cfg = example_config();
+        let err = err_string(cmd(&cfg.path, HUB, OSMO).run().await);
+        assert!(
+            err.starts_with(&format!("loading signer for '{HUB}'")),
+            "{err}"
+        );
+    }
+}

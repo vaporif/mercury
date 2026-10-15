@@ -49,7 +49,10 @@ tendermint = { workspace = true, optional = true }
 
 [dev-dependencies]
 ibc-core-client-types = { workspace = true }
+bolero = { workspace = true }
 
 [features]
 default = []
 cosmos = ["dep:ibc-client-tendermint", "dep:tendermint"]
+# Exposes `rpc::testing` and `chain::testing` so dependent crates can unit-test against a fake RPC.
+testing = []

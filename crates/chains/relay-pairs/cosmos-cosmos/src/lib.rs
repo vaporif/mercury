@@ -89,3 +89,55 @@ impl RelayPairPlugin for CosmosToCosmosRelay {
 pub fn register(registry: &mut ChainRegistry) {
     registry.register_pair(CosmosToCosmosRelay);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ibc::core::host::types::identifiers::ClientId;
+
+    fn not_a_chain() -> AnyChain {
+        Arc::new(())
+    }
+
+    fn cosmos_client_id() -> AnyClientId {
+        Box::new(ClientId::new("07-tendermint", 0).unwrap())
+    }
+
+    #[test]
+    fn registers_only_the_cosmos_to_cosmos_pair() {
+        let mut registry = ChainRegistry::new();
+        register(&mut registry);
+        let pair = registry.pair("cosmos", "cosmos").unwrap();
+        assert_eq!((pair.src_type(), pair.dst_type()), ("cosmos", "cosmos"));
+        assert!(registry.pair("cosmos", "ethereum").is_err());
+        assert!(registry.chain("cosmos").is_err());
+    }
+
+    #[test]
+    fn build_relay_rejects_non_cosmos_chain_handles() {
+        let err = CosmosToCosmosRelay
+            .build_relay(
+                &not_a_chain(),
+                &not_a_chain(),
+                &cosmos_client_id(),
+                &cosmos_client_id(),
+            )
+            .err()
+            .unwrap();
+        assert_eq!(err.to_string(), "expected cosmos chain handle");
+    }
+
+    #[test]
+    fn cosmos_client_id_downcast_accepts_ibc_client_id_only() {
+        let id = cosmos_client_id();
+        assert_eq!(
+            downcast_cosmos_client_id(&id).unwrap().as_str(),
+            "07-tendermint-0"
+        );
+        let wrong: AnyClientId = Box::new("07-tendermint-0".to_string());
+        assert_eq!(
+            downcast_cosmos_client_id(&wrong).unwrap_err().to_string(),
+            "expected cosmos client ID"
+        );
+    }
+}

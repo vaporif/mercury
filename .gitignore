@@ -27,3 +27,6 @@ result
 
 # Compiled WASM artifacts
 *.wasm.gz
+
+# Bolero fuzz corpora (crashes/ is kept: bolero replays it in `cargo test`)
+**/__fuzz__/*/corpus/

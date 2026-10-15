@@ -158,3 +158,67 @@ mod merkle_prefix_serde_tests {
         assert_eq!(parsed.prefix, MerklePrefix::ibc_default());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chain_label_without_id_displays_name_only() {
+        let label = ChainLabel::new("solana");
+        assert_eq!(label.name(), "solana");
+        assert_eq!(label.id(), None);
+        assert_eq!(label.to_string(), "solana");
+        assert_eq!(
+            label.metric_labels(),
+            vec![("chain_name", "solana".to_string())]
+        );
+        assert_eq!(
+            label.counterparty_metric_labels(),
+            vec![("counterparty_chain_name", "solana".to_string())]
+        );
+    }
+
+    #[test]
+    fn chain_label_with_id_adds_id_everywhere() {
+        let label = ChainLabel::with_id("cosmos", "cosmoshub-4");
+        assert_eq!(label.id(), Some("cosmoshub-4"));
+        assert_eq!(label.to_string(), "cosmos/cosmoshub-4");
+        assert_eq!(
+            label.metric_labels(),
+            vec![
+                ("chain_name", "cosmos".to_string()),
+                ("chain_id", "cosmoshub-4".to_string()),
+            ]
+        );
+        assert_eq!(
+            label.counterparty_metric_labels(),
+            vec![
+                ("counterparty_chain_name", "cosmos".to_string()),
+                ("counterparty_chain_id", "cosmoshub-4".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn membership_proofs_track_pushed_entries() {
+        let mut proofs = MembershipProofs::new();
+        assert!(proofs.is_empty());
+        proofs.push(MembershipProofEntry {
+            path: vec![b"ibc".to_vec()],
+            value: vec![1],
+            proof: vec![2],
+        });
+        assert!(!proofs.is_empty());
+        assert_eq!(proofs.0.len(), 1);
+        assert!(MembershipProofs::default().is_empty());
+    }
+
+    #[test]
+    fn merkle_prefix_with_non_utf8_segment_fails_to_serialize() {
+        let ok = toml::Value::try_from(MerklePrefix::ibc_default()).unwrap();
+        assert_eq!(ok, toml::Value::try_from(["ibc", ""]).unwrap());
+        let err = toml::Value::try_from(MerklePrefix(vec![vec![0xff, 0xfe]])).unwrap_err();
+        assert!(err.to_string().contains("non-utf8 segment"), "{err}");
+    }
+}

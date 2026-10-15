@@ -16,6 +16,10 @@ ignore = [
   "RUSTSEC-2025-0012",
   # h2 0.3 unbounded empty DATA frames (low) — transitive via sp1-sdk -> alloy-signer-aws -> aws-smithy-http-client (hyper 0.14), fixed only in h2 0.4, waiting on upstream
   "RUSTSEC-2026-0258",
+  # rustls Debug leaks session secrets from custom ClientSessionStore impls (none here) — rustls 0.21/0.22 via sp1-sdk -> aws-smithy-http-client and tendermint-rpc -> async-tungstenite, fixed only in 0.23.46, waiting on upstream
+  "RUSTSEC-2026-0346",
+  # rustls kx-group downgrade to classical (0.21/0.22 have no PQ hybrid to lose) — same transitive paths, fixed only in 0.23.46, waiting on upstream
+  "RUSTSEC-2026-0349",
   # bincode unmaintained — transitive via sp1-core-executor, waiting on upstream
   "RUSTSEC-2025-0141",
   # derivative unmaintained — transitive via ark-ff -> sp1-recursion-core, waiting on upstream

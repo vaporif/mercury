@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn evm_height_ordering() {
         assert!(EvmHeight(10) < EvmHeight(20));
-        assert!(EvmHeight(5) == EvmHeight(5));
+        assert_eq!(EvmHeight(5), EvmHeight(5));
     }
 
     #[test]

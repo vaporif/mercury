@@ -174,3 +174,91 @@ pub trait RelayPairPlugin: Send + Sync {
         dst_client_id: &AnyClientId,
     ) -> eyre::Result<(Arc<dyn DynRelay>, Arc<dyn DynRelay>)>;
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+
+    #[test]
+    fn chain_id_conversions_and_display_agree() {
+        let from_str = ChainId::from("cosmoshub-4");
+        let from_string = ChainId::from("cosmoshub-4".to_string());
+        assert_eq!(from_str, from_string);
+        assert_eq!(from_str.to_string(), "cosmoshub-4");
+        assert_eq!(from_str.as_ref(), "cosmoshub-4");
+    }
+
+    #[test]
+    fn chain_id_keyed_map_is_queryable_by_str() {
+        // Borrow<str> must hash/compare like the String inside, or lookups by
+        // relay config names silently miss.
+        let mut map = HashMap::new();
+        map.insert(ChainId::from("osmosis-1"), 1);
+        assert_eq!(map.get("osmosis-1"), Some(&1));
+        assert_eq!(map.get("osmosis-2"), None);
+    }
+
+    #[derive(Clone, Default)]
+    struct Buf(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Buf {
+        fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(data);
+            Ok(data.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[cfg(unix)]
+    fn warnings_for(path: &Path) -> String {
+        let buf = Buf::default();
+        let writer = buf.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+        tracing::subscriber::with_default(subscriber, || warn_key_file_permissions(path));
+        String::from_utf8(buf.0.lock().unwrap().clone()).unwrap()
+    }
+
+    #[cfg(unix)]
+    fn key_file_with_mode(mode: u32) -> tempfile::NamedTempFile {
+        use std::os::unix::fs::PermissionsExt;
+        let file = tempfile::NamedTempFile::new().unwrap();
+        std::fs::set_permissions(file.path(), std::fs::Permissions::from_mode(mode)).unwrap();
+        file
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn key_file_readable_by_group_or_others_warns() {
+        for mode in [0o640, 0o604, 0o644] {
+            let file = key_file_with_mode(mode);
+            let logs = warnings_for(file.path());
+            assert!(logs.contains("WARN"), "mode {mode:o}: {logs}");
+            assert!(logs.contains("chmod 600"), "mode {mode:o}: {logs}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owner_only_key_file_does_not_warn() {
+        for mode in [0o600, 0o400, 0o700] {
+            let file = key_file_with_mode(mode);
+            assert_eq!(warnings_for(file.path()), "", "mode {mode:o}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_key_file_is_silently_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(warnings_for(&dir.path().join("absent.key")), "");
+    }
+}
