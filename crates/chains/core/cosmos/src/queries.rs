@@ -485,4 +485,257 @@ mod tests {
         let key2 = ibc_v2_key("c", 1, u64::MAX);
         assert_eq!(key1.len(), key2.len());
     }
+
+    #[test]
+    fn proof_query_height_zero_underflows() {
+        let h = TmHeight::try_from(0u64).unwrap();
+        assert!(proof_query_height(h).is_err());
+    }
+
+    #[test]
+    fn ibc_v2_key_exact_layout() {
+        let key = ibc_v2_key("ab", ACK_DISCRIMINATOR, 0x0102);
+        assert_eq!(key, vec![b'a', b'b', 0x03, 0, 0, 0, 0, 0, 0, 0x01, 0x02]);
+    }
+
+    mod proofs {
+        use super::*;
+        use ibc_proto::ics23::{CommitmentProof, ExistenceProof, commitment_proof};
+        use tendermint::merkle::proof::{ProofOp, ProofOps};
+        use tendermint_rpc::endpoint::abci_query::AbciQuery;
+
+        fn exist_proof(key: &[u8]) -> CommitmentProof {
+            CommitmentProof {
+                proof: Some(commitment_proof::Proof::Exist(ExistenceProof {
+                    key: key.to_vec(),
+                    value: b"v".to_vec(),
+                    leaf: None,
+                    path: vec![],
+                })),
+            }
+        }
+
+        fn op(data: Vec<u8>) -> ProofOp {
+            ProofOp {
+                field_type: "ics23:iavl".into(),
+                key: vec![],
+                data,
+            }
+        }
+
+        fn decode(proof: &MerkleProof) -> ibc_proto::ibc::core::commitment::v1::MerkleProof {
+            ibc_proto::ibc::core::commitment::v1::MerkleProof::decode(proof.proof_bytes.as_slice())
+                .unwrap()
+        }
+
+        #[test]
+        fn missing_proof_is_error() {
+            let response = AbciQuery::default();
+            let err = extract_proof(&response).unwrap_err();
+            assert!(matches!(
+                err.downcast_ref::<ProofError>(),
+                Some(ProofError::Missing)
+            ));
+        }
+
+        #[test]
+        fn keeps_op_order() {
+            let response = AbciQuery {
+                proof: Some(ProofOps {
+                    ops: vec![
+                        op(exist_proof(b"iavl").encode_to_vec()),
+                        op(exist_proof(b"simple").encode_to_vec()),
+                    ],
+                }),
+                ..Default::default()
+            };
+            let merkle = decode(&extract_proof(&response).unwrap());
+            assert_eq!(
+                merkle.proofs,
+                vec![exist_proof(b"iavl"), exist_proof(b"simple")]
+            );
+        }
+
+        #[test]
+        fn skips_undecodable_ops() {
+            let response = AbciQuery {
+                proof: Some(ProofOps {
+                    ops: vec![
+                        op(vec![0xff, 0xff, 0xff, 0xff]),
+                        op(exist_proof(b"k").encode_to_vec()),
+                    ],
+                }),
+                ..Default::default()
+            };
+            let merkle = decode(&extract_proof(&response).unwrap());
+            assert_eq!(merkle.proofs, vec![exist_proof(b"k")]);
+        }
+
+        #[test]
+        fn empty_ops_yields_empty_merkle_proof() {
+            let response = AbciQuery {
+                proof: Some(ProofOps { ops: vec![] }),
+                ..Default::default()
+            };
+            assert_eq!(decode(&extract_proof(&response).unwrap()).proofs, vec![]);
+        }
+    }
+
+    mod client_state {
+        use super::*;
+        use crate::chain::test_support::tm_client_state;
+        use crate::keys::Secp256k1KeyPair;
+        use ibc_proto::ibc::core::client::v1::Height as ProtoHeight;
+        use ibc_proto::ibc::lightclients::wasm::v1::ClientState as WasmClientState;
+        use mercury_attestor::proto::lightclient::ClientState as AttestationsClientState;
+
+        type TestChain = CosmosChain<Secp256k1KeyPair>;
+
+        fn wasm(latest_height: Option<u64>) -> CosmosClientState {
+            CosmosClientState::Wasm(WasmClientState {
+                data: vec![],
+                checksum: vec![],
+                latest_height: latest_height.map(|h| ProtoHeight {
+                    revision_number: 0,
+                    revision_height: h,
+                }),
+            })
+        }
+
+        fn attestations(latest_height: u64) -> CosmosClientState {
+            CosmosClientState::Attestations(AttestationsClientState {
+                attestor_addresses: vec![],
+                min_required_sigs: 1,
+                latest_height,
+                is_frozen: false,
+            })
+        }
+
+        fn latest(cs: &CosmosClientState) -> u64 {
+            TestChain::client_latest_height(cs).value()
+        }
+
+        #[test]
+        fn latest_height_tendermint() {
+            assert_eq!(
+                latest(&CosmosClientState::Tendermint(tm_client_state(77))),
+                77
+            );
+        }
+
+        #[test]
+        fn latest_height_wasm() {
+            assert_eq!(latest(&wasm(Some(500))), 500);
+        }
+
+        #[test]
+        fn latest_height_wasm_missing_or_zero_clamps_to_one() {
+            assert_eq!(latest(&wasm(None)), 1);
+            assert_eq!(latest(&wasm(Some(0))), 1);
+        }
+
+        #[test]
+        fn latest_height_attestations() {
+            assert_eq!(latest(&attestations(42)), 42);
+            assert_eq!(latest(&attestations(0)), 1);
+        }
+
+        #[test]
+        fn trusting_period_only_for_tendermint() {
+            let tm = tm_client_state(1);
+            let expected = tm.trusting_period;
+            assert_eq!(
+                TestChain::trusting_period(&CosmosClientState::Tendermint(tm)),
+                Some(expected)
+            );
+            assert_eq!(TestChain::trusting_period(&wasm(Some(1))), None);
+            assert_eq!(TestChain::trusting_period(&attestations(1)), None);
+        }
+    }
+
+    mod chain_queries {
+        use super::*;
+        use crate::chain::test_support::test_chain;
+        use ibc::core::host::types::identifiers::ClientId;
+
+        fn client_id() -> ClientId {
+            "07-tendermint-3".parse().unwrap()
+        }
+
+        #[tokio::test]
+        async fn commitment_membership_entry_uses_commitment_key() {
+            let chain = test_chain();
+            let proof = MerkleProof {
+                proof_bytes: vec![9, 9],
+            };
+            let entry = chain
+                .commitment_to_membership_entry(
+                    &client_id(),
+                    PacketSequence(5),
+                    &PacketCommitment(vec![1, 2, 3]),
+                    &proof,
+                )
+                .unwrap();
+            assert_eq!(
+                entry.path,
+                vec![
+                    b"ibc".to_vec(),
+                    ibc_v2_key("07-tendermint-3", COMMITMENT_DISCRIMINATOR, 5)
+                ]
+            );
+            assert_eq!(entry.value, vec![1, 2, 3]);
+            assert_eq!(entry.proof, vec![9, 9]);
+        }
+
+        #[tokio::test]
+        async fn ack_membership_entry_uses_ack_key() {
+            let chain = test_chain();
+            let proof = MerkleProof {
+                proof_bytes: vec![7],
+            };
+            let entry = chain
+                .ack_to_membership_entry(
+                    &client_id(),
+                    PacketSequence(8),
+                    &PacketAcknowledgement(vec![4]),
+                    &proof,
+                )
+                .unwrap();
+            assert_eq!(
+                entry.path,
+                vec![
+                    b"ibc".to_vec(),
+                    ibc_v2_key("07-tendermint-3", ACK_DISCRIMINATOR, 8)
+                ]
+            );
+            assert_eq!(entry.value, vec![4]);
+            assert_eq!(entry.proof, vec![7]);
+        }
+
+        #[tokio::test]
+        async fn packet_queries_at_height_zero_fail_before_rpc() {
+            let chain = test_chain();
+            let zero = TmHeight::try_from(0u64).unwrap();
+            let seq = PacketSequence(1);
+            let is_underflow = |e: eyre::Report| e.to_string().contains("underflow");
+            assert!(is_underflow(
+                chain
+                    .query_packet_commitment(&client_id(), seq, &zero)
+                    .await
+                    .unwrap_err()
+            ));
+            assert!(is_underflow(
+                chain
+                    .query_packet_receipt(&client_id(), seq, &zero)
+                    .await
+                    .unwrap_err()
+            ));
+            assert!(is_underflow(
+                chain
+                    .query_packet_acknowledgement(&client_id(), seq, &zero)
+                    .await
+                    .unwrap_err()
+            ));
+        }
+    }
 }

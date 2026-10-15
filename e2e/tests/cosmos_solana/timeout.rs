@@ -24,11 +24,11 @@ use super::init_tracing;
 
 const PACKET_TIMEOUT_SECS: u64 = 10;
 
-/// A Cosmos->Solana packet that expires before the relayer starts is timed out
-/// on Cosmos, proven by an attestation that Solana never wrote a receipt.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires Docker and solana-test-validator"]
 async fn timeout_cosmos_to_solana() -> Result<()> {
+    // A packet that expires before the relayer starts is timed out on Cosmos,
+    // proven by an attestation that Solana never wrote a receipt.
     init_tracing();
 
     let fixtures_dir = super::solana_fixtures_dir()?;

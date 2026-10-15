@@ -539,4 +539,182 @@ mod tests {
         assert_eq!(write_ack.packet.sequence, PacketSequence(3));
         assert_eq!(write_ack.ack.0, ack.encode_to_vec());
     }
+
+    fn send_event(attrs: Vec<(&str, &str)>) -> CosmosEvent {
+        CosmosEvent {
+            kind: "send_packet".to_string(),
+            attributes: attrs
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    fn valid_packet_hex() -> String {
+        hex::encode(test_packet(1, 1, vec![]).encode_to_vec())
+    }
+
+    #[test]
+    fn v2_packet_to_cosmos_keeps_source_and_dest_ports_distinct() {
+        let pkt = test_packet(
+            1,
+            0,
+            vec![
+                Payload {
+                    source_port: "src-a".into(),
+                    destination_port: "dst-a".into(),
+                    version: "v1".into(),
+                    encoding: "proto".into(),
+                    value: vec![1],
+                },
+                Payload {
+                    source_port: "src-b".into(),
+                    destination_port: "dst-b".into(),
+                    version: "v2".into(),
+                    encoding: "json".into(),
+                    value: vec![2],
+                },
+            ],
+        );
+        let result = v2_packet_to_cosmos(pkt);
+        assert_eq!(result.payloads.len(), 2);
+        assert_eq!(result.payloads[0].source_port, Port("src-a".into()));
+        assert_eq!(result.payloads[0].dest_port, Port("dst-a".into()));
+        assert_eq!(result.payloads[0].version, "v1");
+        assert_eq!(result.payloads[0].encoding, "proto");
+        assert_eq!(result.payloads[1].source_port, Port("src-b".into()));
+        assert_eq!(result.payloads[1].dest_port, Port("dst-b".into()));
+        assert_eq!(result.payloads[1].data, vec![2]);
+    }
+
+    #[test]
+    fn try_extract_send_packet_event_invalid_hex() {
+        let event = send_event(vec![(ENCODED_PACKET_HEX, "zz-not-hex")]);
+        assert!(TestChain::try_extract_send_packet_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_send_packet_event_invalid_proto() {
+        // valid hex, but 0xFF is not a valid protobuf tag/wire type
+        let event = send_event(vec![(ENCODED_PACKET_HEX, "ffffffff")]);
+        assert!(TestChain::try_extract_send_packet_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_send_packet_event_ignores_unrelated_attrs() {
+        let hex = valid_packet_hex();
+        let event = send_event(vec![
+            ("packet_sequence", "1"),
+            ("msg_index", "0"),
+            (ENCODED_PACKET_HEX, &hex),
+        ]);
+        let send = TestChain::try_extract_send_packet_event(&event).unwrap();
+        assert_eq!(
+            TestChain::packet_from_send_event(&send).sequence,
+            PacketSequence(1)
+        );
+    }
+
+    fn write_ack_event(attrs: Vec<(&str, &str)>) -> CosmosEvent {
+        CosmosEvent {
+            kind: "write_acknowledgement".to_string(),
+            ..send_event(attrs)
+        }
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_missing_ack_attr() {
+        let hex = valid_packet_hex();
+        let event = write_ack_event(vec![(ENCODED_PACKET_HEX, &hex)]);
+        assert!(TestChain::try_extract_write_ack_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_missing_packet_attr() {
+        let event = write_ack_event(vec![("encoded_acknowledgement_hex", "01")]);
+        assert!(TestChain::try_extract_write_ack_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_invalid_ack_hex() {
+        let hex = valid_packet_hex();
+        let event = write_ack_event(vec![
+            (ENCODED_PACKET_HEX, &hex),
+            ("encoded_acknowledgement_hex", "xyz"),
+        ]);
+        assert!(TestChain::try_extract_write_ack_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_invalid_packet_proto() {
+        let event = write_ack_event(vec![
+            (ENCODED_PACKET_HEX, "ffffffff"),
+            ("encoded_acknowledgement_hex", "01"),
+        ]);
+        assert!(TestChain::try_extract_write_ack_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_keeps_ack_bytes_raw() {
+        // ack bytes are passed through verbatim, not proto-decoded
+        let hex = valid_packet_hex();
+        let event = write_ack_event(vec![
+            (ENCODED_PACKET_HEX, &hex),
+            ("encoded_acknowledgement_hex", "deadbeef"),
+        ]);
+        let write_ack = TestChain::try_extract_write_ack_event(&event).unwrap();
+        let (packet, ack) = TestChain::packet_from_write_ack_event(&write_ack);
+        assert_eq!(packet.sequence, PacketSequence(1));
+        assert_eq!(ack.0, vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn abci_event_to_cosmos_event_converts_v037_attributes() {
+        let event = tendermint::abci::Event::new(
+            "send_packet",
+            [("packet_sequence", "5"), (ENCODED_PACKET_HEX, "abcd")],
+        );
+        let converted = abci_event_to_cosmos_event(&event);
+        assert_eq!(converted.kind, "send_packet");
+        assert_eq!(
+            converted.attributes,
+            vec![
+                ("packet_sequence".to_string(), "5".to_string()),
+                (ENCODED_PACKET_HEX.to_string(), "abcd".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn abci_event_to_cosmos_event_drops_non_utf8_v034_attributes() {
+        use tendermint::abci::{EventAttribute, v0_34};
+
+        let attr = |key: &[u8], value: &[u8]| {
+            EventAttribute::V034(v0_34::EventAttribute {
+                key: key.to_vec(),
+                value: value.to_vec(),
+                index: true,
+            })
+        };
+        let event = tendermint::abci::Event {
+            kind: "write_acknowledgement".to_string(),
+            attributes: vec![
+                attr(b"good", b"value"),
+                attr(&[0xff, 0xfe], b"bad-key"),
+                attr(b"bad-value", &[0xc3, 0x28]),
+            ],
+        };
+        let converted = abci_event_to_cosmos_event(&event);
+        assert_eq!(
+            converted.attributes,
+            vec![("good".to_string(), "value".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn subscribe_block_events_without_ws_addr_returns_none() {
+        let chain = crate::chain::test_support::test_chain();
+        assert!(chain.config.ws_addr.is_none());
+        assert!(chain.subscribe_block_events().await.unwrap().is_none());
+    }
 }

@@ -204,8 +204,12 @@ impl<S: CosmosSigner> MisbehaviourDetector<Self> for CosmosChain<S> {
         }
 
         let trusted_height_value = update_header.trusted_height.revision_height();
-        let trusted_next_height = TmHeight::try_from(trusted_height_value + 1)
-            .map_err(|e| eyre::eyre!("invalid trusted_height + 1: {e}"))?;
+        let trusted_next_height = trusted_height_value
+            .checked_add(1)
+            .ok_or_else(|| eyre::eyre!("trusted_height + 1 overflows"))
+            .and_then(|h| {
+                TmHeight::try_from(h).map_err(|e| eyre::eyre!("invalid trusted_height + 1: {e}"))
+            })?;
 
         let on_chain_trusted_validators = self
             .rpc_guard
@@ -314,54 +318,6 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<Self> for CosmosChain<S> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_state(height: u64, ts: u128, root: u8, val_hash: u8) -> OnChainTmConsensusState {
-        OnChainTmConsensusState {
-            height: TmHeight::try_from(height).unwrap(),
-            timestamp_nanos: ts,
-            root: [root; 32],
-            next_validators_hash: [val_hash; 32],
-        }
-    }
-
-    #[test]
-    fn matches_fields_ignores_height() {
-        let a = make_state(1, 1000, 0xAA, 0xBB);
-        let b = make_state(99, 1000, 0xAA, 0xBB);
-        assert!(a.matches_fields(&b));
-    }
-
-    #[test]
-    fn matches_fields_detects_timestamp_diff() {
-        let a = make_state(1, 1000, 0xAA, 0xBB);
-        let b = make_state(1, 2000, 0xAA, 0xBB);
-        assert!(!a.matches_fields(&b));
-    }
-
-    #[test]
-    fn matches_fields_detects_root_diff() {
-        let a = make_state(1, 1000, 0xAA, 0xBB);
-        let b = make_state(1, 1000, 0xCC, 0xBB);
-        assert!(!a.matches_fields(&b));
-    }
-
-    #[test]
-    fn matches_fields_detects_validator_hash_diff() {
-        let a = make_state(1, 1000, 0xAA, 0xBB);
-        let b = make_state(1, 1000, 0xAA, 0xCC);
-        assert!(!a.matches_fields(&b));
-    }
-
-    #[test]
-    fn matches_fields_identical() {
-        let a = make_state(5, 500, 0x11, 0x22);
-        assert!(a.matches_fields(&a));
-    }
-}
-
 /// Maximum number of consensus state heights to fetch per query.
 const CONSENSUS_HEIGHTS_LIMIT: u64 = 1000;
 
@@ -467,5 +423,184 @@ impl<S: CosmosSigner> MisbehaviourQuery<Self> for CosmosChain<S> {
         }
 
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_state(height: u64, ts: u128, root: u8, val_hash: u8) -> OnChainTmConsensusState {
+        OnChainTmConsensusState {
+            height: TmHeight::try_from(height).unwrap(),
+            timestamp_nanos: ts,
+            root: [root; 32],
+            next_validators_hash: [val_hash; 32],
+        }
+    }
+
+    #[test]
+    fn matches_fields_ignores_height() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(99, 1000, 0xAA, 0xBB);
+        assert!(a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_detects_timestamp_diff() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(1, 2000, 0xAA, 0xBB);
+        assert!(!a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_detects_root_diff() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(1, 1000, 0xCC, 0xBB);
+        assert!(!a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_detects_validator_hash_diff() {
+        let a = make_state(1, 1000, 0xAA, 0xBB);
+        let b = make_state(1, 1000, 0xAA, 0xCC);
+        assert!(!a.matches_fields(&b));
+    }
+
+    #[test]
+    fn matches_fields_identical() {
+        let a = make_state(5, 500, 0x11, 0x22);
+        assert!(a.matches_fields(&a));
+    }
+
+    mod detector {
+        use super::*;
+        use crate::chain::test_support::{test_chain, test_signer, tm_client_state, tm_ibc_header};
+        use crate::keys::Secp256k1KeyPair;
+        use ibc_proto::ibc::lightclients::wasm::v1::ClientState as WasmClientState;
+        use prost::Name;
+
+        type TestChain = CosmosChain<Secp256k1KeyPair>;
+
+        fn client_id() -> ClientId {
+            "07-tendermint-0".parse().unwrap()
+        }
+
+        async fn check(
+            chain: &TestChain,
+            client_state: &CosmosClientState,
+        ) -> Result<Option<CosmosMisbehaviourEvidence>> {
+            <TestChain as MisbehaviourDetector<TestChain>>::check_for_misbehaviour(
+                chain,
+                &client_id(),
+                &tm_ibc_header(10, 0xaa),
+                client_state,
+            )
+            .await
+        }
+
+        #[tokio::test]
+        async fn wasm_client_state_is_unsupported() {
+            let chain = test_chain();
+            let wasm = CosmosClientState::Wasm(WasmClientState::default());
+            let err = check(&chain, &wasm).await.unwrap_err();
+            assert!(err.to_string().contains("WASM"), "{err}");
+        }
+
+        #[tokio::test]
+        async fn frozen_client_skips_check_without_rpc() {
+            let chain = test_chain();
+            let frozen = tm_client_state(5).with_frozen_height(Height::new(1, 5).unwrap());
+            let result = check(&chain, &CosmosClientState::Tendermint(frozen))
+                .await
+                .unwrap();
+            assert!(result.is_none());
+        }
+
+        #[tokio::test]
+        async fn rpc_failure_is_an_error_not_a_clean_result() {
+            let chain = test_chain();
+            let active = CosmosClientState::Tendermint(tm_client_state(5));
+            assert!(check(&chain, &active).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn max_trusted_height_is_an_error_not_an_overflow() {
+            let chain = test_chain();
+            let mut header = tm_ibc_header(10, 0xaa);
+            header.trusted_height = Height::new(0, u64::MAX).unwrap();
+            let active = CosmosClientState::Tendermint(tm_client_state(5));
+            let err = <TestChain as MisbehaviourDetector<TestChain>>::check_for_misbehaviour(
+                &chain,
+                &client_id(),
+                &header,
+                &active,
+            )
+            .await
+            .unwrap_err();
+            assert!(err.to_string().contains("trusted_height + 1"), "{err}");
+        }
+
+        #[tokio::test]
+        async fn misbehaviour_message_wraps_both_headers() {
+            let chain = test_chain();
+            let misbehaviour = TmMisbehaviour::new(
+                client_id(),
+                tm_ibc_header(10, 0xaa),
+                tm_ibc_header(10, 0xbb),
+            );
+            let evidence = CosmosMisbehaviourEvidence::Misbehaviour {
+                misbehaviour,
+                supporting_headers: vec![],
+            };
+            let msg = chain
+                .build_misbehaviour_message(&client_id(), evidence)
+                .await
+                .unwrap();
+
+            assert_eq!(msg.type_url.as_ref(), MsgUpdateClient::type_url());
+            let decoded = MsgUpdateClient::decode(msg.value.as_slice()).unwrap();
+            assert_eq!(decoded.client_id, "07-tendermint-0");
+            assert_eq!(decoded.signer, test_signer().account_address().unwrap());
+
+            let any = decoded.client_message.unwrap();
+            let round_trip = TmMisbehaviour::try_from(any).unwrap();
+            assert_eq!(
+                round_trip
+                    .header1()
+                    .signed_header
+                    .header
+                    .app_hash
+                    .as_bytes(),
+                &[0xaa; 32]
+            );
+            assert_eq!(
+                round_trip
+                    .header2()
+                    .signed_header
+                    .header
+                    .app_hash
+                    .as_bytes(),
+                &[0xbb; 32]
+            );
+        }
+
+        #[tokio::test]
+        async fn corrective_update_rejected_for_native_tendermint() {
+            let chain = test_chain();
+            let evidence = CosmosMisbehaviourEvidence::CorrectiveUpdate {
+                payload: crate::builders::CosmosUpdateClientPayload {
+                    headers: vec![],
+                    trusted_consensus_state: None,
+                    membership_proofs: MembershipProofs::new(),
+                },
+            };
+            assert!(
+                chain
+                    .build_misbehaviour_message(&client_id(), evidence)
+                    .await
+                    .is_err()
+            );
+        }
     }
 }

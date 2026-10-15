@@ -74,3 +74,33 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testhelpers::Probe;
+
+    #[tokio::test]
+    async fn concurrent_submissions_are_coalesced_into_one_tx() {
+        let probe = Probe::new();
+        let handle = spawn_coordinator(probe.clone());
+
+        let (a, b) = tokio::join!(handle.submit(vec![1, 2]), handle.submit(vec![3]));
+
+        assert!(a.is_ok() && b.is_ok());
+        assert_eq!(probe.state.lock().unwrap().sent, vec![vec![1, 2, 3]]);
+    }
+
+    #[tokio::test]
+    async fn broadcast_error_is_reported_to_every_caller() {
+        let probe = Probe::new();
+        probe.state.lock().unwrap().fail_sends = true;
+        let handle = spawn_coordinator(probe.clone());
+
+        let (a, b) = tokio::join!(handle.submit(vec![1]), handle.submit(vec![2]));
+
+        assert!(a.unwrap_err().to_string().contains("broadcast rejected"));
+        assert!(b.unwrap_err().to_string().contains("broadcast rejected"));
+        assert_eq!(probe.state.lock().unwrap().sent.len(), 1);
+    }
+}

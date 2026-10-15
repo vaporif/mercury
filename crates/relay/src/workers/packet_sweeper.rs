@@ -309,3 +309,341 @@ where
         ack_cleared: ack_unrelayed.len(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use mercury_chain_traits::types::Port;
+
+    use super::*;
+    use crate::filter::{FilterPolicy, PacketFilterConfig};
+    use crate::testhelpers::*;
+
+    fn sorted(seqs: Vec<PacketSequence>) -> Vec<u64> {
+        let mut v: Vec<u64> = seqs.into_iter().map(|s| s.0).collect();
+        v.sort_unstable();
+        v
+    }
+
+    fn sweeper(
+        relay: Arc<MockRelay>,
+        clear_limit: usize,
+    ) -> (
+        PacketSweeper<MockRelay>,
+        mpsc::Receiver<Vec<IbcEvent<MockRelay>>>,
+    ) {
+        let (sender, receiver) = mpsc::channel(8);
+        let sweeper = PacketSweeper {
+            relay,
+            sender,
+            token: CancellationToken::new(),
+            interval: Duration::from_secs(10),
+            packet_filter: None,
+            metrics: SweepMetrics::new(&mock_label()),
+            clear_on_start: false,
+            clear_limit,
+            excluded_sequences: vec![],
+        };
+        (sweeper, receiver)
+    }
+
+    fn packets(seqs: &[u64]) -> HashMap<u64, MockPacket> {
+        seqs.iter().map(|&s| (s, MockPacket::new(s))).collect()
+    }
+
+    #[tokio::test]
+    async fn unreceived_skips_received_failing_and_excluded() {
+        let src = MockState {
+            commitment_seqs: vec![1, 2, 3, 4],
+            ..Default::default()
+        };
+        let dst = MockState {
+            received: HashSet::from([2]),
+            failing_seqs: HashSet::from([3]),
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, dst);
+        let (seqs, excluded) =
+            discover_unreceived_packets(relay.as_ref(), &SweepScope::All, &[4], usize::MAX)
+                .await
+                .unwrap();
+        assert_eq!(sorted(seqs), vec![1]);
+        assert_eq!(excluded, 1);
+    }
+
+    #[tokio::test]
+    async fn unreceived_respects_scope_and_limit() {
+        let src = MockState {
+            commitment_seqs: vec![1, 2, 3, 4, 5],
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, MockState::default());
+
+        let scope = SweepScope::Sequences(vec![2, 4, 5]);
+        let (seqs, _) = discover_unreceived_packets(relay.as_ref(), &scope, &[], 2)
+            .await
+            .unwrap();
+        assert_eq!(sorted(seqs), vec![2, 4]);
+    }
+
+    #[tokio::test]
+    async fn unreceived_all_excluded_returns_empty_with_count() {
+        let src = MockState {
+            commitment_seqs: vec![7, 8],
+            ..Default::default()
+        };
+        let (relay, _, dst) = mock_relay(src, MockState::default());
+        let (seqs, excluded) =
+            discover_unreceived_packets(relay.as_ref(), &SweepScope::All, &[7, 8], 10)
+                .await
+                .unwrap();
+        assert_eq!(seqs, vec![]);
+        assert_eq!(excluded, 2);
+        // Only the latest-height lookup, no receipt queries were needed.
+        assert_eq!(dst.lock().unwrap().status_queries, 1);
+    }
+
+    #[tokio::test]
+    async fn unreceived_propagates_query_errors() {
+        let src = MockState {
+            sequence_query_error: true,
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, MockState::default());
+        assert!(
+            discover_unreceived_packets(relay.as_ref(), &SweepScope::All, &[], 10)
+                .await
+                .is_err()
+        );
+
+        let dst = MockState {
+            status_error: true,
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(MockState::default(), dst);
+        assert!(
+            discover_unreceived_packets(relay.as_ref(), &SweepScope::All, &[], 10)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn unrelayed_acks_only_returns_seqs_still_committed_on_dst() {
+        let src = MockState {
+            ack_seqs: vec![1, 2, 3, 4, 5],
+            ..Default::default()
+        };
+        let dst = MockState {
+            committed: HashSet::from([1, 2, 3, 5]),
+            failing_seqs: HashSet::from([2]),
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, dst);
+        let scope = SweepScope::Sequences(vec![1, 2, 3, 4]);
+        let (seqs, excluded) = discover_unrelayed_acks(relay.as_ref(), &scope, &[3], 10)
+            .await
+            .unwrap();
+        assert_eq!(sorted(seqs), vec![1]);
+        assert_eq!(excluded, 1);
+    }
+
+    #[tokio::test]
+    async fn unrelayed_acks_propagates_query_errors() {
+        let src = MockState {
+            sequence_query_error: true,
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, MockState::default());
+        assert!(
+            discover_unrelayed_acks(relay.as_ref(), &SweepScope::All, &[], 10)
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn clear_packets_once_counts_both_directions() {
+        let src = MockState {
+            commitment_seqs: vec![1, 2, 3],
+            ack_seqs: vec![10, 11],
+            ..Default::default()
+        };
+        let dst = MockState {
+            received: HashSet::from([1]),
+            committed: HashSet::from([10, 11]),
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, dst);
+        let result = clear_packets_once(relay, SweepScope::All).await.unwrap();
+        assert_eq!((result.recv_cleared, result.ack_cleared), (2, 2));
+    }
+
+    #[tokio::test]
+    async fn scan_forwards_recovered_send_and_ack_events() {
+        let src = MockState {
+            commitment_seqs: vec![1, 2, 3],
+            ack_seqs: vec![10, 11],
+            send_packets: packets(&[1, 3]),
+            write_acks: packets(&[10, 11]),
+            event_lookup_errors: HashSet::from([3, 11]),
+            ..Default::default()
+        };
+        let dst = MockState {
+            committed: HashSet::from([10, 11]),
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, dst);
+        let (sweeper, mut rx) = sweeper(relay, 100);
+
+        sweeper.scan(&SweepScope::All).await.unwrap();
+
+        // 2 has no send event (pruned); 3 and 11 fail lookup.
+        let (sends, acks) = event_seqs(rx.try_recv().unwrap());
+        assert_eq!((sends, acks), (vec![1], vec![10]));
+        assert!(!sweeper.token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn scan_applies_packet_filter_to_swept_sends() {
+        let src = MockState {
+            commitment_seqs: vec![1, 2],
+            send_packets: HashMap::from([
+                (1, MockPacket::on_port(1, "transfer")),
+                (2, MockPacket::on_port(2, "icahost")),
+            ]),
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, MockState::default());
+        let (mut sweeper, mut rx) = sweeper(relay, 100);
+        sweeper.packet_filter = Some(
+            PacketFilter::new(&PacketFilterConfig {
+                policy: FilterPolicy::Allow,
+                source_ports: vec![Port("transfer".into())],
+            })
+            .unwrap(),
+        );
+
+        sweeper.scan(&SweepScope::All).await.unwrap();
+
+        assert_eq!(event_seqs(rx.try_recv().unwrap()), (vec![1], vec![]));
+    }
+
+    #[tokio::test]
+    async fn scan_reserves_quarter_of_limit_for_acks() {
+        let src = MockState {
+            commitment_seqs: (1..=8).collect(),
+            ack_seqs: (10..=20).collect(),
+            send_packets: packets(&(1..=8).collect::<Vec<_>>()),
+            write_acks: packets(&(10..=20).collect::<Vec<_>>()),
+            ..Default::default()
+        };
+        let dst = MockState {
+            committed: (10..=20).collect(),
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, dst);
+        let (sweeper, mut rx) = sweeper(relay, 8);
+
+        sweeper.scan(&SweepScope::All).await.unwrap();
+
+        // Recv consumes the whole limit, but 8/4 = 2 acks are still swept.
+        let (sends, acks) = event_seqs(rx.try_recv().unwrap());
+        assert_eq!(sends.len(), 8);
+        assert_eq!(acks, vec![10, 11]);
+    }
+
+    #[tokio::test]
+    async fn scan_with_zero_limit_sends_nothing() {
+        let src = MockState {
+            commitment_seqs: vec![1],
+            ack_seqs: vec![2],
+            send_packets: packets(&[1]),
+            write_acks: packets(&[2]),
+            ..Default::default()
+        };
+        let dst = MockState {
+            committed: HashSet::from([2]),
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, dst);
+        let (sweeper, mut rx) = sweeper(relay, 0);
+
+        sweeper.scan(&SweepScope::All).await.unwrap();
+
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn scan_cancels_token_when_channel_closed() {
+        let src = MockState {
+            commitment_seqs: vec![1],
+            send_packets: packets(&[1]),
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, MockState::default());
+        let (sweeper, rx) = sweeper(relay, 10);
+        drop(rx);
+
+        sweeper.scan(&SweepScope::All).await.unwrap();
+
+        assert!(sweeper.token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn scan_propagates_discovery_error() {
+        let src = MockState {
+            sequence_query_error: true,
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, MockState::default());
+        let (sweeper, _rx) = sweeper(relay, 10);
+        assert!(sweeper.scan(&SweepScope::All).await.is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn run_clears_on_start_then_sweeps_each_interval() {
+        let src = MockState {
+            commitment_seqs: vec![1],
+            send_packets: packets(&[1]),
+            ..Default::default()
+        };
+        let (relay, _, _) = mock_relay(src, MockState::default());
+        let (mut sweeper, mut rx) = sweeper(relay, 10);
+        sweeper.clear_on_start = true;
+        let token = sweeper.token.clone();
+
+        let handle = tokio::spawn(sweeper.run());
+
+        let start = tokio::time::Instant::now();
+        assert_eq!(event_seqs(recv(&mut rx).await).0, vec![1]);
+        assert_eq!(start.elapsed(), Duration::ZERO);
+
+        assert_eq!(event_seqs(recv(&mut rx).await).0, vec![1]);
+        assert_eq!(start.elapsed(), Duration::from_secs(10));
+
+        token.cancel();
+        handle.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn run_keeps_going_after_failed_scans() {
+        let src = MockState {
+            sequence_query_error: true,
+            ..Default::default()
+        };
+        let (relay, src_state, _) = mock_relay(src, MockState::default());
+        let (mut sweeper, _rx) = sweeper(relay, 10);
+        sweeper.clear_on_start = true;
+        let token = sweeper.token.clone();
+
+        let handle = tokio::spawn(sweeper.run());
+        tokio::time::sleep(Duration::from_secs(25)).await;
+        token.cancel();
+        handle.await.unwrap().unwrap();
+
+        // clear-on-start + 2 interval scans, each querying src height once.
+        assert_eq!(src_state.lock().unwrap().status_queries, 3);
+    }
+}

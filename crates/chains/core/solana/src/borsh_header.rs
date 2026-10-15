@@ -397,7 +397,7 @@ mod tests {
     fn make_commit(sigs: Vec<CommitSig>) -> Commit {
         Commit {
             height: Height::try_from(100u64).unwrap(),
-            round: Round::try_from(1u16).unwrap(),
+            round: Round::from(1u16),
             block_id: make_block_id(),
             signatures: sigs,
         }
@@ -408,9 +408,8 @@ mod tests {
         let v2 = make_validator(2, 20);
         let v3 = make_validator(3, 30);
 
-        let validator_set =
-            ValidatorSet::new(vec![v1.clone(), v2.clone(), v3.clone()], Some(v1.clone()));
-        let trusted_set = ValidatorSet::new(vec![v1.clone(), v2.clone()], Some(v1.clone()));
+        let validator_set = ValidatorSet::new(vec![v1.clone(), v2.clone(), v3], Some(v1.clone()));
+        let trusted_set = ValidatorSet::new(vec![v1.clone(), v2], Some(v1.clone()));
 
         let tm_header = make_tm_header(&v1);
         let commit = make_commit(vec![
@@ -434,7 +433,7 @@ mod tests {
         let header = make_full_header();
         let borsh = header_to_borsh(header);
         let bytes = borsh::to_vec(&borsh).unwrap();
-        assert!(!bytes.is_empty());
+        assert_ne!(bytes, Vec::<u8>::new());
     }
 
     #[test]
@@ -511,7 +510,7 @@ mod tests {
                 | BorshCommitSig::BlockIdFlagNil {
                     validator_address, ..
                 } => *validator_address,
-                _ => unreachable!(),
+                BorshCommitSig::BlockIdFlagAbsent => unreachable!(),
             })
             .collect();
 
@@ -559,7 +558,7 @@ mod tests {
         };
         let commit = Commit {
             height: Height::try_from(1u64).unwrap(),
-            round: Round::try_from(1u16).unwrap(),
+            round: Round::from(1u16),
             block_id: make_block_id(),
             signatures: vec![make_commit_sig(1, "commit")],
         };

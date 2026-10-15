@@ -827,6 +827,229 @@ mod tests {
         let total: usize = batches.iter().map(std::vec::Vec::len).sum();
         assert_eq!(total, 3);
     }
+
+    #[test]
+    fn split_batches_exact_budget_fits_one_batch() {
+        // two messages that together hit the budget exactly must share a batch
+        let per_msg = message_size(&make_msg(0));
+        let value_len = 100;
+        let msg_size = per_msg + value_len;
+        let max_tx_size = TX_ENVELOPE_OVERHEAD + 2 * msg_size;
+        let batches = split_batches(vec![make_msg(value_len); 2], 10, max_tx_size);
+        assert_eq!(batches.len(), 1);
+
+        // one byte less pushes the second message into a new batch
+        let batches = split_batches(vec![make_msg(value_len); 2], 10, max_tx_size - 1);
+        assert_eq!(batches.len(), 2);
+    }
+
+    #[test]
+    fn split_batches_max_tx_size_below_envelope_drops_everything() {
+        let batches = split_batches(vec![make_msg(1); 3], 10, TX_ENVELOPE_OVERHEAD - 1);
+        assert!(batches.is_empty());
+    }
+
+    #[test]
+    fn split_batches_preserves_message_order() {
+        let msgs: Vec<_> = (1..=7).map(make_msg).collect();
+        let batches = split_batches(msgs, 3, 100_000);
+        let lens: Vec<usize> = batches.iter().flatten().map(|m| m.value.len()).collect();
+        assert_eq!(lens, (1..=7).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn message_size_includes_type_url_and_overhead() {
+        let msg = CosmosMessage {
+            type_url: "/a.B".to_string().into(),
+            value: vec![0; 20],
+        };
+        assert_eq!(message_size(&msg), 4 + 20 + PROTOBUF_ANY_OVERHEAD);
+    }
+
+    #[test]
+    fn simulation_recoverable_errors() {
+        for msg in [
+            "account sequence mismatch, expected 5, got 4",
+            "client state height < proof height",
+            "packet sequence 3 already received",
+            "invalid request: empty tx",
+        ] {
+            assert!(is_simulation_recoverable(msg), "{msg}");
+        }
+        assert!(!is_simulation_recoverable("out of gas"));
+        assert!(!is_simulation_recoverable("insufficient funds"));
+        assert!(!is_simulation_recoverable(""));
+    }
+
+    #[test]
+    fn adjust_gas_zero_used_stays_zero() {
+        assert_eq!(adjust_gas(0, 1.5, Some(100)), 0);
+    }
+
+    #[test]
+    fn calculate_fee_amount_zero_price_is_free() {
+        assert_eq!(calculate_fee_amount(1_000_000, 0.0), 0);
+    }
+
+    #[test]
+    fn calculate_fee_amount_fractional_rounds_up_to_one() {
+        assert_eq!(calculate_fee_amount(1, 0.001), 1);
+    }
+
+    #[test]
+    fn broadcast_failure_is_not_sequence_mismatch() {
+        let err: eyre::Report = TxError::BroadcastFailed {
+            reason: "code=5".into(),
+        }
+        .into();
+        assert!(!is_sequence_mismatch(&err));
+    }
+
+    mod build_tx {
+        use super::*;
+        use crate::chain::test_support::test_signer;
+        use ibc_proto::cosmos::crypto::secp256k1::PubKey;
+        use ibc_proto::cosmos::tx::v1beta1::{AuthInfo, SignDoc, TxBody, TxRaw, mode_info};
+
+        fn fee(amount: u64) -> CosmosFee {
+            CosmosFee {
+                amount: FeeAmount(amount),
+                denom: Denom("uatom".into()),
+                gas_limit: GasLimit(200_000),
+            }
+        }
+
+        fn nonce() -> CosmosNonce {
+            CosmosNonce {
+                account_number: AccountNumber(12),
+                sequence: TxSequence(34),
+            }
+        }
+
+        async fn build(granter: Option<&str>, msgs: &[CosmosMessage]) -> TxRaw {
+            let bytes = build_tx_bytes(
+                "testchain-1",
+                &test_signer(),
+                &nonce(),
+                &fee(5000),
+                granter,
+                msgs,
+            )
+            .await
+            .unwrap();
+            TxRaw::decode(bytes.as_slice()).unwrap()
+        }
+
+        #[tokio::test]
+        async fn encodes_body_fee_and_signer_info() {
+            let msgs = vec![make_msg(3), make_msg(5)];
+            let raw = build(None, &msgs).await;
+
+            let body = TxBody::decode(raw.body_bytes.as_slice()).unwrap();
+            assert_eq!(body.messages.len(), 2);
+            assert_eq!(body.messages[0].type_url, "/test.Msg");
+            assert_eq!(body.messages[1].value, vec![0u8; 5]);
+            assert_eq!(body.memo, "");
+
+            let auth = AuthInfo::decode(raw.auth_info_bytes.as_slice()).unwrap();
+            let fee = auth.fee.unwrap();
+            assert_eq!(fee.gas_limit, 200_000);
+            assert_eq!(fee.amount.len(), 1);
+            assert_eq!(fee.amount[0].denom, "uatom");
+            assert_eq!(fee.amount[0].amount, "5000");
+            assert_eq!(fee.granter, "");
+
+            assert_eq!(auth.signer_infos.len(), 1);
+            let info = &auth.signer_infos[0];
+            assert_eq!(info.sequence, 34);
+            let pk_any = info.public_key.as_ref().unwrap();
+            assert_eq!(pk_any.type_url, "/cosmos.crypto.secp256k1.PubKey");
+            let pk = PubKey::decode(pk_any.value.as_slice()).unwrap();
+            assert_eq!(pk.key, test_signer().public_key_bytes());
+            let mode = info.mode_info.as_ref().unwrap().sum.as_ref().unwrap();
+            assert!(matches!(mode, mode_info::Sum::Single(s) if s.mode == 1));
+        }
+
+        #[tokio::test]
+        async fn sets_fee_granter() {
+            let raw = build(Some("cosmos1granter"), &[make_msg(1)]).await;
+            let auth = AuthInfo::decode(raw.auth_info_bytes.as_slice()).unwrap();
+            assert_eq!(auth.fee.unwrap().granter, "cosmos1granter");
+        }
+
+        #[tokio::test]
+        async fn signature_verifies_over_sign_doc() {
+            let raw = build(None, &[make_msg(8)]).await;
+            assert_eq!(raw.signatures.len(), 1);
+
+            let sign_doc = SignDoc {
+                body_bytes: raw.body_bytes.clone(),
+                auth_info_bytes: raw.auth_info_bytes.clone(),
+                chain_id: "testchain-1".into(),
+                account_number: 12,
+            };
+            let digest: [u8; 32] = Sha256::digest(sign_doc.encode_to_vec()).into();
+            let sig = secp256k1::ecdsa::Signature::from_compact(&raw.signatures[0]).unwrap();
+            let msg = secp256k1::Message::from_digest(digest);
+            secp256k1::ecdsa::verify(&sig, msg, &test_signer().public_key).unwrap();
+
+            // a different chain id must not verify — guards against chain-id replay
+            let other_doc = SignDoc {
+                chain_id: "otherchain-1".into(),
+                ..sign_doc
+            };
+            let other_digest: [u8; 32] = Sha256::digest(other_doc.encode_to_vec()).into();
+            let other_msg = secp256k1::Message::from_digest(other_digest);
+            assert!(secp256k1::ecdsa::verify(&sig, other_msg, &test_signer().public_key).is_err());
+        }
+    }
+
+    mod sender {
+        use super::*;
+        use crate::chain::test_support::{test_chain, test_chain_with, test_config};
+
+        #[tokio::test]
+        async fn send_messages_empty_is_noop() {
+            let chain = test_chain();
+            let receipt = chain.send_messages(vec![]).await.unwrap();
+            assert!(receipt.gas_used.is_none());
+            assert!(
+                chain
+                    .send_messages_with_responses(vec![])
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+
+        #[tokio::test]
+        async fn all_oversized_messages_are_dropped_without_network() {
+            let mut config = test_config();
+            config.max_tx_size = Some(TX_ENVELOPE_OVERHEAD + 10);
+            let chain = test_chain_with(config);
+            // would fail with a connection error if it reached the node
+            chain.send_messages(vec![make_msg(1000)]).await.unwrap();
+            assert!(
+                chain
+                    .send_messages_with_responses(vec![make_msg(1000)])
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+
+        #[tokio::test]
+        async fn poll_tx_response_rejects_non_hex_hash() {
+            let chain = test_chain();
+            assert!(chain.poll_tx_response("not-hex").await.is_err());
+        }
+
+        #[tokio::test]
+        async fn poll_tx_response_rejects_wrong_length_hash() {
+            let chain = test_chain();
+            assert!(chain.poll_tx_response("abcd").await.is_err());
+        }
+    }
 }
 
 #[cfg(test)]

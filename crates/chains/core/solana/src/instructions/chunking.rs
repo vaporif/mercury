@@ -269,4 +269,205 @@ mod tests {
         assert!(!needs_chunking(&[0u8; CHUNK_DATA_SIZE]));
         assert!(needs_chunking(&[0u8; CHUNK_DATA_SIZE + 1]));
     }
+
+    use crate::accounts::{ANCHOR_DISCRIMINATOR_LEN, anchor_instruction_discriminator};
+
+    type WireUploadArgs = (String, u64, u8, u8, Vec<u8>);
+    type WireCleanupArgs = (String, u64, Vec<u8>, u8);
+
+    const MAX_CHUNKS: usize = u8::MAX as usize + 1;
+
+    struct Keys {
+        ics26: Pubkey,
+        payer: Pubkey,
+        am: Pubkey,
+    }
+
+    impl Keys {
+        fn new() -> Self {
+            Self {
+                ics26: Pubkey::new_unique(),
+                payer: Pubkey::new_unique(),
+                am: Pubkey::new_unique(),
+            }
+        }
+
+        fn ctx(&self) -> ChunkContext<'_> {
+            ChunkContext {
+                ics26_program_id: &self.ics26,
+                payer: &self.payer,
+                client_id: "07-tendermint-0",
+                sequence: 9,
+                access_manager_program_id: &self.am,
+            }
+        }
+    }
+
+    fn decode<T: borsh::BorshDeserialize>(ix: &Instruction, method: &str) -> T {
+        let (disc, body) = ix.data.split_at(ANCHOR_DISCRIMINATOR_LEN);
+        assert_eq!(disc, anchor_instruction_discriminator(method));
+        borsh::from_slice(body).unwrap()
+    }
+
+    fn pattern(len: usize) -> Vec<u8> {
+        (0..len).map(|i| u8::try_from(i % 251).unwrap()).collect()
+    }
+
+    #[test]
+    fn chunk_data_edges() {
+        assert_eq!(chunk_data(&[]), Vec::<Vec<u8>>::new());
+
+        let exact = chunk_data(&[0u8; 2 * CHUNK_DATA_SIZE]);
+        assert_eq!(exact.len(), 2);
+        assert!(exact.iter().all(|c| c.len() == CHUNK_DATA_SIZE));
+
+        let over = chunk_data(&[0u8; 2 * CHUNK_DATA_SIZE + 1]);
+        assert_eq!(over.len(), 3);
+        assert_eq!(over[2].len(), 1);
+    }
+
+    #[test]
+    fn chunk_payload_round_trips_data_and_derives_matching_pdas() {
+        let k = Keys::new();
+        let data = pattern(2 * CHUNK_DATA_SIZE + 17);
+        let (ixs, pdas) = chunk_payload(&k.ctx(), 3, &data).unwrap();
+        assert_eq!(ixs.len(), 3);
+        assert_eq!(pdas.len(), 3);
+
+        let mut reassembled = Vec::new();
+        for (i, (ix, pda)) in ixs.iter().zip(&pdas).enumerate() {
+            let (client_id, seq, payload_idx, chunk_idx, chunk): WireUploadArgs =
+                decode(ix, "upload_payload_chunk");
+            assert_eq!(client_id, "07-tendermint-0");
+            assert_eq!(seq, 9);
+            assert_eq!(payload_idx, 3);
+            assert_eq!(usize::from(chunk_idx), i);
+            reassembled.extend(chunk);
+
+            let expected_pda = Ics26Router::payload_chunk_pda(
+                &k.payer,
+                "07-tendermint-0",
+                9,
+                3,
+                chunk_idx,
+                &k.ics26,
+            )
+            .0;
+            assert_eq!(*pda, expected_pda);
+            assert_eq!(ix.program_id, k.ics26);
+            assert_eq!(
+                ix.accounts,
+                vec![
+                    AccountMeta::new_readonly(Ics26Router::router_state_pda(&k.ics26).0, false),
+                    AccountMeta::new_readonly(AccessManager::pda(&k.am).0, false),
+                    AccountMeta::new(expected_pda, false),
+                    AccountMeta::new(k.payer, true),
+                    AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+                    AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
+                ]
+            );
+        }
+        assert_eq!(reassembled, data);
+    }
+
+    #[test]
+    fn chunk_proof_uses_proof_pdas_and_zero_payload_index() {
+        let k = Keys::new();
+        let data = pattern(CHUNK_DATA_SIZE + 1);
+        let (ixs, pdas) = chunk_proof(&k.ctx(), &data).unwrap();
+        assert_eq!(ixs.len(), 2);
+
+        let mut reassembled = Vec::new();
+        for (i, (ix, pda)) in ixs.iter().zip(&pdas).enumerate() {
+            let (_, seq, payload_idx, chunk_idx, chunk): WireUploadArgs =
+                decode(ix, "upload_proof_chunk");
+            assert_eq!(seq, 9);
+            assert_eq!(payload_idx, 0);
+            assert_eq!(usize::from(chunk_idx), i);
+            reassembled.extend(chunk);
+            let expected =
+                Ics26Router::proof_chunk_pda(&k.payer, "07-tendermint-0", 9, chunk_idx, &k.ics26).0;
+            assert_eq!(*pda, expected);
+            assert_eq!(ix.accounts[2], AccountMeta::new(expected, false));
+            assert_eq!(ix.accounts[3], AccountMeta::new(k.payer, true));
+        }
+        assert_eq!(reassembled, data);
+    }
+
+    #[test]
+    fn chunking_empty_input_produces_nothing() {
+        let k = Keys::new();
+        let (ixs, pdas) = chunk_payload(&k.ctx(), 0, &[]).unwrap();
+        assert!(ixs.is_empty() && pdas.is_empty());
+        let (ixs, pdas) = chunk_proof(&k.ctx(), &[]).unwrap();
+        assert!(ixs.is_empty() && pdas.is_empty());
+    }
+
+    #[test]
+    fn chunk_index_limit_is_u8() {
+        let k = Keys::new();
+        let max = vec![0u8; MAX_CHUNKS * CHUNK_DATA_SIZE];
+        let (ixs, _) = chunk_payload(&k.ctx(), 0, &max).unwrap();
+        assert_eq!(ixs.len(), MAX_CHUNKS);
+
+        let over = vec![0u8; MAX_CHUNKS * CHUNK_DATA_SIZE + 1];
+        let err = chunk_payload(&k.ctx(), 0, &over).unwrap_err();
+        assert!(err.to_string().contains("exceeds u8::MAX"), "{err}");
+        assert!(chunk_proof(&k.ctx(), &over).is_err());
+    }
+
+    #[test]
+    fn cleanup_chunks_lists_every_payload_then_proof_pda() {
+        let k = Keys::new();
+        let ix = cleanup_chunks(&k.ctx(), &[2, 0, 1], 2).unwrap();
+
+        let (client_id, seq, payload_chunks, proof_chunks): WireCleanupArgs =
+            decode(&ix, "cleanup_chunks");
+        assert_eq!(client_id, "07-tendermint-0");
+        assert_eq!(seq, 9);
+        assert_eq!(payload_chunks, vec![2, 0, 1]);
+        assert_eq!(proof_chunks, 2);
+
+        let payload = |p, c| {
+            AccountMeta::new(
+                Ics26Router::payload_chunk_pda(&k.payer, "07-tendermint-0", 9, p, c, &k.ics26).0,
+                false,
+            )
+        };
+        let proof = |c| {
+            AccountMeta::new(
+                Ics26Router::proof_chunk_pda(&k.payer, "07-tendermint-0", 9, c, &k.ics26).0,
+                false,
+            )
+        };
+        assert_eq!(
+            ix.accounts,
+            vec![
+                AccountMeta::new_readonly(Ics26Router::router_state_pda(&k.ics26).0, false),
+                AccountMeta::new_readonly(AccessManager::pda(&k.am).0, false),
+                AccountMeta::new(k.payer, true),
+                AccountMeta::new_readonly(solana_sdk::sysvar::instructions::ID, false),
+                payload(0, 0),
+                payload(0, 1),
+                payload(2, 0),
+                proof(0),
+                proof(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn cleanup_chunks_with_nothing_to_close_has_only_fixed_accounts() {
+        let k = Keys::new();
+        let ix = cleanup_chunks(&k.ctx(), &[], 0).unwrap();
+        assert_eq!(ix.accounts.len(), 4);
+    }
+
+    #[test]
+    fn cleanup_chunks_rejects_more_than_256_payloads() {
+        let k = Keys::new();
+        assert!(cleanup_chunks(&k.ctx(), &[0u8; MAX_CHUNKS], 0).is_ok());
+        let err = cleanup_chunks(&k.ctx(), &[0u8; MAX_CHUNKS + 1], 0).unwrap_err();
+        assert!(err.to_string().contains("payload index 256"), "{err}");
+    }
 }

@@ -519,7 +519,7 @@ mod tests {
             payloads: vec![],
         };
         let v2 = cosmos_packet_to_v2(&packet);
-        assert!(v2.payloads.is_empty());
+        assert_eq!(v2.payloads, vec![]);
     }
 
     #[test]
@@ -545,7 +545,7 @@ mod tests {
             proposer_priority: 0.into(),
         };
 
-        let result = find_proposer(&[validator.clone()], &validator.address);
+        let result = find_proposer(std::slice::from_ref(&validator), &validator.address);
         assert!(result.is_some());
         assert_eq!(result.unwrap().address, validator.address);
     }
@@ -575,5 +575,292 @@ mod tests {
 
         let result = find_proposer(&[validator], &other_addr);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn find_proposer_empty_set() {
+        let addr = tendermint::account::Id::new([1u8; 20]);
+        assert!(find_proposer(&[], &addr).is_none());
+    }
+
+    mod messages {
+        use super::*;
+        use crate::chain::test_support::{test_chain, test_signer};
+        use crate::keys::Secp256k1KeyPair;
+        use ibc::core::host::types::identifiers::ClientId;
+        use ibc_proto::ibc::core::client::v1::MsgUpgradeClient;
+        use prost::Name;
+
+        type TestChain = CosmosChain<Secp256k1KeyPair>;
+
+        fn signer() -> String {
+            test_signer().account_address().unwrap()
+        }
+
+        fn client_id() -> ClientId {
+            "07-tendermint-0".parse().unwrap()
+        }
+
+        fn any(type_url: &str, value: &[u8]) -> Any {
+            Any {
+                type_url: type_url.into(),
+                value: value.to_vec(),
+            }
+        }
+
+        fn packet() -> CosmosPacket {
+            CosmosPacket {
+                source_client_id: RawClientId("07-tendermint-1".into()),
+                dest_client_id: RawClientId("07-tendermint-0".into()),
+                sequence: PacketSequence(11),
+                timeout_timestamp: TimeoutTimestamp(99),
+                payloads: vec![],
+            }
+        }
+
+        fn proof() -> MerkleProof {
+            MerkleProof {
+                proof_bytes: vec![0xaa, 0xbb],
+            }
+        }
+
+        fn height(h: u64) -> TmHeight {
+            TmHeight::try_from(h).unwrap()
+        }
+
+        fn decode<M: prost::Message + Name + Default>(msg: &CosmosMessage) -> M {
+            assert_eq!(msg.type_url.as_ref(), M::type_url());
+            M::decode(msg.value.as_slice()).unwrap()
+        }
+
+        #[tokio::test]
+        async fn create_client_message_wraps_payload() {
+            let chain = test_chain();
+            let payload = CosmosCreateClientPayload {
+                client_state: any("/cs", b"client"),
+                consensus_state: any("/cons", b"consensus"),
+                ..Default::default()
+            };
+            let msg = chain.build_create_client_message(payload).await.unwrap();
+            let decoded: MsgCreateClient = decode(&msg);
+            assert_eq!(decoded.client_state, Some(any("/cs", b"client")));
+            assert_eq!(decoded.consensus_state, Some(any("/cons", b"consensus")));
+            assert_eq!(decoded.signer, signer());
+        }
+
+        #[tokio::test]
+        async fn update_client_message_one_per_header() {
+            let chain = test_chain();
+            let payload = CosmosUpdateClientPayload {
+                headers: vec![any("/h", b"1"), any("/h", b"2")],
+                trusted_consensus_state: None,
+                membership_proofs: MembershipProofs::new(),
+            };
+            let output = chain
+                .build_update_client_message(&client_id(), payload)
+                .await
+                .unwrap();
+            assert!(output.membership_proof.is_none());
+            assert_eq!(output.messages.len(), 2);
+            for (msg, expected) in output.messages.iter().zip([b"1", b"2"]) {
+                let decoded: MsgUpdateClient = decode(msg);
+                assert_eq!(decoded.client_id, "07-tendermint-0");
+                assert_eq!(decoded.client_message, Some(any("/h", expected)));
+                assert_eq!(decoded.signer, signer());
+            }
+        }
+
+        #[tokio::test]
+        async fn update_client_message_no_headers_no_messages() {
+            let chain = test_chain();
+            let payload = CosmosUpdateClientPayload {
+                headers: vec![],
+                trusted_consensus_state: None,
+                membership_proofs: MembershipProofs::new(),
+            };
+            let output = chain
+                .build_update_client_message(&client_id(), payload)
+                .await
+                .unwrap();
+            assert!(output.messages.is_empty());
+        }
+
+        #[tokio::test]
+        async fn register_counterparty_message_fields() {
+            let chain = test_chain();
+            let counterparty: ClientId = "07-tendermint-9".parse().unwrap();
+            let msg = chain
+                .build_register_counterparty_message(
+                    &client_id(),
+                    &counterparty,
+                    mercury_core::MerklePrefix::ibc_default(),
+                )
+                .await
+                .unwrap();
+            let decoded: MsgRegisterCounterparty = decode(&msg);
+            assert_eq!(decoded.client_id, "07-tendermint-0");
+            assert_eq!(decoded.counterparty_client_id, "07-tendermint-9");
+            assert_eq!(
+                decoded.counterparty_merkle_prefix,
+                vec![b"ibc".to_vec(), vec![]]
+            );
+            assert_eq!(decoded.signer, signer());
+        }
+
+        fn upgrade_payload(
+            client_state: Vec<u8>,
+            consensus_state: Vec<u8>,
+        ) -> UpgradeClientPayload {
+            UpgradeClientPayload {
+                plan_height: 100,
+                upgraded_client_state: client_state,
+                upgraded_consensus_state: consensus_state,
+                proof_upgrade_client: vec![1],
+                proof_upgrade_consensus_state: vec![2],
+            }
+        }
+
+        #[tokio::test]
+        async fn upgrade_client_message_decodes_upgraded_states() {
+            let chain = test_chain();
+            let cs = any("/upgraded.ClientState", b"cs");
+            let cons = any("/upgraded.ConsensusState", b"cons");
+            let msgs = chain
+                .build_upgrade_client_message(
+                    &client_id(),
+                    upgrade_payload(cs.encode_to_vec(), cons.encode_to_vec()),
+                )
+                .await
+                .unwrap();
+            assert_eq!(msgs.len(), 1);
+            let decoded: MsgUpgradeClient = decode(&msgs[0]);
+            assert_eq!(decoded.client_id, "07-tendermint-0");
+            assert_eq!(decoded.client_state, Some(cs));
+            assert_eq!(decoded.consensus_state, Some(cons));
+            assert_eq!(decoded.proof_upgrade_client, vec![1]);
+            assert_eq!(decoded.proof_upgrade_consensus_state, vec![2]);
+            assert_eq!(decoded.signer, signer());
+        }
+
+        #[tokio::test]
+        async fn upgrade_client_message_rejects_malformed_client_state() {
+            let chain = test_chain();
+            let cons = any("/c", b"c").encode_to_vec();
+            let err = chain
+                .build_upgrade_client_message(
+                    &client_id(),
+                    upgrade_payload(vec![0xff, 0xff, 0xff], cons),
+                )
+                .await
+                .unwrap_err();
+            assert!(
+                format!("{err:#}").contains("upgraded client state"),
+                "{err:#}"
+            );
+        }
+
+        #[tokio::test]
+        async fn upgrade_client_message_rejects_malformed_consensus_state() {
+            let chain = test_chain();
+            let cs = any("/c", b"c").encode_to_vec();
+            let err = chain
+                .build_upgrade_client_message(&client_id(), upgrade_payload(cs, vec![0xff, 0xff]))
+                .await
+                .unwrap_err();
+            assert!(
+                format!("{err:#}").contains("upgraded consensus state"),
+                "{err:#}"
+            );
+        }
+
+        #[tokio::test]
+        async fn receive_packet_message_fields() {
+            let chain = test_chain();
+            let msg = chain
+                .build_receive_packet_message(&packet(), proof(), height(50), 4)
+                .await
+                .unwrap();
+            let decoded: MsgRecvPacket = decode(&msg);
+            assert_eq!(decoded.packet, Some(cosmos_packet_to_v2(&packet())));
+            assert_eq!(decoded.proof_commitment, vec![0xaa, 0xbb]);
+            assert_eq!(decoded.proof_height, Some(to_proto_height(4, height(50))));
+            assert_eq!(decoded.signer, signer());
+        }
+
+        #[tokio::test]
+        async fn ack_packet_message_decodes_proto_ack() {
+            let chain = test_chain();
+            let ack = channel::Acknowledgement {
+                app_acknowledgements: vec![b"a".to_vec(), b"b".to_vec()],
+            };
+            let msg = chain
+                .build_ack_packet_message(
+                    &packet(),
+                    &PacketAcknowledgement(ack.encode_to_vec()),
+                    proof(),
+                    height(7),
+                    2,
+                )
+                .await
+                .unwrap();
+            let decoded: MsgAcknowledgement = decode(&msg);
+            assert_eq!(decoded.acknowledgement, Some(ack));
+            assert_eq!(decoded.proof_acked, vec![0xaa, 0xbb]);
+            assert_eq!(decoded.proof_height, Some(to_proto_height(2, height(7))));
+            assert_eq!(decoded.packet.unwrap().sequence, 11);
+        }
+
+        #[tokio::test]
+        async fn ack_packet_message_wraps_undecodable_ack_as_single_app_ack() {
+            let chain = test_chain();
+            let raw = vec![0xff, 0xff, 0xff];
+            let msg = chain
+                .build_ack_packet_message(
+                    &packet(),
+                    &PacketAcknowledgement(raw.clone()),
+                    proof(),
+                    height(7),
+                    2,
+                )
+                .await
+                .unwrap();
+            let decoded: MsgAcknowledgement = decode(&msg);
+            assert_eq!(
+                decoded.acknowledgement.unwrap().app_acknowledgements,
+                vec![raw]
+            );
+        }
+
+        #[tokio::test]
+        async fn timeout_packet_message_fields() {
+            let chain = test_chain();
+            let msg = chain
+                .build_timeout_packet_message(&packet(), proof(), height(30), 1)
+                .await
+                .unwrap();
+            let decoded: MsgTimeout = decode(&msg);
+            assert_eq!(decoded.packet, Some(cosmos_packet_to_v2(&packet())));
+            assert_eq!(decoded.proof_unreceived, vec![0xaa, 0xbb]);
+            assert_eq!(decoded.proof_height, Some(to_proto_height(1, height(30))));
+            assert_eq!(decoded.signer, signer());
+        }
+
+        #[tokio::test]
+        async fn update_client_payload_rejects_non_increasing_target() {
+            let chain = test_chain();
+            let placeholder = crate::client_types::CosmosClientState::placeholder();
+            for (trusted, target) in [(10, 10), (10, 9)] {
+                let err =
+                    <TestChain as ClientPayloadBuilder<TestChain>>::build_update_client_payload(
+                        &chain,
+                        &height(trusted),
+                        &height(target),
+                        &placeholder,
+                    )
+                    .await
+                    .unwrap_err();
+                assert!(err.to_string().contains("must be greater"), "{err}");
+            }
+        }
     }
 }

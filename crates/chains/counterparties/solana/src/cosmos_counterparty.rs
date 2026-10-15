@@ -582,7 +582,7 @@ impl<S: CosmosSigner> ClientMessageBuilder<CosmosChain<S>> for SolanaAdapter {
         // so devnet (few validators) verifies inline while mainnet pre-verifies.
         let all_signatures = signatures::extract_signatures_from_header(&header);
         let use_pre_verify = all_signatures.len() > chain.config.skip_pre_verify_threshold();
-        let selected_sigs = signatures::select_minimal_signatures(&header, &all_signatures);
+        let selected_sigs = signatures::select_minimal_signatures(&header, &all_signatures)?;
 
         let borsh_header = mercury_solana::borsh_header::header_to_borsh(header);
         let header_bytes =
@@ -741,7 +741,9 @@ impl<S: CosmosSigner> MisbehaviourQuery<CosmosChain<S>> for SolanaAdapter {
             eyre::eyre!("ics07_program_id not configured — required for misbehaviour scan")
         })?;
 
-        let discriminator = accounts::anchor_account_discriminator("ConsensusStateStore");
+        let discriminator = accounts::anchor_account_discriminator(
+            <ConsensusStateStore as accounts::AnchorAccount>::NAME,
+        );
 
         let filter_accounts = self
             .0
@@ -813,6 +815,10 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<CosmosChain<S>> for SolanaAdapt
 struct ConsensusStateStore {
     height: u64,
     state: accounts::OnChainConsensusState,
+}
+
+impl accounts::AnchorAccount for ConsensusStateStore {
+    const NAME: &'static str = "ConsensusStateStore";
 }
 
 impl ConsensusStateStore {
@@ -997,7 +1003,7 @@ mod tests {
         };
         let b = OnChainTmConsensusState {
             height: TmHeight::try_from(99u64).unwrap(),
-            ..a.clone()
+            ..a
         };
         assert!(a.matches_fields(&b));
     }

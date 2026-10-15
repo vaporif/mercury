@@ -273,3 +273,123 @@ impl std::fmt::Debug for SolanaRpcClient {
             .finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+pub(crate) mod testing;
+
+#[cfg(test)]
+mod tests {
+    use solana_sdk::hash::Hash;
+    use solana_sdk::signer::Signer;
+    use solana_sdk::signer::keypair::Keypair;
+
+    use super::testing::FakeRpc;
+    use super::*;
+
+    #[tokio::test]
+    async fn get_account_distinguishes_missing_from_present() {
+        let present = Pubkey::new_unique();
+        let rpc = FakeRpc::default()
+            .with_account(present, vec![1, 2, 3])
+            .into_client();
+
+        let account = rpc.get_account(&present).await.unwrap().unwrap();
+        assert_eq!(account.data, vec![1, 2, 3]);
+        assert!(
+            rpc.get_account(&Pubkey::new_unique())
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn slot_and_block_time_pass_through() {
+        let rpc = FakeRpc {
+            slot: Some(42),
+            block_time: Some(1_700_000_000),
+            ..FakeRpc::default()
+        }
+        .into_client();
+
+        assert_eq!(rpc.get_slot().await.unwrap(), 42);
+        assert_eq!(
+            rpc.get_slot_with_commitment(CommitmentConfig::finalized())
+                .await
+                .unwrap(),
+            42
+        );
+        assert_eq!(rpc.get_block_time(42).await.unwrap(), 1_700_000_000);
+    }
+
+    #[tokio::test]
+    async fn malformed_responses_surface_as_labelled_errors() {
+        let rpc = FakeRpc::default().into_client();
+
+        let err = rpc.get_slot().await.unwrap_err().to_string();
+        assert!(err.contains("get_slot failed"), "{err}");
+        let err = rpc.get_block_time(9).await.unwrap_err().to_string();
+        assert!(err.contains("get_block_time(9) failed"), "{err}");
+        let err = rpc.get_block(9).await.unwrap_err().to_string();
+        assert!(err.contains("get_block(9) failed"), "{err}");
+        let err = rpc
+            .get_transaction(&Signature::default())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("get_transaction("), "{err}");
+    }
+
+    #[tokio::test]
+    async fn unreachable_endpoint_errors_instead_of_hanging() {
+        let config = SolanaChainConfig {
+            rpc_addr: "http://127.0.0.1:1".into(),
+            ws_addr: None,
+            program_id: Pubkey::new_unique().to_string(),
+            ics07_program_id: None,
+            keypair_path: "/nonexistent".into(),
+            block_time: std::time::Duration::from_millis(400),
+            rpc_timeout_secs: 5,
+            rpc_rate_limit: 10,
+            alt_address: None,
+            skip_pre_verify_threshold: None,
+            attestation: None,
+        };
+        let rpc = SolanaRpcClient::new(&config);
+        assert!(rpc.get_slot().await.is_err());
+        assert!(format!("{rpc:?}").starts_with("SolanaRpcClient"));
+    }
+
+    #[tokio::test]
+    async fn send_and_confirm_returns_the_transaction_signature() {
+        let fake = FakeRpc::default();
+        let sent = fake.sent_txs.clone();
+        let rpc = fake.into_client();
+
+        let payer = Keypair::new();
+        let blockhash = rpc.get_latest_blockhash().await.unwrap();
+        assert_eq!(blockhash, Hash::new_from_array([7; 32]));
+
+        let ix = solana_system_interface::instruction::transfer(
+            &payer.pubkey(),
+            &Pubkey::new_unique(),
+            1,
+        );
+        let msg = solana_message::v0::Message::try_compile(&payer.pubkey(), &[ix], &[], blockhash)
+            .unwrap();
+        let tx =
+            VersionedTransaction::try_new(solana_message::VersionedMessage::V0(msg), &[&payer])
+                .unwrap();
+
+        let sig = rpc
+            .send_and_confirm_versioned_transaction(&tx)
+            .await
+            .unwrap();
+        assert_eq!(sig, tx.signatures[0]);
+        assert_eq!(sent.lock().unwrap().len(), 1);
+
+        let statuses = rpc.get_signature_statuses(&[sig, sig]).await.unwrap();
+        assert_eq!(statuses.len(), 2);
+        assert!(statuses.iter().all(Option::is_some));
+    }
+}

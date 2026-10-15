@@ -121,7 +121,7 @@ impl EthereumChain {
             } => PayloadClient::Attested(AggregatorClient::new(
                 attestor_endpoints.clone(),
                 *quorum_threshold,
-            )),
+            )?),
             ClientPayloadMode::Mock => PayloadClient::Mock,
         };
 
@@ -262,7 +262,7 @@ impl ClientPayloadBuilder<Self> for EthereumChain {
             PayloadClient::Attested(aggregator) => {
                 self.build_update_client_payload_attested(aggregator).await
             }
-            PayloadClient::Mock => Ok(Self::build_update_client_payload_mock(trusted_height.0)),
+            PayloadClient::Mock => Self::build_update_client_payload_mock(trusted_height.0),
         }
     }
 
@@ -382,6 +382,9 @@ impl ClientMessageBuilder<Self> for EthereumChain {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -450,5 +453,330 @@ mod tests {
             <EthereumChain as IbcTypes>::packet_timeout_timestamp(&packet),
             TimeoutTimestamp(1_700_000_000)
         );
+    }
+
+    mod builders {
+        use super::super::test_support::{LIGHT_CLIENT, ROUTER, offline_chain};
+        use super::*;
+        use crate::types::EvmPayload;
+
+        fn update_payload(
+            target_exec: Option<u64>,
+            target_slot: Option<u64>,
+        ) -> UpdateClientPayload {
+            UpdateClientPayload {
+                headers: vec![],
+                target_execution_height: target_exec.map(EvmHeight),
+                target_slot,
+                required_dst_timestamp_secs: Some(99),
+            }
+        }
+
+        #[test]
+        fn to_sol_merkle_prefix_preserves_segments() {
+            let prefix = mercury_core::MerklePrefix(vec![b"ibc".to_vec(), vec![]]);
+            let sol = to_sol_merkle_prefix(&prefix);
+            assert_eq!(sol.len(), 2);
+            assert_eq!(sol[0].as_ref(), b"ibc");
+            assert!(sol[1].is_empty());
+        }
+
+        #[test]
+        fn packet_source_ports_lists_every_payload() {
+            let payload = |port: &str| EvmPayload {
+                source_port: Port(port.to_string()),
+                dest_port: Port("dst".to_string()),
+                version: String::new(),
+                encoding: String::new(),
+                value: vec![],
+            };
+            let packet = EvmPacket {
+                source_client: String::new(),
+                dest_client: String::new(),
+                sequence: PacketSequence(1),
+                timeout_timestamp: TimeoutTimestamp(0),
+                payloads: vec![payload("transfer"), payload("ica")],
+            };
+            assert_eq!(
+                <EthereumChain as IbcTypes>::packet_source_ports(&packet),
+                vec![Port("transfer".to_string()), Port("ica".to_string())]
+            );
+        }
+
+        #[test]
+        fn payload_client_debug_hides_beacon_client() {
+            let beacon =
+                PayloadClient::Beacon(Arc::new(BeaconApiClient::new("http://secret".to_string())));
+            assert_eq!(format!("{beacon:?}"), "Beacon");
+            assert_eq!(format!("{:?}", PayloadClient::Mock), "Mock");
+        }
+
+        #[test]
+        fn payload_heights_come_from_payload() {
+            let chain = offline_chain();
+            let payload = update_payload(Some(500), Some(1000));
+            assert_eq!(
+                chain.update_payload_proof_height(&payload),
+                Some(EvmHeight(500))
+            );
+            assert_eq!(
+                chain.update_payload_message_height(&payload),
+                Some(EvmHeight(1000))
+            );
+            assert_eq!(chain.required_dst_timestamp_secs(&payload), Some(99));
+
+            let empty = update_payload(None, None);
+            assert_eq!(chain.update_payload_proof_height(&empty), None);
+            assert_eq!(chain.update_payload_message_height(&empty), None);
+        }
+
+        #[tokio::test]
+        async fn update_payload_rejects_non_increasing_target() {
+            let chain = offline_chain();
+            let cs = EvmClientState(vec![]);
+            for target in [5, 10] {
+                let err = chain
+                    .build_update_client_payload(&EvmHeight(10), &EvmHeight(target), &cs)
+                    .await
+                    .unwrap_err();
+                assert!(err.to_string().contains("must be greater"), "{err}");
+            }
+        }
+
+        #[tokio::test]
+        async fn mock_mode_dispatches_to_mock_builders() {
+            let chain = offline_chain();
+            let create = chain.build_create_client_payload().await.unwrap();
+            assert_ne!(create.client_state, Vec::<u8>::new());
+
+            let update = chain
+                .build_update_client_payload(
+                    &EvmHeight(10),
+                    &EvmHeight(11),
+                    &EvmClientState(vec![]),
+                )
+                .await
+                .unwrap();
+            assert_eq!(update.headers.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn create_client_message_encodes_counterparty() {
+            let chain = offline_chain();
+            let payload = CreateClientPayload {
+                client_state: vec![],
+                consensus_state: vec![],
+                counterparty_client_id: Some("08-wasm-3".to_string()),
+                counterparty_merkle_prefix: Some(mercury_core::MerklePrefix::ibc_default()),
+            };
+            let msg = chain.build_create_client_message(payload).await.unwrap();
+            assert_eq!(msg.to, ROUTER);
+            assert_eq!(msg.value, U256::ZERO);
+            let call = ICS26Router::addClient_1Call::abi_decode(&msg.calldata).unwrap();
+            assert_eq!(call.client, LIGHT_CLIENT);
+            assert_eq!(call.counterpartyInfo.clientId, "08-wasm-3");
+            assert_eq!(call.counterpartyInfo.merklePrefix.len(), 2);
+        }
+
+        #[tokio::test]
+        async fn create_client_message_defaults_missing_counterparty() {
+            let chain = offline_chain();
+            let payload = CreateClientPayload {
+                client_state: vec![],
+                consensus_state: vec![],
+                counterparty_client_id: None,
+                counterparty_merkle_prefix: None,
+            };
+            let msg = chain.build_create_client_message(payload).await.unwrap();
+            let call = ICS26Router::addClient_1Call::abi_decode(&msg.calldata).unwrap();
+            assert_eq!(call.counterpartyInfo.clientId, "");
+            assert_eq!(
+                call.counterpartyInfo.merklePrefix,
+                Vec::<alloy::primitives::Bytes>::new()
+            );
+        }
+
+        #[tokio::test]
+        async fn create_client_message_requires_light_client_address() {
+            let mut chain = offline_chain();
+            chain.config.light_client_address = None;
+            let payload = CreateClientPayload {
+                client_state: vec![],
+                consensus_state: vec![],
+                counterparty_client_id: None,
+                counterparty_merkle_prefix: None,
+            };
+            let err = chain
+                .build_create_client_message(payload)
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("light_client_address"), "{err}");
+        }
+
+        #[tokio::test]
+        async fn update_client_message_emits_one_call_per_header() {
+            let chain = offline_chain();
+            let payload = UpdateClientPayload {
+                headers: vec![vec![1, 2], vec![3]],
+                target_execution_height: None,
+                target_slot: None,
+                required_dst_timestamp_secs: None,
+            };
+            let client_id = EvmClientId("client-7".to_string());
+            let output = chain
+                .build_update_client_message(&client_id, payload)
+                .await
+                .unwrap();
+            assert!(output.membership_proof.is_none());
+            assert_eq!(output.messages.len(), 2);
+            let decoded: Vec<_> = output
+                .messages
+                .iter()
+                .map(|m| {
+                    assert_eq!(m.to, ROUTER);
+                    ICS26Router::updateClientCall::abi_decode(&m.calldata).unwrap()
+                })
+                .collect();
+            assert_eq!(decoded[0].clientId, "client-7");
+            assert_eq!(decoded[0].updateMsg.as_ref(), &[1, 2]);
+            assert_eq!(decoded[1].updateMsg.as_ref(), &[3]);
+        }
+
+        #[tokio::test]
+        async fn register_counterparty_uses_migrate_client() {
+            let chain = offline_chain();
+            let msg = chain
+                .build_register_counterparty_message(
+                    &EvmClientId("client-0".to_string()),
+                    &EvmClientId("08-wasm-1".to_string()),
+                    mercury_core::MerklePrefix(vec![b"ibc".to_vec()]),
+                )
+                .await
+                .unwrap();
+            assert_eq!(msg.to, ROUTER);
+            let call = ICS26Router::migrateClientCall::abi_decode(&msg.calldata).unwrap();
+            assert_eq!(call.clientId, "client-0");
+            assert_eq!(call.counterpartyInfo.clientId, "08-wasm-1");
+            assert_eq!(call.counterpartyInfo.merklePrefix[0].as_ref(), b"ibc");
+            assert_eq!(call.client, LIGHT_CLIENT);
+        }
+
+        #[tokio::test]
+        async fn register_counterparty_requires_light_client_address() {
+            let mut chain = offline_chain();
+            chain.config.light_client_address = None;
+            let err = chain
+                .build_register_counterparty_message(
+                    &EvmClientId("client-0".to_string()),
+                    &EvmClientId("08-wasm-1".to_string()),
+                    mercury_core::MerklePrefix::ibc_default(),
+                )
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("light_client_address"), "{err}");
+        }
+    }
+
+    mod connect {
+        use serde_json::json;
+
+        use super::super::test_support::{CHAIN_ID, ROUTER, spawn_rpc, test_config};
+        use super::*;
+
+        fn signer() -> alloy::signers::local::PrivateKeySigner {
+            alloy::signers::local::PrivateKeySigner::from_bytes(
+                &alloy::primitives::B256::repeat_byte(1),
+            )
+            .unwrap()
+        }
+
+        async fn node(chain_id: u64, syncing: bool) -> String {
+            spawn_rpc(move |method, _| match method {
+                "eth_chainId" => Ok(json!(format!("{chain_id:#x}"))),
+                "eth_syncing" if syncing => Ok(json!({
+                    "startingBlock": "0x0",
+                    "currentBlock": "0x1",
+                    "highestBlock": "0x10",
+                })),
+                "eth_syncing" => Ok(json!(false)),
+                other => Err(format!("unexpected {other}")),
+            })
+            .await
+        }
+
+        #[tokio::test]
+        async fn new_selects_payload_client_from_mode() {
+            let url = node(CHAIN_ID, false).await;
+            let modes = [
+                ClientPayloadMode::Mock,
+                ClientPayloadMode::Beacon {
+                    beacon_api_url: "http://beacon".to_string(),
+                },
+                ClientPayloadMode::Attested {
+                    attestor_endpoints: vec!["http://a".to_string()],
+                    quorum_threshold: 1,
+                },
+            ];
+            let mut kinds = Vec::new();
+            for mode in modes {
+                let chain = EthereumChain::new(test_config(&url, mode), signer())
+                    .await
+                    .unwrap();
+                assert_eq!(chain.chain_id, EvmChainId(CHAIN_ID));
+                assert_eq!(chain.router_address, ROUTER);
+                assert_eq!(chain.revision_number(), 0);
+                assert_eq!(chain.block_time(), Duration::from_secs(1));
+                assert_eq!(
+                    chain.chain_label().to_string(),
+                    format!("ethereum/{CHAIN_ID}")
+                );
+                kinds.push(format!("{:?}", chain.payload_client));
+            }
+            assert_eq!(kinds[0], "Mock");
+            assert_eq!(kinds[1], "Beacon");
+            assert!(kinds[2].starts_with("Attested"), "{}", kinds[2]);
+        }
+
+        #[tokio::test]
+        async fn new_uses_configured_chain_name_in_label() {
+            let url = node(CHAIN_ID, false).await;
+            let mut config = test_config(&url, ClientPayloadMode::Mock);
+            config.chain_name = Some("sepolia".to_string());
+            let chain = EthereumChain::new(config, signer()).await.unwrap();
+            assert!(chain.chain_label().to_string().contains("sepolia"));
+        }
+
+        #[tokio::test]
+        async fn new_rejects_chain_id_mismatch() {
+            let url = node(1, false).await;
+            let err = EthereumChain::new(test_config(&url, ClientPayloadMode::Mock), signer())
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("chain_id mismatch"), "{err}");
+        }
+
+        #[tokio::test]
+        async fn new_rejects_syncing_node() {
+            let url = node(CHAIN_ID, true).await;
+            let err = EthereumChain::new(test_config(&url, ClientPayloadMode::Mock), signer())
+                .await
+                .unwrap_err();
+            assert!(err.to_string().contains("still syncing"), "{err}");
+        }
+
+        #[tokio::test]
+        async fn new_rejects_bad_rpc_url_and_router() {
+            let err =
+                EthereumChain::new(test_config("not a url", ClientPayloadMode::Mock), signer())
+                    .await
+                    .unwrap_err();
+            assert!(err.to_string().contains("parsing RPC URL"), "{err}");
+
+            let url = node(CHAIN_ID, false).await;
+            let mut config = test_config(&url, ClientPayloadMode::Mock);
+            config.ics26_router = "0xnope".to_string();
+            let err = EthereumChain::new(config, signer()).await.unwrap_err();
+            assert!(err.to_string().contains("ics26_router"), "{err}");
+        }
     }
 }

@@ -2,6 +2,8 @@ mod bounded_cache;
 mod coordinator;
 mod passthrough;
 mod queries;
+#[cfg(test)]
+mod testhelpers;
 
 use std::sync::Arc;
 

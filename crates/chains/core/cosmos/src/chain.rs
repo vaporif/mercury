@@ -229,6 +229,9 @@ async fn check_min_gas_price(channel: tonic::transport::Channel, config: &Cosmos
 }
 
 #[cfg(test)]
+pub(crate) mod test_support;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::keys::Secp256k1KeyPair;
@@ -318,5 +321,83 @@ mod tests {
         };
         let ts = TestChain::packet_timeout_timestamp(&packet);
         assert_eq!(ts, TimeoutTimestamp(1_700_000_000));
+    }
+
+    #[test]
+    fn increment_height_at_max_returns_none() {
+        let max = TmHeight::try_from(u64::try_from(i64::MAX).unwrap()).unwrap();
+        assert!(TestChain::increment_height(&max).is_none());
+    }
+
+    #[test]
+    fn chain_status_timestamp_secs_pre_epoch_is_zero() {
+        let status = CosmosChainStatus {
+            height: TmHeight::try_from(1u64).unwrap(),
+            timestamp: TmTime::from_unix_timestamp(-100, 0).unwrap(),
+        };
+        assert_eq!(TestChain::chain_status_timestamp_secs(&status), 0);
+    }
+
+    #[test]
+    fn packet_source_ports_preserves_payload_order() {
+        use crate::types::{PacketPayload, RawClientId};
+        let payload = |port: &str| PacketPayload {
+            source_port: Port(port.to_string()),
+            dest_port: Port("dest".to_string()),
+            version: String::new(),
+            encoding: String::new(),
+            data: vec![],
+        };
+        let packet = CosmosPacket {
+            source_client_id: RawClientId("07-tendermint-0".into()),
+            dest_client_id: RawClientId("07-tendermint-1".into()),
+            sequence: PacketSequence(1),
+            timeout_timestamp: TimeoutTimestamp(0),
+            payloads: vec![payload("transfer"), payload("ica")],
+        };
+        assert_eq!(
+            TestChain::packet_source_ports(&packet),
+            vec![Port("transfer".to_string()), Port("ica".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_dec_coin_splits_amount_and_denom() {
+        let (amount, denom) = parse_dec_coin("0.025uatom").unwrap();
+        assert!((amount - 0.025).abs() < f64::EPSILON);
+        assert_eq!(denom, "uatom");
+    }
+
+    #[test]
+    fn parse_dec_coin_sdk_precision_and_ibc_denom() {
+        let (amount, denom) = parse_dec_coin("0.100000000000000000ibc/27394FB092D2ECCD").unwrap();
+        assert!((amount - 0.1).abs() < f64::EPSILON);
+        assert_eq!(denom, "ibc/27394FB092D2ECCD");
+    }
+
+    #[test]
+    fn parse_dec_coin_rejects_missing_parts() {
+        assert!(parse_dec_coin("uatom").is_none(), "no amount");
+        assert!(parse_dec_coin("0.025").is_none(), "no denom");
+        assert!(parse_dec_coin("").is_none());
+        assert!(parse_dec_coin("1.2.3uatom").is_none(), "malformed amount");
+    }
+
+    #[tokio::test]
+    async fn chain_accessors_reflect_config() {
+        let mut config = test_support::test_config();
+        let chain = test_support::test_chain_with(config.clone());
+        assert_eq!(chain.revision_number(), 1);
+        assert_eq!(chain.block_time(), config.block_time);
+        assert_eq!(
+            chain.max_clock_drift(),
+            super::super::builders::DEFAULT_MAX_CLOCK_DRIFT
+        );
+        assert_eq!(chain.chain_id().as_str(), "testchain-1");
+        assert!(chain.chain_label().to_string().contains("testchain-1"));
+
+        config.max_clock_drift = Some(Duration::from_secs(7));
+        let chain = test_support::test_chain_with(config);
+        assert_eq!(chain.max_clock_drift(), Duration::from_secs(7));
     }
 }

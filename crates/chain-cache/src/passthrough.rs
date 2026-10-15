@@ -3,9 +3,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mercury_chain_traits::builders::{
     ClientMessageBuilder, ClientPayloadBuilder, MisbehaviourDetector, MisbehaviourMessageBuilder,
-    PacketMessageBuilder, UpdateClientOutput,
+    PacketMessageBuilder, UpdateClientOutput, UpgradeClientPayload,
 };
-use mercury_chain_traits::events::PacketEvents;
+use mercury_chain_traits::events::{BlockEventStream, PacketEvents};
 use mercury_chain_traits::inner::HasCore;
 use mercury_chain_traits::queries::{MisbehaviourQuery, PacketStateQuery};
 use mercury_chain_traits::types::{
@@ -51,6 +51,10 @@ impl<C: IbcTypes> ChainTypes for CachedChain<C> {
 
     fn block_time(&self) -> Duration {
         self.inner.block_time()
+    }
+
+    fn max_clock_drift(&self) -> Duration {
+        self.inner.max_clock_drift()
     }
 
     fn chain_id(&self) -> &Self::ChainId {
@@ -215,6 +219,12 @@ impl<C: PacketEvents> PacketEvents for CachedChain<C> {
     ) -> Result<Option<Self::WriteAckEvent>> {
         self.inner.query_write_ack_event(client_id, sequence).await
     }
+
+    async fn subscribe_block_events(
+        &self,
+    ) -> Result<Option<BlockEventStream<Self::Height, Self::Event>>> {
+        self.inner.subscribe_block_events().await
+    }
 }
 
 #[async_trait]
@@ -267,6 +277,10 @@ impl<X: ChainTypes, C: ClientPayloadBuilder<X> + IbcTypes> ClientPayloadBuilder<
 
     fn required_dst_timestamp_secs(&self, payload: &Self::UpdateClientPayload) -> Option<u64> {
         self.inner.required_dst_timestamp_secs(payload)
+    }
+
+    async fn build_upgrade_client_payload(&self) -> Result<Option<UpgradeClientPayload>> {
+        self.inner.build_upgrade_client_payload().await
     }
 }
 
@@ -321,6 +335,16 @@ impl<X: ChainTypes, C: ClientMessageBuilder<X>> ClientMessageBuilder<X> for Cach
         packet_messages: &mut [Self::Message],
     ) {
         self.inner.finalize_batch(update_output, packet_messages);
+    }
+
+    async fn build_upgrade_client_message(
+        &self,
+        client_id: &Self::ClientId,
+        payload: UpgradeClientPayload,
+    ) -> Result<Vec<Self::Message>> {
+        self.inner
+            .build_upgrade_client_message(client_id, payload)
+            .await
     }
 }
 
@@ -418,5 +442,340 @@ impl<X: IbcTypes, C: PacketMessageBuilder<X>> PacketMessageBuilder<X> for Cached
         self.inner
             .build_timeout_packet_message(packet, proof, proof_height, revision)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mercury_core::{MembershipProofEntry, MerklePrefix};
+
+    use super::*;
+    use crate::testhelpers::Probe;
+
+    type Cached = CachedChain<Probe>;
+
+    fn cached() -> (Cached, Probe) {
+        let probe = Probe::new();
+        (CachedChain::new(probe.clone()), probe)
+    }
+
+    fn client() -> String {
+        "client-0".to_owned()
+    }
+
+    #[tokio::test]
+    async fn chain_and_ibc_types_delegate_to_inner() {
+        let (chain, probe) = cached();
+        let status = (5, 6);
+
+        assert_eq!(*Cached::chain_status_height(&status), 5);
+        assert_eq!(*Cached::chain_status_timestamp(&status), 6);
+        assert_eq!(Cached::chain_status_timestamp_secs(&status), 60);
+        assert_eq!(Cached::increment_height(&u64::MAX), None);
+        assert_eq!(Cached::sub_height(&10, 3), Some(7));
+        assert_eq!(chain.revision_number(), 7);
+        assert_eq!(chain.block_time(), Duration::from_secs(2));
+        assert_eq!(chain.chain_id(), "probe-1");
+        assert_eq!(chain.chain_label().to_string(), "probe");
+
+        assert_eq!(Cached::packet_sequence(&4), PacketSequence(4));
+        assert_eq!(Cached::packet_timeout_timestamp(&4), TimeoutTimestamp(40));
+        assert_eq!(Cached::packet_source_ports(&4), vec![Port("port-4".into())]);
+
+        assert_eq!(probe.calls(), vec!["revision_number"]);
+    }
+
+    #[tokio::test]
+    async fn methods_with_trait_defaults_delegate_to_inner() {
+        use futures::StreamExt;
+
+        let (chain, probe) = cached();
+
+        assert_eq!(chain.max_clock_drift(), Duration::from_secs(9));
+
+        let mut stream = chain.subscribe_block_events().await.unwrap().unwrap();
+        let block = stream.next().await.unwrap().unwrap();
+        assert_eq!((block.height, block.events), (4, vec![8]));
+
+        let payload = ClientPayloadBuilder::<Probe>::build_upgrade_client_payload(&chain)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(payload.plan_height, 42);
+
+        let msgs =
+            ClientMessageBuilder::<Probe>::build_upgrade_client_message(&chain, &client(), payload)
+                .await
+                .unwrap();
+        assert_eq!(msgs, vec![42]);
+
+        assert_eq!(
+            probe.calls(),
+            vec![
+                "subscribe_block_events",
+                "build_upgrade_client_payload",
+                "build_upgrade_client_message",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn send_messages_goes_through_coordinator_to_inner() {
+        let (chain, probe) = cached();
+        let receipt = chain.send_messages(vec![1, 2]).await.unwrap();
+        assert_eq!(receipt.gas_used, Some(21));
+        assert_eq!(probe.state.lock().unwrap().sent, vec![vec![1, 2]]);
+    }
+
+    #[tokio::test]
+    async fn send_messages_surfaces_inner_error() {
+        let (chain, probe) = cached();
+        probe.state.lock().unwrap().fail_sends = true;
+        let err = chain.send_messages(vec![1]).await.unwrap_err();
+        assert!(err.to_string().contains("broadcast rejected"));
+    }
+
+    #[tokio::test]
+    async fn packet_state_queries_delegate_with_arguments() {
+        let (chain, probe) = cached();
+        let c = client();
+        let seq = PacketSequence(3);
+
+        assert_eq!(
+            chain.query_packet_commitment(&c, seq, &9).await.unwrap(),
+            (Some(3), 9)
+        );
+        assert_eq!(
+            chain.query_packet_receipt(&c, seq, &9).await.unwrap(),
+            (Some(4), 9)
+        );
+        assert_eq!(
+            chain
+                .query_packet_acknowledgement(&c, seq, &9)
+                .await
+                .unwrap(),
+            (Some(5), 9)
+        );
+        assert_eq!(
+            chain.query_commitment_sequences(&c, &8).await.unwrap(),
+            vec![PacketSequence(8)]
+        );
+        assert_eq!(
+            chain.query_ack_sequences(&c, &8).await.unwrap(),
+            vec![PacketSequence(9)]
+        );
+        let commit_entry = chain
+            .commitment_to_membership_entry(&c, seq, &0, &0)
+            .unwrap();
+        let ack_entry = chain.ack_to_membership_entry(&c, seq, &0, &0).unwrap();
+        assert_eq!(
+            (commit_entry.path, ack_entry.path),
+            (vec![vec![1]], vec![vec![2]])
+        );
+
+        assert_eq!(
+            probe.calls(),
+            vec![
+                "query_packet_commitment",
+                "query_packet_receipt",
+                "query_packet_acknowledgement",
+                "query_commitment_sequences",
+                "query_ack_sequences",
+                "commitment_to_membership_entry",
+                "ack_to_membership_entry",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn packet_events_delegate() {
+        let (chain, probe) = cached();
+        let c = client();
+
+        assert_eq!(Cached::try_extract_send_packet_event(&4), Some(4));
+        assert_eq!(Cached::try_extract_send_packet_event(&5), None);
+        assert_eq!(Cached::try_extract_write_ack_event(&5), Some((5, 105)));
+        assert_eq!(Cached::try_extract_write_ack_event(&4), None);
+        assert_eq!(*Cached::packet_from_send_event(&4), 4);
+        assert_eq!(Cached::packet_from_write_ack_event(&(5, 105)), (&5, &105));
+
+        assert_eq!(chain.query_block_events(&10).await.unwrap(), vec![10, 11]);
+        assert_eq!(
+            chain
+                .query_send_packet_event(&c, PacketSequence(2))
+                .await
+                .unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            chain
+                .query_write_ack_event(&c, PacketSequence(3))
+                .await
+                .unwrap(),
+            Some((3, 0))
+        );
+        assert_eq!(
+            probe.calls(),
+            vec![
+                "query_block_events",
+                "query_send_packet_event",
+                "query_write_ack_event",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn client_payload_builder_delegates() {
+        let (chain, probe) = cached();
+
+        assert_eq!(
+            ClientPayloadBuilder::<Probe>::build_create_client_payload(&chain)
+                .await
+                .unwrap(),
+            11
+        );
+        assert_eq!(
+            ClientPayloadBuilder::<Probe>::build_update_client_payload(&chain, &1, &2, &3)
+                .await
+                .unwrap(),
+            6
+        );
+        assert_eq!(
+            ClientPayloadBuilder::<Probe>::update_payload_proof_height(&chain, &6),
+            Some(7)
+        );
+        assert_eq!(
+            ClientPayloadBuilder::<Probe>::update_payload_message_height(&chain, &6),
+            Some(8)
+        );
+        assert_eq!(
+            ClientPayloadBuilder::<Probe>::proof_height_without_update(&chain, &50, &40),
+            40
+        );
+        assert_eq!(
+            ClientPayloadBuilder::<Probe>::required_dst_timestamp_secs(&chain, &6),
+            Some(18)
+        );
+        assert_eq!(probe.calls().len(), 6);
+    }
+
+    #[tokio::test]
+    async fn client_message_builder_delegates() {
+        let (chain, probe) = cached();
+        let c = client();
+
+        assert_eq!(
+            ClientMessageBuilder::<Probe>::build_create_client_message(&chain, 4)
+                .await
+                .unwrap(),
+            5
+        );
+        let mut output = ClientMessageBuilder::<Probe>::build_update_client_message(&chain, &c, 9)
+            .await
+            .unwrap();
+        assert_eq!(output.messages, vec![9]);
+        assert_eq!(
+            ClientMessageBuilder::<Probe>::build_register_counterparty_message(
+                &chain,
+                &c,
+                &"abc".to_owned(),
+                MerklePrefix::ibc_default(),
+            )
+            .await
+            .unwrap(),
+            5
+        );
+
+        let mut payload = 1;
+        let proofs = vec![
+            MembershipProofEntry {
+                path: vec![],
+                value: vec![],
+                proof: vec![],
+            };
+            2
+        ];
+        ClientMessageBuilder::<Probe>::enrich_update_payload(&chain, &mut payload, &proofs);
+        assert_eq!(payload, 3);
+
+        let mut packets = [1, 2];
+        ClientMessageBuilder::<Probe>::finalize_batch(&chain, &mut output, &mut packets);
+        assert_eq!(packets, [10, 20]);
+        assert_eq!(output.membership_proof, Some(vec![2]));
+
+        assert_eq!(
+            probe.calls(),
+            vec![
+                "build_create_client_message",
+                "build_update_client_message",
+                "build_register_counterparty_message",
+                "enrich_update_payload",
+                "finalize_batch",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn misbehaviour_traits_delegate() {
+        let (chain, probe) = cached();
+        let c = client();
+
+        assert_eq!(
+            MisbehaviourDetector::<Probe>::check_for_misbehaviour(&chain, &c, &4, &5)
+                .await
+                .unwrap(),
+            Some(9)
+        );
+        assert_eq!(
+            MisbehaviourMessageBuilder::<Probe>::build_misbehaviour_message(&chain, &c, 9)
+                .await
+                .unwrap(),
+            18
+        );
+        assert_eq!(
+            MisbehaviourQuery::<Probe>::query_consensus_state_heights(&chain, &c)
+                .await
+                .unwrap(),
+            vec![3, 2, 1]
+        );
+        assert_eq!(
+            MisbehaviourQuery::<Probe>::query_update_client_header(&chain, &c, &3)
+                .await
+                .unwrap(),
+            Some(53)
+        );
+        assert_eq!(probe.calls().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn packet_message_builder_delegates() {
+        let (chain, probe) = cached();
+
+        assert_eq!(
+            PacketMessageBuilder::<Probe>::build_receive_packet_message(&chain, &1, 2, 3, 4)
+                .await
+                .unwrap(),
+            10
+        );
+        assert_eq!(
+            PacketMessageBuilder::<Probe>::build_ack_packet_message(&chain, &1, &2, 3, 4, 5)
+                .await
+                .unwrap(),
+            15
+        );
+        assert_eq!(
+            PacketMessageBuilder::<Probe>::build_timeout_packet_message(&chain, &1, 2, 3, 4)
+                .await
+                .unwrap(),
+            1009
+        );
+        assert_eq!(
+            probe.calls(),
+            vec![
+                "build_receive_packet_message",
+                "build_ack_packet_message",
+                "build_timeout_packet_message",
+            ]
+        );
     }
 }

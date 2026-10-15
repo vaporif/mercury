@@ -175,7 +175,7 @@ mod tests {
     }
 
     fn event(
-        disc: &[u8; ANCHOR_DISCRIMINATOR_LEN],
+        disc: [u8; ANCHOR_DISCRIMINATOR_LEN],
         body: &impl borsh::BorshSerialize,
     ) -> SolanaEvent {
         let mut data = disc.to_vec();
@@ -205,7 +205,7 @@ mod tests {
             wire_packet(),
             1_700_000_000u64,
         );
-        let decoded = try_decode_send_packet(&event(&SEND_PACKET_DISC, &body)).unwrap();
+        let decoded = try_decode_send_packet(&event(*SEND_PACKET_DISC, &body)).unwrap();
         assert_packet(&decoded.packet);
     }
 
@@ -213,7 +213,7 @@ mod tests {
     fn decodes_write_ack_event_as_proto_acknowledgement() {
         let acks = vec![b"ack-1".to_vec(), b"ack-2".to_vec()];
         let body = ("08-wasm-0".to_string(), 7u64, wire_packet(), acks.clone());
-        let decoded = try_decode_write_ack(&event(&WRITE_ACK_DISC, &body)).unwrap();
+        let decoded = try_decode_write_ack(&event(*WRITE_ACK_DISC, &body)).unwrap();
         assert_packet(&decoded.packet);
         let ack = Acknowledgement::decode(decoded.ack.0.as_slice()).unwrap();
         assert_eq!(ack.app_acknowledgements, acks);
@@ -227,12 +227,12 @@ mod tests {
             wire_packet(),
             1_700_000_000u64,
         );
-        assert!(try_decode_send_packet(&event(&WRITE_ACK_DISC, &body)).is_none());
+        assert!(try_decode_send_packet(&event(*WRITE_ACK_DISC, &body)).is_none());
     }
 
     #[test]
     fn rejects_truncated_body() {
         let body = ("07-tendermint-0".to_string(), 7u64);
-        assert!(try_decode_send_packet(&event(&SEND_PACKET_DISC, &body)).is_none());
+        assert!(try_decode_send_packet(&event(*SEND_PACKET_DISC, &body)).is_none());
     }
 }

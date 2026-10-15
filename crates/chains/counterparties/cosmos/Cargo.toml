@@ -24,6 +24,7 @@ async-trait = { workspace = true }
 eyre = { workspace = true }
 ibc = { workspace = true }
 serde = { workspace = true }
+tendermint = { workspace = true }
 toml = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
@@ -32,7 +33,6 @@ tracing = { workspace = true }
 mercury-ethereum = { workspace = true, optional = true }
 ibc-proto = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
-tendermint = { workspace = true, optional = true }
 tendermint-rpc = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 ibc-client-tendermint = { workspace = true, optional = true }
@@ -53,7 +53,6 @@ solana = [
     "dep:ibc-proto",
     "dep:prost",
     "dep:ibc-client-tendermint",
-    "dep:tendermint",
     "dep:tendermint-rpc",
     "dep:tokio",
     "dep:hex",
@@ -62,7 +61,6 @@ ethereum-beacon = [
     "dep:mercury-ethereum",
     "dep:ibc-proto",
     "dep:prost",
-    "dep:tendermint",
     "dep:tendermint-rpc",
     "dep:tokio",
     "dep:ibc-client-tendermint",
@@ -72,3 +70,6 @@ ethereum-beacon = [
     "dep:serde_json",
     "dep:hex",
 ]
+
+[dev-dependencies]
+tokio = { workspace = true }

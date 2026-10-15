@@ -27,4 +27,5 @@ tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
 toml = { workspace = true }

@@ -119,8 +119,12 @@ impl SolanaChain {
 
         for s in 1.. {
             let (pda, _) = pda_fn(&client_id.0, s, &self.ics26_program_id);
-            if self.rpc.get_account(&pda).await?.is_some() {
-                sequences.push(PacketSequence(s));
+            let account: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
+            if let Some(commitment) = account {
+                // A cleared PDA still marks the sequence as used, so keep scanning past it.
+                if !commitment.is_cleared() {
+                    sequences.push(PacketSequence(s));
+                }
                 consecutive_misses = 0;
             } else {
                 consecutive_misses += 1;
@@ -328,7 +332,9 @@ impl PacketStateQuery for SolanaChain {
         let commitment: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
         let proof = self.commitment_proof();
         Ok((
-            commitment.map(|c| SolanaPacketCommitment(c.value.to_vec())),
+            commitment
+                .filter(|c| !c.is_cleared())
+                .map(|c| SolanaPacketCommitment(c.value.to_vec())),
             proof,
         ))
     }
@@ -865,5 +871,1003 @@ mod tests {
     fn unattested_client_proves_at_src_height() {
         let proof = attested_proof_height(false, SolanaHeight(90), SolanaHeight(100));
         assert_eq!(proof, SolanaHeight(90));
+    }
+
+    use base64::Engine as _;
+    use mercury_chain_traits::types::Port;
+    use serde_json::{Value, json};
+    use solana_compute_budget_interface::ComputeBudgetInstruction;
+    use solana_sdk::instruction::{AccountMeta, Instruction};
+
+    use crate::accounts::{AccessManager, IbcApp};
+    use crate::rpc::testing::{FakeRpc, anchor_account};
+    use crate::types::SolanaPayload;
+
+    const CLIENT: &str = "07-tendermint-0";
+    const COUNTERPARTY_CLIENT: &str = "08-wasm-0";
+
+    fn config(keypair_path: std::path::PathBuf) -> SolanaChainConfig {
+        SolanaChainConfig {
+            rpc_addr: "http://127.0.0.1:8899".into(),
+            ws_addr: None,
+            program_id: Pubkey::new_unique().to_string(),
+            ics07_program_id: None,
+            keypair_path,
+            block_time: Duration::from_millis(400),
+            rpc_timeout_secs: 5,
+            rpc_rate_limit: 100,
+            alt_address: None,
+            skip_pre_verify_threshold: None,
+            attestation: None,
+        }
+    }
+
+    fn chain(rpc: FakeRpc) -> SolanaChain {
+        SolanaChain {
+            config: config("/unused".into()),
+            rpc: rpc.into_client(),
+            keypair: Arc::new(Keypair::new()),
+            ics26_program_id: Pubkey::new_unique(),
+            ics07_program_id: None,
+            alt_cache: None,
+            attestor: None,
+            label: mercury_core::ChainLabel::new("solana"),
+        }
+    }
+
+    /// Build a chain whose ics26 program id is known up front, so tests can
+    /// seed accounts at PDAs derived from it.
+    fn chain_with(ics26: Pubkey, rpc: FakeRpc) -> SolanaChain {
+        SolanaChain {
+            ics26_program_id: ics26,
+            ..chain(rpc)
+        }
+    }
+
+    type WireClientState = (String, u64, u64, u64, u64, u64, (u64, u64), (u64, u64));
+
+    fn client_state_bytes(trusting_period: u64, latest: u64) -> Vec<u8> {
+        let body: WireClientState = (
+            "cosmoshub-4".into(),
+            1,
+            3,
+            trusting_period,
+            2 * trusting_period,
+            10,
+            (0, 0),
+            (4, latest),
+        );
+        anchor_account("ClientState", &body)
+    }
+
+    fn packet(payloads: usize) -> SolanaPacket {
+        SolanaPacket {
+            source_client_id: CLIENT.into(),
+            dest_client_id: COUNTERPARTY_CLIENT.into(),
+            sequence: PacketSequence(3),
+            timeout_timestamp: TimeoutTimestamp(1_000),
+            payloads: (0..payloads)
+                .map(|i| SolanaPayload {
+                    source_port: Port(format!("src-{i}")),
+                    dest_port: Port(format!("dst-{i}")),
+                    version: "1".into(),
+                    encoding: "json".into(),
+                    data: vec![1, 2, 3],
+                })
+                .collect(),
+        }
+    }
+
+    fn compute_limit() -> Instruction {
+        ComputeBudgetInstruction::set_compute_unit_limit(1)
+    }
+
+    fn noop(tag: u8) -> Instruction {
+        Instruction::new_with_bytes(Pubkey::new_unique(), &[tag], vec![])
+    }
+
+    // --- split_into_transaction_groups ---
+
+    #[test]
+    fn split_groups_start_at_each_compute_unit_limit() {
+        assert_eq!(
+            split_into_transaction_groups(vec![]),
+            Vec::<Vec<Instruction>>::new()
+        );
+
+        let ixs = vec![
+            compute_limit(),
+            ComputeBudgetInstruction::set_compute_unit_price(1),
+            noop(1),
+            compute_limit(),
+            ComputeBudgetInstruction::request_heap_frame(256 * 1024),
+            noop(2),
+        ];
+        let groups = split_into_transaction_groups(ixs.clone());
+        assert_eq!(groups, vec![ixs[..3].to_vec(), ixs[3..].to_vec()]);
+    }
+
+    #[test]
+    fn split_keeps_leading_instructions_without_budget_as_own_group() {
+        let ixs = vec![noop(1), compute_limit(), noop(2)];
+        let groups = split_into_transaction_groups(ixs.clone());
+        assert_eq!(groups, vec![vec![ixs[0].clone()], ixs[1..].to_vec()]);
+    }
+
+    #[test]
+    fn split_ignores_discriminator_two_from_other_programs() {
+        // Same first data byte as SetComputeUnitLimit, different program.
+        let ixs = vec![compute_limit(), noop(2), noop(2)];
+        assert_eq!(split_into_transaction_groups(ixs.clone()), vec![ixs]);
+    }
+
+    // --- pure trait helpers ---
+
+    #[test]
+    fn height_arithmetic_saturates_and_floors_at_one() {
+        assert_eq!(
+            SolanaChain::increment_height(&SolanaHeight(7)),
+            Some(SolanaHeight(8))
+        );
+        assert_eq!(SolanaChain::increment_height(&SolanaHeight(u64::MAX)), None);
+        assert_eq!(
+            SolanaChain::sub_height(&SolanaHeight(10), 3),
+            Some(SolanaHeight(7))
+        );
+        assert_eq!(
+            SolanaChain::sub_height(&SolanaHeight(3), 5),
+            Some(SolanaHeight(1))
+        );
+        assert_eq!(
+            SolanaChain::sub_height(&SolanaHeight(3), 3),
+            Some(SolanaHeight(1))
+        );
+    }
+
+    #[test]
+    fn client_state_helpers_decode_on_chain_layout() {
+        let cs = SolanaClientState(client_state_bytes(1_209_600, 4_242));
+        assert_eq!(
+            <SolanaChain as ClientQuery<SolanaChain>>::trusting_period(&cs),
+            Some(Duration::from_hours(336))
+        );
+        assert_eq!(
+            <SolanaChain as ClientQuery<SolanaChain>>::client_latest_height(&cs),
+            SolanaHeight(4_242)
+        );
+        let garbage = SolanaClientState(vec![0; 12]);
+        assert_eq!(
+            <SolanaChain as ClientQuery<SolanaChain>>::trusting_period(&garbage),
+            None
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid client state data")]
+    fn client_latest_height_panics_on_garbage() {
+        let _ = <SolanaChain as ClientQuery<SolanaChain>>::client_latest_height(
+            &SolanaClientState(vec![1, 2, 3]),
+        );
+    }
+
+    #[test]
+    fn packet_source_ports_lists_every_payload() {
+        assert_eq!(
+            SolanaChain::packet_source_ports(&packet(2)),
+            vec![Port("src-0".into()), Port("src-1".into())]
+        );
+        assert_eq!(
+            SolanaChain::packet_source_ports(&packet(0)),
+            Vec::<Port>::new()
+        );
+    }
+
+    #[test]
+    fn proof_height_and_payload_height_without_attestor() {
+        let c = chain(FakeRpc::default());
+        let proof = <SolanaChain as ClientPayloadBuilder<SolanaChain>>::proof_height_without_update(
+            &c,
+            &SolanaHeight(90),
+            &SolanaHeight(100),
+        );
+        assert_eq!(proof, SolanaHeight(90));
+
+        let dummy = SolanaUpdateClientPayload::Dummy { headers: vec![] };
+        assert_eq!(
+            <SolanaChain as ClientPayloadBuilder<SolanaChain>>::update_payload_proof_height(
+                &c, &dummy
+            ),
+            None
+        );
+        let attested = SolanaUpdateClientPayload::Attested {
+            height: 55,
+            proof: mercury_attestor::proto::lightclient::AttestationProof::default(),
+        };
+        assert_eq!(
+            <SolanaChain as ClientPayloadBuilder<SolanaChain>>::update_payload_proof_height(
+                &c, &attested
+            ),
+            Some(SolanaHeight(55))
+        );
+        assert!(matches!(c.commitment_proof(), SolanaCommitmentProof::None));
+    }
+
+    // --- construction ---
+
+    fn write_keypair(kp: &Keypair) -> std::path::PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("mercury-solana-{}.json", Pubkey::new_unique()));
+        std::fs::write(
+            &path,
+            serde_json::to_string(&kp.to_bytes().to_vec()).unwrap(),
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn new_parses_program_ids_and_loads_keypair() {
+        let kp = Keypair::new();
+        let path = write_keypair(&kp);
+        let ics07 = Pubkey::new_unique();
+        let mut cfg = config(path.clone());
+        cfg.ics07_program_id = Some(ics07.to_string());
+        let program_id: Pubkey = cfg.program_id.parse().unwrap();
+
+        let c = SolanaChain::new(cfg.clone()).unwrap();
+        assert_eq!(c.ics26_program_id, program_id);
+        assert_eq!(c.ics07_program_id, Some(ics07));
+        assert_eq!(c.keypair.pubkey(), kp.pubkey());
+        assert!(c.attestor.is_none());
+
+        let mut bad_program = cfg.clone();
+        bad_program.program_id = "not-a-pubkey".into();
+        let err = SolanaChain::new(bad_program).unwrap_err();
+        assert!(err.to_string().contains("invalid program_id"), "{err}");
+
+        let mut bad_ics07 = cfg;
+        bad_ics07.ics07_program_id = Some("nope".into());
+        let err = SolanaChain::new(bad_ics07).unwrap_err();
+        assert!(
+            err.to_string().contains("invalid ics07_program_id"),
+            "{err}"
+        );
+
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn new_rejects_missing_keypair_file() {
+        let err = SolanaChain::new(config("/definitely/missing.json".into())).unwrap_err();
+        assert!(
+            err.to_string().contains("keypair_path does not exist"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn load_alt_cache_is_noop_without_address_and_errors_when_missing() {
+        let mut c = chain(FakeRpc::default());
+        c.load_alt_cache().await.unwrap();
+        assert!(c.alt_cache.is_none());
+
+        let alt = Pubkey::new_unique();
+        c.config.alt_address = Some(alt.to_string());
+        let err = c.load_alt_cache().await.unwrap_err();
+        assert!(err.to_string().contains("ALT account not found"), "{err}");
+        assert!(c.alt_cache.is_none());
+    }
+
+    // --- queries ---
+
+    #[tokio::test]
+    async fn chain_status_clamps_negative_block_time() {
+        let c = chain(FakeRpc {
+            slot: Some(50),
+            block_time: Some(-5),
+            ..FakeRpc::default()
+        });
+        let status = c.query_chain_status().await.unwrap();
+        assert_eq!(status.height, SolanaHeight(50));
+        assert_eq!(status.timestamp, SolanaTimestamp(0));
+    }
+
+    fn client_account(ics07: Pubkey) -> Vec<u8> {
+        anchor_account("Client", &(1u8, CLIENT.to_string(), ics07.to_bytes()))
+    }
+
+    #[tokio::test]
+    async fn client_and_consensus_state_resolve_through_client_pda() {
+        let ics26 = Pubkey::new_unique();
+        let ics07 = Pubkey::new_unique();
+        let cs_bytes = client_state_bytes(100, 9);
+        let rpc = FakeRpc::default()
+            .with_account(
+                Ics26Router::client_pda(CLIENT, &ics26).0,
+                client_account(ics07),
+            )
+            .with_account(
+                Ics07Tendermint::client_state_pda(&ics07).0,
+                cs_bytes.clone(),
+            )
+            .with_account(
+                Ics07Tendermint::consensus_state_pda(9, &ics07).0,
+                vec![0xC5; 40],
+            );
+        let c = chain_with(ics26, rpc);
+        let id = SolanaClientId(CLIENT.into());
+
+        let cs = c.query_client_state(&id, &SolanaHeight(0)).await.unwrap();
+        assert_eq!(cs.0, cs_bytes);
+        let cons = c
+            .query_consensus_state(&id, &SolanaHeight(9), &SolanaHeight(0))
+            .await
+            .unwrap();
+        assert_eq!(cons.0, vec![0xC5; 40]);
+
+        let err = c
+            .query_consensus_state(&id, &SolanaHeight(10), &SolanaHeight(0))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("consensus state not found at height 10"),
+            "{err}"
+        );
+
+        let unknown = SolanaClientId("07-tendermint-9".into());
+        assert!(
+            c.query_client_state(&unknown, &SolanaHeight(0))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn client_state_query_errors_when_ics07_state_missing() {
+        let ics26 = Pubkey::new_unique();
+        let rpc = FakeRpc::default().with_account(
+            Ics26Router::client_pda(CLIENT, &ics26).0,
+            client_account(Pubkey::new_unique()),
+        );
+        let err = chain_with(ics26, rpc)
+            .query_client_state(&SolanaClientId(CLIENT.into()), &SolanaHeight(0))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("client state PDA not found"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn packet_state_queries_read_router_pdas() {
+        let ics26 = Pubkey::new_unique();
+        let rpc = FakeRpc::default()
+            .with_account(
+                Ics26Router::packet_commitment_pda(CLIENT, 1, &ics26).0,
+                anchor_account("Commitment", &[0x11u8; 32]),
+            )
+            .with_account(
+                Ics26Router::packet_receipt_pda(CLIENT, 1, &ics26).0,
+                vec![0; 9],
+            )
+            .with_account(
+                Ics26Router::packet_ack_pda(CLIENT, 1, &ics26).0,
+                anchor_account("Commitment", &[0x22u8; 32]),
+            );
+        let c = chain_with(ics26, rpc);
+        let id = SolanaClientId(CLIENT.into());
+        let h = SolanaHeight(0);
+
+        let (commitment, proof) = c
+            .query_packet_commitment(&id, PacketSequence(1), &h)
+            .await
+            .unwrap();
+        assert_eq!(commitment.unwrap().0, vec![0x11; 32]);
+        assert!(matches!(proof, SolanaCommitmentProof::None));
+        let (receipt, _) = c
+            .query_packet_receipt(&id, PacketSequence(1), &h)
+            .await
+            .unwrap();
+        assert!(receipt.is_some());
+        let (ack, _) = c
+            .query_packet_acknowledgement(&id, PacketSequence(1), &h)
+            .await
+            .unwrap();
+        assert_eq!(ack.unwrap().0, vec![0x22; 32]);
+
+        let (commitment, _) = c
+            .query_packet_commitment(&id, PacketSequence(2), &h)
+            .await
+            .unwrap();
+        assert!(commitment.is_none());
+        let (receipt, _) = c
+            .query_packet_receipt(&id, PacketSequence(2), &h)
+            .await
+            .unwrap();
+        assert!(receipt.is_none());
+        let (ack, _) = c
+            .query_packet_acknowledgement(&id, PacketSequence(2), &h)
+            .await
+            .unwrap();
+        assert!(ack.is_none());
+    }
+
+    fn seed_commitments(ics26: &Pubkey, seqs: &[u64]) -> FakeRpc {
+        seqs.iter().fold(FakeRpc::default(), |rpc, &s| {
+            rpc.with_account(
+                Ics26Router::packet_commitment_pda(CLIENT, s, ics26).0,
+                anchor_account("Commitment", &[0xC0u8; 32]),
+            )
+        })
+    }
+
+    /// The router zeroes a commitment on ack/timeout but keeps the PDA.
+    fn seed_zeroed_commitments(rpc: FakeRpc, ics26: &Pubkey, seqs: &[u64]) -> FakeRpc {
+        seqs.iter().fold(rpc, |rpc, &s| {
+            rpc.with_account(
+                Ics26Router::packet_commitment_pda(CLIENT, s, ics26).0,
+                anchor_account("Commitment", &[0u8; 32]),
+            )
+        })
+    }
+
+    #[tokio::test]
+    async fn commitment_scan_skips_zeroed_but_scans_past_them() {
+        let ics26 = Pubkey::new_unique();
+        let acked: Vec<u64> = (1..=12).collect();
+        let rpc = seed_zeroed_commitments(seed_commitments(&ics26, &[13]), &ics26, &acked);
+        let c = chain_with(ics26, rpc);
+        let seqs = c
+            .query_commitment_sequences(&SolanaClientId(CLIENT.into()), &SolanaHeight(0))
+            .await
+            .unwrap();
+        assert_eq!(seqs, vec![PacketSequence(13)]);
+    }
+
+    #[tokio::test]
+    async fn zeroed_commitment_is_reported_absent() {
+        let ics26 = Pubkey::new_unique();
+        let c = chain_with(
+            ics26,
+            seed_zeroed_commitments(FakeRpc::default(), &ics26, &[1]),
+        );
+        let (commitment, _) = c
+            .query_packet_commitment(
+                &SolanaClientId(CLIENT.into()),
+                PacketSequence(1),
+                &SolanaHeight(0),
+            )
+            .await
+            .unwrap();
+        assert!(commitment.is_none());
+    }
+
+    #[tokio::test]
+    async fn commitment_scan_tolerates_gaps_below_ten() {
+        let ics26 = Pubkey::new_unique();
+        let rpc = seed_commitments(&ics26, &[1, 2, 5, 15]);
+        let queries = rpc.account_queries.clone();
+        let c = chain_with(ics26, rpc);
+
+        let seqs = c
+            .query_commitment_sequences(&SolanaClientId(CLIENT.into()), &SolanaHeight(0))
+            .await
+            .unwrap();
+        assert_eq!(
+            seqs,
+            vec![
+                PacketSequence(1),
+                PacketSequence(2),
+                PacketSequence(5),
+                PacketSequence(15)
+            ]
+        );
+        // Scans 1..=15, then stops after ten consecutive misses (16..=25).
+        assert_eq!(queries.lock().unwrap().len(), 25);
+    }
+
+    #[tokio::test]
+    async fn commitment_scan_stops_after_ten_consecutive_misses() {
+        let ics26 = Pubkey::new_unique();
+        // 2..=11 missing: the scan gives up before reaching 12.
+        let c = chain_with(ics26, seed_commitments(&ics26, &[1, 12]));
+        let seqs = c
+            .query_commitment_sequences(&SolanaClientId(CLIENT.into()), &SolanaHeight(0))
+            .await
+            .unwrap();
+        assert_eq!(seqs, vec![PacketSequence(1)]);
+    }
+
+    #[tokio::test]
+    async fn ack_scan_uses_ack_pdas() {
+        let ics26 = Pubkey::new_unique();
+        let rpc = FakeRpc::default()
+            .with_account(
+                Ics26Router::packet_ack_pda(CLIENT, 2, &ics26).0,
+                anchor_account("Commitment", &[0xA0u8; 32]),
+            )
+            // A commitment must not be mistaken for an ack.
+            .with_account(
+                Ics26Router::packet_commitment_pda(CLIENT, 3, &ics26).0,
+                anchor_account("Commitment", &[0xC0u8; 32]),
+            );
+        let seqs = chain_with(ics26, rpc)
+            .query_ack_sequences(&SolanaClientId(CLIENT.into()), &SolanaHeight(0))
+            .await
+            .unwrap();
+        assert_eq!(seqs, vec![PacketSequence(2)]);
+    }
+
+    #[tokio::test]
+    async fn chain_status_propagates_rpc_errors() {
+        assert!(
+            chain(FakeRpc::default())
+                .query_chain_status()
+                .await
+                .is_err()
+        );
+    }
+
+    // --- events ---
+
+    type WirePayload = (String, String, String, String, Vec<u8>);
+    type WirePacket = (u64, String, String, u64, Vec<WirePayload>);
+
+    fn wire_packet(seq: u64) -> WirePacket {
+        (
+            seq,
+            CLIENT.into(),
+            COUNTERPARTY_CLIENT.into(),
+            1_000,
+            vec![(
+                "transfer".into(),
+                "transfer".into(),
+                "1".into(),
+                "json".into(),
+                b"hi".to_vec(),
+            )],
+        )
+    }
+
+    fn event_log(name: &str, body: &impl borsh::BorshSerialize) -> String {
+        let mut data = accounts::anchor_discriminator("event", name).to_vec();
+        data.extend(borsh::to_vec(body).unwrap());
+        format!(
+            "Program data: {}",
+            base64::engine::general_purpose::STANDARD.encode(data)
+        )
+    }
+
+    fn send_log(seq: u64) -> String {
+        event_log(
+            "SendPacketEvent",
+            &(CLIENT.to_string(), seq, wire_packet(seq), 1_000u64),
+        )
+    }
+
+    fn ack_log(seq: u64) -> String {
+        event_log(
+            "WriteAcknowledgementEvent",
+            &(
+                COUNTERPARTY_CLIENT.to_string(),
+                seq,
+                wire_packet(seq),
+                vec![b"ok".to_vec()],
+            ),
+        )
+    }
+
+    fn tx(program: &Pubkey, logs: Option<Vec<String>>, failed: bool) -> Value {
+        let mut meta = json!({
+            "err": null,
+            "status": { "Ok": null },
+            "fee": 5000,
+            "preBalances": [],
+            "postBalances": [],
+        });
+        if failed {
+            meta["err"] = json!("AccountInUse");
+            meta["status"] = json!({ "Err": "AccountInUse" });
+        }
+        if let Some(lines) = logs {
+            let mut wrapped = vec![format!("Program {program} invoke [1]")];
+            wrapped.extend(lines);
+            wrapped.push(format!("Program {program} success"));
+            meta["logMessages"] = json!(wrapped);
+        }
+        json!({ "transaction": ["", "base64"], "meta": meta })
+    }
+
+    fn block(txs: &[Value]) -> Value {
+        json!({
+            "previousBlockhash": "11111111111111111111111111111111",
+            "blockhash": "11111111111111111111111111111111",
+            "parentSlot": 0,
+            "transactions": txs,
+            "blockTime": null,
+            "blockHeight": null,
+        })
+    }
+
+    #[tokio::test]
+    async fn block_events_skip_failed_transactions() {
+        let ics26 = Pubkey::new_unique();
+        let mut rpc = FakeRpc::default();
+        rpc.blocks.insert(
+            10,
+            block(&[
+                tx(&ics26, Some(vec![send_log(1)]), false),
+                tx(&ics26, Some(vec![send_log(2)]), true),
+                tx(&ics26, None, false),
+                // Emitted by a different program: not ours.
+                tx(&Pubkey::new_unique(), Some(vec![send_log(3)]), false),
+            ]),
+        );
+        let c = chain_with(ics26, rpc);
+
+        let events = c.query_block_events(&SolanaHeight(10)).await.unwrap();
+        assert_eq!(events.len(), 1);
+        let decoded = SolanaChain::try_extract_send_packet_event(&events[0]).unwrap();
+        assert_eq!(decoded.packet.sequence, PacketSequence(1));
+        assert_eq!(events[0].program_id, ics26.to_string());
+
+        assert!(c.query_block_events(&SolanaHeight(11)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn send_packet_lookup_scans_recent_blocks() {
+        let ics26 = Pubkey::new_unique();
+        let mut rpc = FakeRpc {
+            slot: Some(200),
+            ..FakeRpc::default()
+        };
+        rpc.blocks.insert(
+            150,
+            block(&[tx(&ics26, Some(vec![send_log(4), ack_log(4)]), false)]),
+        );
+        // Outside the 100-slot lookback window.
+        rpc.blocks
+            .insert(99, block(&[tx(&ics26, Some(vec![send_log(5)]), false)]));
+        let c = chain_with(ics26, rpc);
+        let client = SolanaClientId(CLIENT.into());
+
+        let found = c
+            .query_send_packet_event(&client, PacketSequence(4))
+            .await
+            .unwrap();
+        assert_eq!(found.unwrap().packet.sequence, PacketSequence(4));
+        assert!(
+            c.query_send_packet_event(&client, PacketSequence(5))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let other = SolanaClientId("other".into());
+        assert!(
+            c.query_send_packet_event(&other, PacketSequence(4))
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn write_ack_lookup_matches_dest_client() {
+        let ics26 = Pubkey::new_unique();
+        let mut rpc = FakeRpc {
+            slot: Some(5),
+            ..FakeRpc::default()
+        };
+        rpc.blocks.insert(
+            3,
+            block(&[tx(&ics26, Some(vec![send_log(4), ack_log(4)]), false)]),
+        );
+        let c = chain_with(ics26, rpc);
+
+        let found = c
+            .query_write_ack_event(
+                &SolanaClientId(COUNTERPARTY_CLIENT.into()),
+                PacketSequence(4),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let (packet, ack) = SolanaChain::packet_from_write_ack_event(&found);
+        assert_eq!(packet.dest_client_id, COUNTERPARTY_CLIENT);
+        assert_ne!(ack.0, Vec::<u8>::new());
+        assert!(
+            c.query_write_ack_event(&SolanaClientId(CLIENT.into()), PacketSequence(4))
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    // --- message building and sending ---
+
+    struct Deployed {
+        ics26: Pubkey,
+        ics07: Pubkey,
+        am: Pubkey,
+        app: Pubkey,
+    }
+
+    /// Seed the client, router and app accounts the packet builders resolve.
+    fn deployed(client: &str, port: &str) -> (Deployed, FakeRpc) {
+        let d = Deployed {
+            ics26: Pubkey::new_unique(),
+            ics07: Pubkey::new_unique(),
+            am: Pubkey::new_unique(),
+            app: Pubkey::new_unique(),
+        };
+        let router = (1u8, (d.am.to_bytes(), None::<[u8; 32]>), false);
+        let rpc = FakeRpc::default()
+            .with_account(
+                Ics26Router::client_pda(client, &d.ics26).0,
+                anchor_account("Client", &(1u8, client.to_string(), d.ics07.to_bytes())),
+            )
+            .with_account(
+                Ics26Router::router_state_pda(&d.ics26).0,
+                anchor_account("RouterState", &router),
+            )
+            .with_account(
+                Ics26Router::ibc_app_pda(port, &d.ics26).0,
+                anchor_account("IBCApp", &(1u8, port.to_string(), d.app.to_bytes())),
+            );
+        (d, rpc)
+    }
+
+    fn assert_packet_ix(msg: &SolanaMessage, d: &Deployed, method: &str, extra: &[AccountMeta]) {
+        assert_eq!(msg.instructions.len(), 3);
+        let ix = &msg.instructions[2];
+        assert_eq!(ix.program_id, d.ics26);
+        assert_eq!(
+            &ix.data[..8],
+            accounts::anchor_instruction_discriminator(method)
+        );
+        let keys: Vec<_> = ix.accounts.iter().map(|m| m.pubkey).collect();
+        assert!(keys.contains(&AccessManager::pda(&d.am).0));
+        assert!(keys.contains(&IbcApp::state_pda(&d.app).0));
+        assert!(keys.contains(&d.ics07));
+        assert!(keys.contains(&Ics07Tendermint::consensus_state_pda(77, &d.ics07).0));
+        for meta in extra {
+            assert!(ix.accounts.contains(meta), "missing {meta:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn receive_packet_targets_dest_client_and_port() {
+        let (d, rpc) = deployed(COUNTERPARTY_CLIENT, "dst-0");
+        let c = chain_with(d.ics26, rpc);
+        let msg = c
+            .build_receive_packet_message(
+                &packet(1),
+                SolanaCommitmentProof::None,
+                SolanaHeight(77),
+                0,
+            )
+            .await
+            .unwrap();
+        assert_packet_ix(
+            &msg,
+            &d,
+            "recv_packet",
+            &[
+                AccountMeta::new(
+                    Ics26Router::packet_receipt_pda(COUNTERPARTY_CLIENT, 3, &d.ics26).0,
+                    false,
+                ),
+                AccountMeta::new(c.keypair.pubkey(), true),
+            ],
+        );
+        let decoded: crate::ibc_types::MsgRecvPacket =
+            borsh::from_slice(&msg.instructions[2].data[8..]).unwrap();
+        assert_eq!(decoded.proof.height, 77);
+        assert_eq!(decoded.packet.sequence, 3);
+    }
+
+    #[tokio::test]
+    async fn ack_packet_targets_source_client_and_carries_ack() {
+        let (d, rpc) = deployed(CLIENT, "src-0");
+        let c = chain_with(d.ics26, rpc);
+        let msg = c
+            .build_ack_packet_message(
+                &packet(1),
+                &SolanaAcknowledgement(vec![9, 9]),
+                SolanaCommitmentProof::None,
+                SolanaHeight(77),
+                0,
+            )
+            .await
+            .unwrap();
+        assert_packet_ix(
+            &msg,
+            &d,
+            "ack_packet",
+            &[AccountMeta::new(
+                Ics26Router::packet_commitment_pda(CLIENT, 3, &d.ics26).0,
+                false,
+            )],
+        );
+        let decoded: crate::ibc_types::MsgAckPacket =
+            borsh::from_slice(&msg.instructions[2].data[8..]).unwrap();
+        assert_eq!(decoded.acknowledgement, vec![9, 9]);
+    }
+
+    #[tokio::test]
+    async fn timeout_packet_targets_source_client() {
+        let (d, rpc) = deployed(CLIENT, "src-0");
+        let c = chain_with(d.ics26, rpc);
+        let msg = c
+            .build_timeout_packet_message(
+                &packet(1),
+                SolanaCommitmentProof::None,
+                SolanaHeight(77),
+                0,
+            )
+            .await
+            .unwrap();
+        assert_packet_ix(
+            &msg,
+            &d,
+            "timeout_packet",
+            &[AccountMeta::new(
+                Ics26Router::packet_commitment_pda(CLIENT, 3, &d.ics26).0,
+                false,
+            )],
+        );
+    }
+
+    #[tokio::test]
+    async fn packet_builders_reject_packets_without_payloads() {
+        let c = chain(FakeRpc::default());
+        let p = packet(0);
+        let none = || SolanaCommitmentProof::None;
+        let errs = [
+            c.build_receive_packet_message(&p, none(), SolanaHeight(1), 0)
+                .await
+                .unwrap_err(),
+            c.build_ack_packet_message(
+                &p,
+                &SolanaAcknowledgement(vec![]),
+                none(),
+                SolanaHeight(1),
+                0,
+            )
+            .await
+            .unwrap_err(),
+            c.build_timeout_packet_message(&p, none(), SolanaHeight(1), 0)
+                .await
+                .unwrap_err(),
+        ];
+        for err in errs {
+            assert!(err.to_string().contains("packet has no payloads"), "{err}");
+        }
+    }
+
+    #[tokio::test]
+    async fn packet_builders_require_router_state() {
+        let (d, mut rpc) = deployed(COUNTERPARTY_CLIENT, "dst-0");
+        rpc.accounts
+            .remove(&Ics26Router::router_state_pda(&d.ics26).0);
+        let err = chain_with(d.ics26, rpc)
+            .build_receive_packet_message(
+                &packet(1),
+                SolanaCommitmentProof::None,
+                SolanaHeight(1),
+                0,
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("router state PDA not found"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_messages_sends_one_transaction_per_group() {
+        let rpc = FakeRpc::default();
+        let sent = rpc.sent_txs.clone();
+        let c = chain(rpc);
+        let messages = vec![
+            SolanaMessage {
+                instructions: vec![compute_limit(), noop(1), compute_limit(), noop(2)],
+            },
+            SolanaMessage {
+                instructions: vec![noop(3)],
+            },
+        ];
+        c.send_messages(messages).await.unwrap();
+        assert_eq!(sent.lock().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn dummy_client_payloads_encode_slot_and_time() {
+        let c = chain(FakeRpc {
+            slot: Some(7),
+            block_time: Some(-1),
+            ..FakeRpc::default()
+        });
+        let create =
+            <SolanaChain as ClientPayloadBuilder<SolanaChain>>::build_create_client_payload(&c)
+                .await
+                .unwrap();
+        let SolanaCreateClientPayload::Dummy {
+            client_state,
+            consensus_state,
+        } = create
+        else {
+            panic!("expected dummy payload");
+        };
+        assert_eq!(client_state, 7u64.to_le_bytes());
+        assert_eq!(consensus_state, 0u64.to_le_bytes());
+
+        let update =
+            <SolanaChain as ClientPayloadBuilder<SolanaChain>>::build_update_client_payload(
+                &c,
+                &SolanaHeight(1),
+                &SolanaHeight(7),
+                &SolanaClientState(vec![]),
+            )
+            .await
+            .unwrap();
+        let SolanaUpdateClientPayload::Dummy { headers } = update else {
+            panic!("expected dummy payload");
+        };
+        let mut expected = 7u64.to_le_bytes().to_vec();
+        expected.extend(0u64.to_le_bytes());
+        assert_eq!(headers, vec![expected]);
+    }
+
+    #[tokio::test]
+    async fn unsupported_operations_fail_loudly_or_report_nothing() {
+        let c = chain(FakeRpc::default());
+        let id = SolanaClientId(CLIENT.into());
+        let dummy_create = SolanaCreateClientPayload::Dummy {
+            client_state: vec![],
+            consensus_state: vec![],
+        };
+        assert!(c.build_create_client_message(dummy_create).await.is_err());
+        assert!(
+            c.build_update_client_message(
+                &id,
+                SolanaUpdateClientPayload::Dummy { headers: vec![] }
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            c.build_register_counterparty_message(
+                &id,
+                &id,
+                mercury_core::MerklePrefix::ibc_default()
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            c.build_misbehaviour_message(&id, SolanaMisbehaviourEvidence)
+                .await
+                .is_err()
+        );
+        assert!(
+            c.check_for_misbehaviour(&id, &vec![], &SolanaClientState(vec![]))
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            c.query_consensus_state_heights(&id).await.unwrap(),
+            Vec::<SolanaHeight>::new()
+        );
+        assert!(
+            c.query_update_client_header(&id, &SolanaHeight(1))
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }

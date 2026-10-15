@@ -130,9 +130,12 @@ fn parse_decimal_price(s: &str) -> Result<f64> {
         .map_err(|e| eyre::eyre!("failed to parse gas price '{s}': {e}"))
 }
 
-fn apply_dynamic_price(base_fee: f64, multiplier: f64, max: f64) -> f64 {
-    let adjusted = base_fee * multiplier;
-    adjusted.min(max)
+fn apply_dynamic_price(base_fee: f64, multiplier: f64, max: f64) -> Result<f64> {
+    eyre::ensure!(
+        base_fee.is_finite() && base_fee > 0.0,
+        "dynamic base fee {base_fee} is not a positive finite number"
+    );
+    Ok((base_fee * multiplier).min(max))
 }
 
 async fn query_osmosis_base_fee(
@@ -224,15 +227,16 @@ pub async fn resolve_gas_price(
         },
     };
 
-    match base_fee {
-        Ok(price) => {
-            let effective =
-                apply_dynamic_price(price, dynamic_config.multiplier.value(), dynamic_config.max);
-            debug!(base = price, effective, "dynamic gas price resolved");
-            effective
-        }
+    let effective = base_fee.and_then(|price| {
+        let effective =
+            apply_dynamic_price(price, dynamic_config.multiplier.value(), dynamic_config.max)?;
+        debug!(base = price, effective, "dynamic gas price resolved");
+        Ok(effective)
+    });
+    match effective {
+        Ok(effective) => effective,
         Err(e) => {
-            warn!(error = %e, "dynamic gas price query failed, using static price {static_price}");
+            warn!(error = %e, "dynamic gas price unusable, using static price {static_price}");
             static_price
         }
     }
@@ -261,13 +265,117 @@ mod tests {
 
     #[test]
     fn apply_dynamic_multiplier_caps_at_max() {
-        let result = apply_dynamic_price(1.0, 1.5, 0.6);
+        let result = apply_dynamic_price(1.0, 1.5, 0.6).unwrap();
         assert!((result - 0.6).abs() < f64::EPSILON);
     }
 
     #[test]
     fn apply_dynamic_multiplier_normal() {
-        let result = apply_dynamic_price(0.1, 1.1, 0.6);
+        let result = apply_dynamic_price(0.1, 1.1, 0.6).unwrap();
         assert!((result - 0.11).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_decimal_price_sdk_dec_precision() {
+        let price = parse_decimal_price("0.002500000000000000").unwrap();
+        assert!((price - 0.0025).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_decimal_price_rejects_garbage() {
+        assert!(parse_decimal_price("abc").is_err());
+        assert!(parse_decimal_price("0.025uatom").is_err());
+    }
+
+    #[test]
+    fn apply_dynamic_price_rejects_non_finite_base_fee() {
+        let nan = parse_decimal_price("NaN").unwrap();
+        assert!(apply_dynamic_price(nan, 1.1, 0.6).is_err());
+        let inf = parse_decimal_price("inf").unwrap();
+        assert!(apply_dynamic_price(inf, 1.1, 0.6).is_err());
+    }
+
+    #[test]
+    fn apply_dynamic_price_rejects_non_positive_base_fee() {
+        assert!(apply_dynamic_price(-0.5, 1.1, 0.6).is_err());
+        assert!(apply_dynamic_price(0.0, 1.1, 0.6).is_err());
+    }
+
+    #[test]
+    fn apply_dynamic_price_exactly_at_max() {
+        assert!((apply_dynamic_price(0.5, 1.2, 0.6).unwrap() - 0.6).abs() < 1e-12);
+    }
+
+    mod resolve {
+        use super::*;
+        use crate::chain::test_support::UNREACHABLE_ADDR;
+        use crate::config::DynamicGasPrice;
+        use mercury_core::rpc_guard::RpcGuard;
+        use mercury_core::validate::GasMultiplier;
+
+        const STATIC_PRICE: f64 = 0.025;
+
+        fn dynamic(enabled: bool) -> DynamicGasPrice {
+            DynamicGasPrice {
+                multiplier: GasMultiplier::new_unchecked(1.1),
+                enabled,
+                max: 1.0,
+            }
+        }
+
+        async fn resolve(cfg: &DynamicGasPrice, cache: &OnceLock<DynamicGasBackend>) -> f64 {
+            let channel = tonic::transport::Channel::from_static(UNREACHABLE_ADDR).connect_lazy();
+            resolve_gas_price(
+                channel,
+                "uatom",
+                STATIC_PRICE,
+                cfg,
+                cache,
+                &RpcGuard::noop("test"),
+            )
+            .await
+        }
+
+        fn assert_static(price: f64) {
+            assert!((price - STATIC_PRICE).abs() < f64::EPSILON, "got {price}");
+        }
+
+        #[tokio::test]
+        async fn disabled_returns_static_without_probing() {
+            let cache = OnceLock::new();
+            assert_static(resolve(&dynamic(false), &cache).await);
+            assert!(
+                cache.get().is_none(),
+                "disabled config must not probe backends"
+            );
+        }
+
+        #[tokio::test]
+        async fn cached_unavailable_short_circuits_to_static() {
+            let cache = OnceLock::new();
+            cache.set(DynamicGasBackend::Unavailable).unwrap();
+            assert_static(resolve(&dynamic(true), &cache).await);
+        }
+
+        #[tokio::test]
+        async fn detection_failure_caches_unavailable_and_falls_back() {
+            let cache = OnceLock::new();
+            assert_static(resolve(&dynamic(true), &cache).await);
+            assert!(matches!(cache.get(), Some(DynamicGasBackend::Unavailable)));
+        }
+
+        #[tokio::test]
+        async fn known_backend_query_failure_falls_back_and_keeps_backend() {
+            for backend in [DynamicGasBackend::Osmosis, DynamicGasBackend::Feemarket] {
+                let cache = OnceLock::new();
+                cache.set(backend).unwrap();
+                assert_static(resolve(&dynamic(true), &cache).await);
+                assert_eq!(
+                    std::mem::discriminant(cache.get().unwrap()),
+                    std::mem::discriminant(&backend),
+                    "transient failure must not downgrade a detected backend"
+                );
+            }
+        }
     }
 }

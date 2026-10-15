@@ -1,5 +1,10 @@
 # Run all checks
-check: check-typos check-toml fmt clippy test
+check: check-typos check-toml check-ast fmt clippy test
+
+# Lint with ast-grep rules in ast-rules/
+check-ast:
+    ast-grep test --skip-snapshot-tests
+    ast-grep scan
 
 # Check for typos
 check-typos:

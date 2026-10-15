@@ -227,6 +227,7 @@
             pkgs.taplo
             pkgs.typos
             pkgs.actionlint
+            pkgs.ast-grep
             pkgs.cargo-nextest
             pkgs.cargo-deny
             pkgs.cargo-llvm-cov

@@ -71,3 +71,79 @@ impl<X: ChainTypes, C: ClientQuery<X>> ClientQuery<X> for CachedChain<C> {
         C::client_latest_height(client_state)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testhelpers::Probe;
+
+    fn count(probe: &Probe, call: &str) -> usize {
+        probe.calls().iter().filter(|c| **c == call).count()
+    }
+
+    #[tokio::test]
+    async fn chain_status_is_cached_within_ttl() {
+        let probe = Probe::new();
+        let chain = CachedChain::new(probe.clone());
+
+        let first = chain.query_chain_status().await.unwrap();
+        let second = chain.query_chain_status().await.unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(count(&probe, "query_chain_status"), 1);
+    }
+
+    #[tokio::test]
+    async fn client_state_is_cached_per_client_and_height() {
+        let probe = Probe::new();
+        let chain = CachedChain::new(probe.clone());
+        let client = "client-0".to_owned();
+
+        assert_eq!(chain.query_client_state(&client, &5).await.unwrap(), 6);
+        assert_eq!(chain.query_client_state(&client, &5).await.unwrap(), 6);
+        assert_eq!(chain.query_client_state(&client, &6).await.unwrap(), 7);
+        assert_eq!(
+            chain
+                .query_client_state(&"client-1".to_owned(), &5)
+                .await
+                .unwrap(),
+            6
+        );
+
+        assert_eq!(count(&probe, "query_client_state"), 3);
+    }
+
+    #[tokio::test]
+    async fn consensus_state_is_cached_per_key() {
+        let probe = Probe::new();
+        let chain = CachedChain::new(probe.clone());
+        let client = "client-0".to_owned();
+
+        assert_eq!(
+            chain.query_consensus_state(&client, &2, &3).await.unwrap(),
+            5
+        );
+        assert_eq!(
+            chain.query_consensus_state(&client, &2, &3).await.unwrap(),
+            5
+        );
+        assert_eq!(
+            chain.query_consensus_state(&client, &3, &2).await.unwrap(),
+            5
+        );
+
+        assert_eq!(count(&probe, "query_consensus_state"), 2);
+    }
+
+    #[test]
+    fn client_state_helpers_delegate() {
+        assert_eq!(
+            <CachedChain<Probe> as ClientQuery<Probe>>::trusting_period(&30),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(
+            <CachedChain<Probe> as ClientQuery<Probe>>::client_latest_height(&30),
+            60
+        );
+    }
+}
