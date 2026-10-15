@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_unparseable_endpoint() {
+    async fn rejects_unparsable_endpoint() {
         let err = AttestorClient::new("not a uri", TIMEOUT).unwrap_err();
         assert!(
             err.to_string()

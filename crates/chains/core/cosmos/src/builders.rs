@@ -138,36 +138,8 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
             );
         }
 
-        let (trusted_validators_response, trusted_commit_response) = self
-            .rpc_guard
-            .guarded_pair(
-                || async {
-                    self.rpc_client
-                        .validators(*trusted_height, Paging::All)
-                        .await
-                        .map_err(eyre::Report::from)
-                },
-                || async {
-                    self.rpc_client
-                        .commit(*trusted_height)
-                        .await
-                        .map_err(eyre::Report::from)
-                },
-            )
-            .await?;
-
-        let trusted_proposer = find_proposer(
-            &trusted_validators_response.validators,
-            &trusted_commit_response
-                .signed_header
-                .header
-                .proposer_address,
-        );
-        let trusted_consensus_state = Some(TendermintConsensusState::from(
-            trusted_commit_response.signed_header.header,
-        ));
-        let trusted_next_validator_set =
-            ValidatorSet::new(trusted_validators_response.validators, trusted_proposer);
+        let (trusted_consensus_state, trusted_next_validator_set) =
+            fetch_trusted_state(self, *trusted_height).await?;
 
         let ibc_trusted_height = Height::new(self.chain_id.revision_number(), trusted_height_value)
             .map_err(|e| eyre::eyre!("{e}"))?;
@@ -203,7 +175,7 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
             signed_header: commit_response.signed_header,
             validator_set,
             trusted_height: ibc_trusted_height,
-            trusted_next_validator_set: trusted_next_validator_set.clone(),
+            trusted_next_validator_set,
         };
 
         let headers: Vec<Any> = vec![header.into()];
@@ -288,6 +260,42 @@ impl<S: CosmosSigner, C: ChainTypes> ClientPayloadBuilder<C> for CosmosChain<S> 
             proof_upgrade_consensus_state: proof_consensus,
         }))
     }
+}
+
+/// Returns the consensus state at `trusted_height` and the validator set that
+/// signs `trusted_height + 1`, which is what the header's `trusted_validators`
+/// must hash to (the trusted block's `next_validators_hash`).
+pub(crate) async fn fetch_trusted_state<S: CosmosSigner>(
+    chain: &CosmosChain<S>,
+    trusted_height: TmHeight,
+) -> Result<(Option<TendermintConsensusState>, ValidatorSet)> {
+    let next_height = trusted_height.increment();
+    let (next_validators_response, trusted_commit_response) = chain
+        .rpc_guard
+        .guarded_pair(
+            || async {
+                chain
+                    .rpc_client
+                    .validators(next_height, Paging::All)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+            || async {
+                chain
+                    .rpc_client
+                    .commit(trusted_height)
+                    .await
+                    .map_err(eyre::Report::from)
+            },
+        )
+        .await?;
+
+    let header = trusted_commit_response.signed_header.header;
+    // The trusted block's proposer is only a best guess for the next set;
+    // proposer does not affect the set hash.
+    let proposer = find_proposer(&next_validators_response.validators, &header.proposer_address);
+    let next_validator_set = ValidatorSet::new(next_validators_response.validators, proposer);
+    Ok((Some(TendermintConsensusState::from(header)), next_validator_set))
 }
 
 pub(crate) fn find_proposer(
@@ -1021,7 +1029,7 @@ mod tests {
                 trusted.next_validators_hash
             );
 
-            assert_eq!(heights_requested(&rpc, "validators"), vec![9, 15]);
+            assert_eq!(heights_requested(&rpc, "validators"), vec![10, 15]);
             assert_eq!(heights_requested(&rpc, "commit"), vec![9, 15]);
         }
 
@@ -1117,7 +1125,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "bug: trusted validator set fetched at trusted_height instead of trusted_height+1"]
         async fn update_client_header_verifies_across_validator_set_change() {
             let rpc = valset_change_node().await;
             let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
@@ -1145,7 +1152,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "bug: corrective misbehaviour update uses validators(trusted_height), not +1"]
         async fn corrective_update_header_verifies_across_validator_set_change() {
             let rpc = valset_change_node().await;
             let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);

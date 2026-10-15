@@ -21,7 +21,7 @@ use mercury_chain_traits::queries::MisbehaviourQuery;
 use mercury_chain_traits::types::ChainTypes;
 use mercury_core::error::Result;
 
-use crate::builders::{CosmosUpdateClientPayload, find_proposer};
+use crate::builders::{CosmosUpdateClientPayload, fetch_trusted_state, find_proposer};
 use crate::chain::CosmosChain;
 use crate::client_types::CosmosClientState;
 use crate::keys::CosmosSigner;
@@ -91,38 +91,8 @@ pub async fn build_corrective_update_payload<S: CosmosSigner>(
     trusted_height: TmHeight,
     target_height: TmHeight,
 ) -> Result<CosmosUpdateClientPayload> {
-    let (trusted_validators_response, trusted_commit_response) = chain
-        .rpc_guard
-        .guarded_pair(
-            || async {
-                chain
-                    .rpc_client
-                    .validators(trusted_height, Paging::All)
-                    .await
-                    .map_err(eyre::Report::from)
-            },
-            || async {
-                chain
-                    .rpc_client
-                    .commit(trusted_height)
-                    .await
-                    .map_err(eyre::Report::from)
-            },
-        )
-        .await?;
-
-    let trusted_proposer = find_proposer(
-        &trusted_validators_response.validators,
-        &trusted_commit_response
-            .signed_header
-            .header
-            .proposer_address,
-    );
-    let trusted_consensus_state = Some(TendermintConsensusState::from(
-        trusted_commit_response.signed_header.header,
-    ));
-    let trusted_next_validator_set =
-        ValidatorSet::new(trusted_validators_response.validators, trusted_proposer);
+    let (trusted_consensus_state, trusted_next_validator_set) =
+        fetch_trusted_state(chain, trusted_height).await?;
 
     let ibc_trusted_height = Height::new(chain.chain_id.revision_number(), trusted_height.value())
         .map_err(|e| eyre::eyre!("{e}"))?;
@@ -846,7 +816,7 @@ mod tests {
                 trusted.next_validators_hash
             );
 
-            assert_eq!(heights_requested(&rpc, "validators"), vec![9, 12]);
+            assert_eq!(heights_requested(&rpc, "validators"), vec![10, 12]);
             assert_eq!(heights_requested(&rpc, "commit"), vec![9, 12]);
         }
 

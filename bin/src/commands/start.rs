@@ -163,11 +163,12 @@ fn init_subscriber(log_format: LogFormat, telemetry_guard: &mercury_telemetry::T
         .with(EnvFilter::from_default_env())
         .with(fmt_layer);
 
-    if let Some(otel_layer) = telemetry_guard.otel_layer() {
-        subscriber.with(otel_layer).init();
+    // try_init: tests running in one process (`cargo test`) call this repeatedly
+    let _ = if let Some(otel_layer) = telemetry_guard.otel_layer() {
+        subscriber.with(otel_layer).try_init()
     } else {
-        subscriber.init();
-    }
+        subscriber.try_init()
+    };
 
     if telemetry_guard.is_enabled() {
         tracing::info!("telemetry enabled (OTLP)");
@@ -520,9 +521,6 @@ packet_filter = { policy = "deny" }
         .await
         .expect("bind failure must not hang the health task");
     }
-
-    // run_start installs the global tracing subscriber, which can happen once
-    // per process; nextest (the project runner) gives each test its own.
 
     #[tokio::test]
     async fn start_rejects_relay_with_unknown_src_chain() {
