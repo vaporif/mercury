@@ -1315,8 +1315,7 @@ mod builder_tests {
         assert!(cleanup_pos > recv_pos);
     }
 
-    // Solana's PACKET_DATA_SIZE: 1280-byte IPv6 MTU minus 48 bytes of headers.
-    const PACKET_DATA_SIZE: usize = 1232;
+    use solana_packet::PACKET_DATA_SIZE;
 
     async fn sent_tx_sizes(payload_len: usize, proof_len: usize) -> Vec<usize> {
         let (d, rpc) = deployed(DEST_CLIENT);
@@ -1358,6 +1357,23 @@ mod builder_tests {
         let sizes = sent_tx_sizes(400, 600).await;
         assert_eq!(sizes.len(), 4, "{sizes:?}");
         assert!(sizes.iter().all(|&s| s <= PACKET_DATA_SIZE), "{sizes:?}");
+    }
+
+    // Two chunks carry 2 * CHUNK_DATA_SIZE = 1800 data bytes, so they cannot
+    // share a transaction whatever the account encoding (ALT or not).
+    #[tokio::test]
+    #[ignore = "bug: two chunk uploads share one transaction larger than PACKET_DATA_SIZE"]
+    async fn chunked_recv_transactions_fit_in_a_packet() {
+        let two_proof_chunks = sent_tx_sizes(10, 1801).await;
+        let payload_and_proof_chunk = sent_tx_sizes(400, 600).await;
+        assert!(
+            two_proof_chunks
+                .iter()
+                .chain(&payload_and_proof_chunk)
+                .all(|&s| s <= PACKET_DATA_SIZE),
+            "limit {PACKET_DATA_SIZE}: two proof chunks {two_proof_chunks:?}, \
+             payload+proof chunk {payload_and_proof_chunk:?}"
+        );
     }
 
     #[tokio::test]
