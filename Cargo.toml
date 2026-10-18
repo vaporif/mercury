@@ -121,6 +121,8 @@ prost-types = "0.13"
 # TODO: upgrade to tonic 0.14 once ibc-proto/cosmos-sdk-proto support it
 tonic = { version = "0.13", features = [
   "tls-native-roots",
+  # explicit provider: rustls panics when none or several are compiled in
+  "tls-ring",
   "channel",
   "transport",
 ] }

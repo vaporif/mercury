@@ -16,8 +16,9 @@ impl EthereumChain {
         let timestamp = status.timestamp.0;
 
         let ClientPayloadMode::Attested {
-            attestor_endpoints,
+            attestor_addresses,
             quorum_threshold,
+            ..
         } = &self.config.client_payload_mode
         else {
             unreachable!("attested path called in non-attested mode")
@@ -26,7 +27,7 @@ impl EthereumChain {
         let client_state = serde_json::json!({
             "height": height,
             "timestamp": timestamp,
-            "attestor_addresses": attestor_endpoints,
+            "attestor_addresses": attestor_addresses,
             "min_required_sigs": quorum_threshold,
         });
 
@@ -82,8 +83,12 @@ mod tests {
     use crate::chain::test_support::{chain_from_config, spawn_http, spawn_rpc, test_config};
 
     fn attested_chain(rpc: &str, endpoints: Vec<String>, quorum: usize) -> EthereumChain {
+        let attestor_addresses = (1..=endpoints.len())
+            .map(|i| format!("0x{i:040x}"))
+            .collect();
         let mode = ClientPayloadMode::Attested {
             attestor_endpoints: endpoints.clone(),
+            attestor_addresses,
             quorum_threshold: quorum,
         };
         chain_from_config(
@@ -116,7 +121,10 @@ mod tests {
             json!({
                 "height": 100,
                 "timestamp": 1_700_000_000,
-                "attestor_addresses": ["http://a1", "http://a2"],
+                "attestor_addresses": [
+                    "0x0000000000000000000000000000000000000001",
+                    "0x0000000000000000000000000000000000000002",
+                ],
                 "min_required_sigs": 2,
             })
         );
@@ -127,7 +135,6 @@ mod tests {
     // check recovered ECDSA signers against `attestor_addresses`, so every
     // entry must be an Ethereum address, not an attestor RPC endpoint.
     #[tokio::test]
-    #[ignore = "bug: attested client state lists attestor endpoint URLs as attestor_addresses"]
     async fn create_payload_attestor_addresses_are_ethereum_addresses() {
         let rpc = spawn_rpc(|method, _| match method {
             "eth_blockNumber" => Ok(json!("0x64")),

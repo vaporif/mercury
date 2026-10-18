@@ -108,22 +108,28 @@ impl SolanaChain {
         Ok(())
     }
 
+    /// Live sequences: a dense scan from 1 (sequential senders), plus every
+    /// sequence named by `event_seq` in the router's recent history, since
+    /// senders may pick any sequence and nothing on-chain enumerates them.
     async fn scan_sequences(
         &self,
         client_id: &SolanaClientId,
         pda_fn: impl Fn(&str, u64, &Pubkey) -> (Pubkey, u8),
+        event_seq: impl Fn(&SolanaEvent) -> Option<u64>,
     ) -> Result<Vec<PacketSequence>> {
         const MAX_CONSECUTIVE_MISSES: u32 = 10;
-        let mut sequences = Vec::new();
+        let mut checked = std::collections::BTreeSet::new();
+        let mut sequences = std::collections::BTreeSet::new();
         let mut consecutive_misses = 0u32;
 
         for s in 1.. {
+            checked.insert(s);
             let (pda, _) = pda_fn(&client_id.0, s, &self.ics26_program_id);
             let account: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
             if let Some(commitment) = account {
                 // A cleared PDA still marks the sequence as used, so keep scanning past it.
                 if !commitment.is_cleared() {
-                    sequences.push(PacketSequence(s));
+                    sequences.insert(s);
                 }
                 consecutive_misses = 0;
             } else {
@@ -131,6 +137,60 @@ impl SolanaChain {
                 if consecutive_misses >= MAX_CONSECUTIVE_MISSES {
                     break;
                 }
+            }
+        }
+
+        for s in self.sequences_from_history(event_seq).await? {
+            if !checked.insert(s) {
+                continue;
+            }
+            let (pda, _) = pda_fn(&client_id.0, s, &self.ics26_program_id);
+            let account: Option<OnChainCommitment> = fetch_account(&self.rpc, &pda).await?;
+            if account.is_some_and(|c| !c.is_cleared()) {
+                sequences.insert(s);
+            }
+        }
+        Ok(sequences.into_iter().map(PacketSequence).collect())
+    }
+
+    /// Sequences picked out of router events in the most recent
+    /// `MAX_HISTORY_SIGNATURES` transactions; older packets are out of reach.
+    async fn sequences_from_history(
+        &self,
+        event_seq: impl Fn(&SolanaEvent) -> Option<u64>,
+    ) -> Result<std::collections::BTreeSet<u64>> {
+        const PAGE: usize = 1000;
+        const MAX_HISTORY_SIGNATURES: usize = 2000;
+        let program = self.ics26_program_id.to_string();
+        let mut sequences = std::collections::BTreeSet::new();
+        let mut before = None;
+        let mut seen = 0;
+
+        while seen < MAX_HISTORY_SIGNATURES {
+            let page = self
+                .rpc
+                .get_signatures_for_address(&self.ics26_program_id, before, PAGE)
+                .await?;
+            let Some(last) = page.last() else { break };
+            before = Some(last.signature.parse()?);
+            seen += page.len();
+            for entry in page.iter().filter(|e| e.err.is_none()) {
+                let tx = self.rpc.get_transaction(&entry.signature.parse()?).await?;
+                let Some(meta) = tx.transaction.meta else {
+                    continue;
+                };
+                if let solana_transaction_status::option_serializer::OptionSerializer::Some(logs) =
+                    meta.log_messages
+                {
+                    sequences.extend(
+                        events::extract_events_from_logs(&logs, &program)
+                            .iter()
+                            .filter_map(&event_seq),
+                    );
+                }
+            }
+            if page.len() < PAGE {
+                break;
             }
         }
         Ok(sequences)
@@ -373,9 +433,15 @@ impl PacketStateQuery for SolanaChain {
         client_id: &Self::ClientId,
         _height: &Self::Height,
     ) -> Result<Vec<PacketSequence>> {
-        self.scan_sequences(client_id, |cid, seq, prog| {
-            Ics26Router::packet_commitment_pda(cid, seq, prog)
-        })
+        self.scan_sequences(
+            client_id,
+            |cid, seq, prog| Ics26Router::packet_commitment_pda(cid, seq, prog),
+            |event| {
+                events::try_decode_send_packet(event)
+                    .filter(|e| e.packet.source_client_id == client_id.0)
+                    .map(|e| e.packet.sequence.0)
+            },
+        )
         .await
     }
 
@@ -384,9 +450,15 @@ impl PacketStateQuery for SolanaChain {
         client_id: &Self::ClientId,
         _height: &Self::Height,
     ) -> Result<Vec<PacketSequence>> {
-        self.scan_sequences(client_id, |cid, seq, prog| {
-            Ics26Router::packet_ack_pda(cid, seq, prog)
-        })
+        self.scan_sequences(
+            client_id,
+            |cid, seq, prog| Ics26Router::packet_ack_pda(cid, seq, prog),
+            |event| {
+                events::try_decode_write_ack(event)
+                    .filter(|e| e.packet.dest_client_id == client_id.0)
+                    .map(|e| e.packet.sequence.0)
+            },
+        )
         .await
     }
 }
@@ -1389,16 +1461,56 @@ mod tests {
     // on-chain counter (ics26-router send_packet.rs), so live sequences need
     // not start at 1 or be dense.
     #[tokio::test]
-    #[ignore = "bug: commitment scan misses caller-chosen sequences beyond a 10-slot gap"]
     async fn commitment_scan_finds_caller_chosen_sequences() {
         let ics26 = Pubkey::new_unique();
         let caller_chosen = [50, 10_001, 0x9E37_79B9_7F4A_7C15];
-        let c = chain_with(ics26, seed_commitments(&ics26, &caller_chosen));
+        let mut rpc = seed_commitments(&ics26, &caller_chosen);
+        rpc.history = caller_chosen
+            .iter()
+            .map(|&s| history_tx(&ics26, vec![send_log(s)]))
+            .collect();
+        let c = chain_with(ics26, rpc);
         let seqs = c
             .query_commitment_sequences(&SolanaClientId(CLIENT.into()), &SolanaHeight(0))
             .await
             .unwrap();
         assert_eq!(seqs, caller_chosen.map(PacketSequence).to_vec());
+    }
+
+    #[tokio::test]
+    async fn history_scan_keeps_live_sequences_named_for_the_client() {
+        let ics26 = Pubkey::new_unique();
+        let other = "07-tendermint-9";
+        let live = anchor_account("Commitment", &[0xC0u8; 32]);
+        let mut rpc = seed_zeroed_commitments(FakeRpc::default(), &ics26, &[600])
+            .with_account(Ics26Router::packet_commitment_pda(CLIENT, 500, &ics26).0, live.clone())
+            .with_account(Ics26Router::packet_commitment_pda(CLIENT, 700, &ics26).0, live.clone())
+            .with_account(Ics26Router::packet_commitment_pda(CLIENT, 800, &ics26).0, live.clone())
+            .with_account(Ics26Router::packet_commitment_pda(other, 500, &ics26).0, live)
+            .with_account(
+                Ics26Router::packet_ack_pda(COUNTERPARTY_CLIENT, 800, &ics26).0,
+                anchor_account("Commitment", &[0xA0u8; 32]),
+            );
+        let mut failed = tx(&ics26, Some(vec![send_log(700)]), true);
+        failed["slot"] = json!(1);
+        rpc.history = vec![
+            history_tx(&ics26, vec![send_log(500)]),
+            // acked or timed out: the router zeroed the commitment
+            history_tx(&ics26, vec![send_log(600)]),
+            (solana_sdk::signature::Signature::new_unique(), failed),
+            history_tx(&ics26, vec![ack_log(800)]),
+        ];
+        let c = chain_with(ics26, rpc);
+        let commitments = |client: &str| {
+            c.query_commitment_sequences(&SolanaClientId(client.into()), &SolanaHeight(0))
+        };
+        assert_eq!(commitments(CLIENT).await.unwrap(), vec![PacketSequence(500)]);
+        assert_eq!(commitments(other).await.unwrap(), vec![]);
+        let acks = c
+            .query_ack_sequences(&SolanaClientId(COUNTERPARTY_CLIENT.into()), &SolanaHeight(0))
+            .await
+            .unwrap();
+        assert_eq!(acks, vec![PacketSequence(800)]);
     }
 
     #[tokio::test]
@@ -1499,6 +1611,12 @@ mod tests {
             meta["logMessages"] = json!(wrapped);
         }
         json!({ "transaction": ["", "base64"], "meta": meta })
+    }
+
+    fn history_tx(program: &Pubkey, logs: Vec<String>) -> (solana_sdk::signature::Signature, Value) {
+        let mut entry = tx(program, Some(logs), false);
+        entry["slot"] = json!(1);
+        (solana_sdk::signature::Signature::new_unique(), entry)
     }
 
     fn block(txs: &[Value]) -> Value {

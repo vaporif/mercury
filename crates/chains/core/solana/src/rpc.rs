@@ -210,6 +210,35 @@ impl SolanaRpcClient {
             .await
     }
 
+    /// One page of signatures touching `address`, newest first, starting
+    /// before `before` when given.
+    pub async fn get_signatures_for_address(
+        &self,
+        address: &Pubkey,
+        before: Option<Signature>,
+        limit: usize,
+    ) -> eyre::Result<Vec<solana_client::rpc_response::RpcConfirmedTransactionStatusWithSignature>>
+    {
+        use solana_client::rpc_client::GetConfirmedSignaturesForAddress2Config;
+
+        let client = self.client.clone();
+        let address = *address;
+        self.guard
+            .guarded(|| async move {
+                let config = GetConfirmedSignaturesForAddress2Config {
+                    before,
+                    until: None,
+                    limit: Some(limit),
+                    commitment: Some(CommitmentConfig::confirmed()),
+                };
+                client
+                    .get_signatures_for_address_with_config(&address, config)
+                    .await
+                    .map_err(|e| eyre::eyre!("get_signatures_for_address({address}) failed: {e}"))
+            })
+            .await
+    }
+
     pub async fn get_signature_statuses(
         &self,
         signatures: &[Signature],

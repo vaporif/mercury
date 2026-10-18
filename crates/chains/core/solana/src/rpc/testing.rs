@@ -39,6 +39,9 @@ pub struct FakeRpc {
     pub account_queries: Arc<Mutex<Vec<Pubkey>>>,
     /// Raw wire bytes of every transaction passed to `sendTransaction`.
     pub sent_txs: Arc<Mutex<Vec<Vec<u8>>>>,
+    /// Transaction history, oldest first, as `(signature, getTransaction
+    /// result)`. `getSignaturesForAddress` pages it newest first for any address.
+    pub history: Vec<(Signature, Value)>,
 }
 
 impl FakeRpc {
@@ -111,6 +114,37 @@ impl FakeRpc {
         Value::Array(keyed)
     }
 
+    fn signatures_for_address(&self, params: &Value) -> Value {
+        let config = &params[1];
+        let limit = config["limit"]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(1000);
+        let before = config["before"].as_str();
+        let newest_first = self.history.iter().rev();
+        let start = before.map_or(0, |b| {
+            newest_first
+                .clone()
+                .position(|(sig, _)| sig.to_string() == b)
+                .map_or(usize::MAX, |i| i + 1)
+        });
+        let page: Vec<Value> = newest_first
+            .skip(start)
+            .take(limit)
+            .map(|(sig, tx)| {
+                json!({
+                    "signature": sig.to_string(),
+                    "slot": tx["slot"],
+                    "err": tx["meta"]["err"],
+                    "memo": null,
+                    "blockTime": null,
+                    "confirmationStatus": "confirmed",
+                })
+            })
+            .collect();
+        Value::Array(page)
+    }
+
     fn send_transaction(&self, params: &Value) -> Value {
         let Some(wire) = params[0]
             .as_str()
@@ -145,6 +179,11 @@ impl RpcSender for FakeRpc {
                 "lastValidBlockHeight": 100,
             })),
             RpcRequest::GetProgramAccounts => self.program_accounts(&params),
+            RpcRequest::GetSignaturesForAddress => self.signatures_for_address(&params),
+            RpcRequest::GetTransaction => params[0]
+                .as_str()
+                .and_then(|s| self.history.iter().find(|(sig, _)| sig.to_string() == s))
+                .map_or(Value::Null, |(_, tx)| tx.clone()),
             RpcRequest::SendTransaction => self.send_transaction(&params),
             RpcRequest::GetSignatureStatuses => {
                 let n = params[0].as_array().map_or(0, Vec::len);

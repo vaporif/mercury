@@ -545,8 +545,7 @@ fn malleate(sig: &[u8]) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "bug: aggregate counts high-s signatures that OpenZeppelin ECDSA.recover rejects"]
-fn high_s_signature_is_not_counted() {
+fn high_s_signature_is_forwarded_as_low_s() {
     let (attestors, result) = proof_with_bad_lowest_signer(malleate);
     let agg = result.unwrap();
     assert_eq!(
@@ -556,8 +555,7 @@ fn high_s_signature_is_not_counted() {
 }
 
 #[test]
-#[ignore = "bug: aggregate counts v >= 35 signatures that both reference verifiers reject"]
-fn eip155_style_v_is_not_counted() {
+fn eip155_style_v_is_forwarded_as_ethereum_v() {
     // Solidity accepts v in {27, 28}; the Solana program in {0, 1, 27, 28}.
     let (attestors, result) = proof_with_bad_lowest_signer(|sig| {
         let mut sig = sig.to_vec();
@@ -572,13 +570,13 @@ fn eip155_style_v_is_not_counted() {
 }
 
 #[test]
-fn canonical_v_signature_is_counted_and_forwarded_unnormalized() {
+fn canonical_v_signature_is_forwarded_as_ethereum_v() {
     // The Solana attestation program accepts v in {0, 1}; the Solidity client
-    // does not. Pins that the raw bytes are passed through as received.
+    // only {27, 28}, which every verifier accepts.
     let ks = keys(1);
     let mut att = signed(&ks[0], b"d", STATE_TAG);
+    let ethereum_v = att.signature.clone();
     att.signature[64] -= 27;
-    let raw = att.signature.clone();
     let agg = aggregate(
         vec![att],
         AttestationKind::State,
@@ -586,10 +584,10 @@ fn canonical_v_signature_is_counted_and_forwarded_unnormalized() {
         1,
     )
     .unwrap();
-    assert_eq!(agg.signatures, vec![raw]);
+    assert_eq!(agg.signatures, vec![ethereum_v]);
     assert_eq!(
         onchain_verify(b"d", STATE_TAG, &agg.signatures, &addrs(&ks), 1),
-        Err(Revert::SignatureInvalid)
+        Ok(())
     );
 }
 

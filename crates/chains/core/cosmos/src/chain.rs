@@ -490,7 +490,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "bug: https grpc_addr panics, no rustls CryptoProvider selected"]
         async fn new_with_https_grpc_errors_instead_of_panicking() {
             let rpc = node(false, true).await;
             // nothing listens on port 1: TLS setup must succeed and the connect fail

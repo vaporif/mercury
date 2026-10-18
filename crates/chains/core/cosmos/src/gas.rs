@@ -106,15 +106,15 @@ struct GetEipBaseFeeResponse {
 }
 
 #[derive(Clone, PartialEq, Message)]
-struct GasPricesRequest {
+struct GasPriceRequest {
     #[prost(string, tag = "1")]
     denom: String,
 }
 
 #[derive(Clone, PartialEq, Message)]
-struct GasPricesResponse {
-    #[prost(message, repeated, tag = "1")]
-    prices: Vec<DecCoin>,
+struct GasPriceResponse {
+    #[prost(message, optional, tag = "1")]
+    price: Option<DecCoin>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -128,6 +128,44 @@ struct DecCoin {
 fn parse_decimal_price(s: &str) -> Result<f64> {
     s.parse::<f64>()
         .map_err(|e| eyre::eyre!("failed to parse gas price '{s}': {e}"))
+}
+
+const LEGACY_DEC_SCALE: f64 = 1e18;
+
+/// `LegacyDec` fields are marshalled by gogoproto as the 10^18-scaled integer
+/// (`0.03` is sent as `"30000000000000000"`). A decimal point means the value
+/// is already unscaled.
+fn parse_legacy_dec(s: &str) -> Result<f64> {
+    if s.contains('.') {
+        return parse_decimal_price(s);
+    }
+    let scaled: u128 = s
+        .parse()
+        .map_err(|e| eyre::eyre!("failed to parse gas price '{s}': {e}"))?;
+    #[allow(clippy::cast_precision_loss)]
+    Ok(scaled as f64 / LEGACY_DEC_SCALE)
+}
+
+/// The node answered but has no price for our denom.
+#[derive(Debug)]
+struct NoGasPrice(String);
+
+impl std::fmt::Display for NoGasPrice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "feemarket returned no gas price for denom '{}'", self.0)
+    }
+}
+
+impl std::error::Error for NoGasPrice {}
+
+/// Whether a probe failure says the backend is absent, as opposed to a
+/// transient error (timeout, connection reset) worth retrying later.
+fn backend_absent(e: &eyre::Report) -> bool {
+    e.downcast_ref::<NoGasPrice>().is_some()
+        || e.chain().any(|c| {
+            c.downcast_ref::<tonic::Status>()
+                .is_some_and(|s| s.code() == tonic::Code::Unimplemented)
+        })
 }
 
 fn apply_dynamic_price(base_fee: f64, multiplier: f64, max: f64) -> Result<f64> {
@@ -154,7 +192,7 @@ async fn query_osmosis_base_fee(
         })
         .await?;
 
-    parse_decimal_price(&response.base_fee)
+    parse_legacy_dec(&response.base_fee)
 }
 
 async fn query_feemarket_price(
@@ -162,14 +200,14 @@ async fn query_feemarket_price(
     denom: &str,
     rpc_guard: &mercury_core::rpc_guard::RpcGuard,
 ) -> Result<f64> {
-    let request = tonic::Request::new(GasPricesRequest {
+    let request = tonic::Request::new(GasPriceRequest {
         denom: denom.to_string(),
     });
     let response = rpc_guard
         .guarded(|| async {
-            grpc_unary::<GasPricesRequest, GasPricesResponse>(
+            grpc_unary::<GasPriceRequest, GasPriceResponse>(
                 channel,
-                "/feemarket.feemarket.v1.Query/GasPrices",
+                "/feemarket.feemarket.v1.Query/GasPrice",
                 request,
             )
             .await
@@ -177,11 +215,11 @@ async fn query_feemarket_price(
         .await?;
 
     let price = response
-        .prices
-        .first()
-        .ok_or_else(|| eyre::eyre!("no gas prices returned from feemarket"))?;
+        .price
+        .filter(|p| p.denom == denom)
+        .ok_or_else(|| NoGasPrice(denom.to_string()))?;
 
-    parse_decimal_price(&price.amount)
+    parse_legacy_dec(&price.amount)
 }
 
 pub async fn resolve_gas_price(
@@ -210,19 +248,21 @@ pub async fn resolve_gas_price(
                 debug!("detected osmosis txfees backend");
                 Ok(price)
             }
-            Err(_) => match query_feemarket_price(channel, denom, rpc_guard).await {
+            Err(osmosis_err) => match query_feemarket_price(channel, denom, rpc_guard).await {
                 Ok(price) => {
                     let _ = backend_cache.set(DynamicGasBackend::Feemarket);
                     debug!("detected skip feemarket backend");
                     Ok(price)
                 }
-                Err(e) => {
+                Err(e) if backend_absent(&osmosis_err) && backend_absent(&e) => {
                     let _ = backend_cache.set(DynamicGasBackend::Unavailable);
                     warn!(
                         "both dynamic gas backends unavailable, will use static price going forward"
                     );
                     Err(e)
                 }
+                // Transient: leave the cache empty so the next resolution re-probes.
+                Err(e) => Err(e),
             },
         },
     };
@@ -358,10 +398,10 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn detection_failure_caches_unavailable_and_falls_back() {
+        async fn unreachable_node_falls_back_without_caching_a_backend() {
             let cache = OnceLock::new();
             assert_static(resolve(&dynamic(true), &cache).await);
-            assert!(matches!(cache.get(), Some(DynamicGasBackend::Unavailable)));
+            assert!(cache.get().is_none(), "transport errors are retried later");
         }
 
         #[tokio::test]
@@ -390,7 +430,8 @@ mod tests {
 
         const STATIC_PRICE: f64 = 0.025;
         const OSMOSIS: &str = "/osmosis.txfees.v1beta1.Query/GetEipBaseFee";
-        const FEEMARKET: &str = "/feemarket.feemarket.v1.Query/GasPrices";
+        const FEEMARKET: &str = "/feemarket.feemarket.v1.Query/GasPrice";
+        const FEEMARKET_ALL: &str = "/feemarket.feemarket.v1.Query/GasPrices";
 
         fn cfg() -> DynamicGasPrice {
             DynamicGasPrice {
@@ -406,16 +447,20 @@ mod tests {
             })
         }
 
-        fn feemarket(prices: &[(&str, &str)]) -> GrpcReply {
-            reply(&GasPricesResponse {
-                prices: prices
-                    .iter()
-                    .map(|(denom, amount)| DecCoin {
-                        denom: (*denom).into(),
-                        amount: (*amount).into(),
-                    })
-                    .collect(),
+        fn feemarket(denom: &str, amount: &str) -> GrpcReply {
+            reply(&GasPriceResponse {
+                price: Some(DecCoin {
+                    denom: denom.into(),
+                    amount: amount.into(),
+                }),
             })
+        }
+
+        // GasPrices (all denoms) response: `repeated DecCoin prices = 1`.
+        #[derive(Clone, PartialEq, Message)]
+        struct GasPricesResponse {
+            #[prost(message, repeated, tag = "1")]
+            prices: Vec<DecCoin>,
         }
 
         async fn resolve(grpc: &MockGrpc, cache: &OnceLock<DynamicGasBackend>) -> f64 {
@@ -457,14 +502,14 @@ mod tests {
         #[tokio::test]
         async fn falls_back_to_feemarket_when_osmosis_unimplemented() {
             let grpc = spawn_grpc(|call| match call.path.as_str() {
-                FEEMARKET => feemarket(&[("uatom", "0.5")]),
+                FEEMARKET => feemarket("uatom", "0.5"),
                 _ => unimplemented(call),
             })
             .await;
             let cache = OnceLock::new();
             assert_price(resolve(&grpc, &cache).await, 0.5 * 1.1);
             assert!(matches!(cache.get(), Some(DynamicGasBackend::Feemarket)));
-            let req: GasPricesRequest = grpc.calls_to(FEEMARKET)[0].decode();
+            let req: GasPriceRequest = grpc.calls_to(FEEMARKET)[0].decode();
             assert_eq!(req.denom, "uatom");
 
             resolve(&grpc, &cache).await;
@@ -482,9 +527,9 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn empty_feemarket_prices_mark_backends_unavailable() {
+        async fn feemarket_without_price_for_denom_marks_backends_unavailable() {
             let grpc = spawn_grpc(|call| match call.path.as_str() {
-                FEEMARKET => feemarket(&[]),
+                FEEMARKET => reply(&GasPriceResponse { price: None }),
                 _ => unimplemented(call),
             })
             .await;
@@ -520,7 +565,6 @@ mod tests {
         const HUB_MAINNET_GAS_PRICES: &[u8] = b"\n\x19\n\x05uatom\x12\x105000000000000000";
 
         #[tokio::test]
-        #[ignore = "bug: osmosis LegacyDec base fee parsed as decimal, 1e18 too large"]
         async fn osmosis_base_fee_decodes_legacy_dec_wire_format() {
             let grpc = spawn_grpc(|call| match call.path.as_str() {
                 OSMOSIS => GrpcReply::Ok(OSMOSIS_MAINNET_BASE_FEE.to_vec()),
@@ -531,7 +575,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "bug: feemarket LegacyDec gas price parsed as decimal, 1e18 too large"]
         async fn feemarket_price_decodes_legacy_dec_wire_format() {
             let grpc = spawn_grpc(|call| match call.path.as_str() {
                 FEEMARKET => GrpcReply::Ok(HUB_MAINNET_GAS_PRICES.to_vec()),
@@ -542,15 +585,22 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "bug: feemarket GasPrices ignores denom; first (alphabetical) price is used"]
         async fn feemarket_price_is_for_configured_denom() {
             // A real feemarket node: GasPricesRequest has no fields, so the denom
             // mercury sends is an unknown field and every denom comes back,
             // sorted (neutron-1 lists 23, `factory/...` first). GasPrice is the
             // per-denom RPC.
             let grpc = spawn_grpc(|call| match call.path.as_str() {
-                FEEMARKET => feemarket(&[("factory/x/APOLLO", "0.9"), ("uatom", "0.5")]),
-                "/feemarket.feemarket.v1.Query/GasPrice" => feemarket(&[("uatom", "0.5")]),
+                FEEMARKET_ALL => reply(&GasPricesResponse {
+                    prices: [("factory/x/APOLLO", "0.9"), ("uatom", "0.5")]
+                        .into_iter()
+                        .map(|(denom, amount)| DecCoin {
+                            denom: denom.into(),
+                            amount: amount.into(),
+                        })
+                        .collect(),
+                }),
+                FEEMARKET => feemarket("uatom", "0.5"),
                 _ => unimplemented(call),
             })
             .await;
@@ -558,7 +608,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "bug: one transient probe failure caches Unavailable for the process lifetime"]
         async fn transient_probe_failure_does_not_disable_dynamic_pricing() {
             let feemarket_calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
             let counter = feemarket_calls.clone();
@@ -567,7 +616,7 @@ mod tests {
                     if counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
                         GrpcReply::Err(tonic::Status::unavailable("node restarting"))
                     } else {
-                        feemarket(&[("uatom", "0.5")])
+                        feemarket("uatom", "0.5")
                     }
                 }
                 _ => unimplemented(call),
@@ -592,7 +641,7 @@ mod tests {
         #[tokio::test]
         async fn cached_feemarket_queries_only_feemarket() {
             let grpc = spawn_grpc(|call| match call.path.as_str() {
-                FEEMARKET => feemarket(&[("uatom", "0.2")]),
+                FEEMARKET => feemarket("uatom", "0.2"),
                 _ => osmosis("0.9"),
             })
             .await;

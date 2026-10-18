@@ -219,9 +219,13 @@ fn signing_hash(data: &[u8], kind: AttestationKind) -> B256 {
     B256::from_slice(&hasher.finalize())
 }
 
-fn recover_signer(att: &Attestation, kind: AttestationKind) -> Result<Address> {
+/// Recovers the signer and re-encodes the signature as low-s with v in
+/// {27, 28}, the only form every verifier accepts (OpenZeppelin `ECDSA`
+/// rejects high-s; ibc-go and Solana reject EIP-155 style v).
+fn recover_signer(att: &Attestation, kind: AttestationKind) -> Result<(Address, Vec<u8>)> {
     let sig = Signature::from_raw(&att.signature)?;
-    Ok(sig.recover_address_from_prehash(&signing_hash(&att.attested_data, kind))?)
+    let signer = sig.recover_address_from_prehash(&signing_hash(&att.attested_data, kind))?;
+    Ok((signer, sig.normalized_s().as_bytes().to_vec()))
 }
 
 /// Groups attestations by the data they sign, keeping one signature per
@@ -237,9 +241,9 @@ fn aggregate(
 ) -> Result<AggregatedAttestation> {
     let mut groups: HashMap<Vec<u8>, (Attestation, SignaturesBySigner)> = HashMap::new();
     for att in attestations {
-        let signer = match recover_signer(&att, kind) {
-            Ok(signer) if signers.contains(&signer) => signer,
-            Ok(signer) => {
+        let (signer, signature) = match recover_signer(&att, kind) {
+            Ok((signer, signature)) if signers.contains(&signer) => (signer, signature),
+            Ok((signer, _)) => {
                 tracing::warn!(%signer, "dropping attestation from unknown signer");
                 continue;
             }
@@ -251,7 +255,7 @@ fn aggregate(
         let (_, sigs) = groups
             .entry(att.attested_data.clone())
             .or_insert_with(|| (att.clone(), HashMap::new()));
-        sigs.entry(signer).or_insert(att.signature);
+        sigs.entry(signer).or_insert(signature);
     }
 
     let mut ranked: Vec<_> = groups.into_values().collect();

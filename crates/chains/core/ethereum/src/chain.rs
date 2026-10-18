@@ -118,6 +118,7 @@ impl EthereumChain {
             ClientPayloadMode::Attested {
                 attestor_endpoints,
                 quorum_threshold,
+                ..
             } => PayloadClient::Attested(AggregatorClient::new(
                 attestor_endpoints.clone(),
                 *quorum_threshold,
@@ -714,6 +715,7 @@ mod tests {
                 },
                 ClientPayloadMode::Attested {
                     attestor_endpoints: vec!["http://a".to_string()],
+                    attestor_addresses: vec![],
                     quorum_threshold: 1,
                 },
             ];

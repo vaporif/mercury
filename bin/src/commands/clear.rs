@@ -33,10 +33,12 @@ pub struct ClearPacketsCmd {
     /// Counterparty client ID
     #[arg(long)]
     counterparty_client: String,
-    /// Specific sequences to clear (e.g. "1,5,10..20")
+    /// Specific sequences to clear (e.g. "1,5,10..20"), at most 10000
     #[arg(long)]
     sequences: Option<String>,
 }
+
+const MAX_SEQUENCES: usize = 10_000;
 
 fn parse_sequences(input: &str) -> eyre::Result<Vec<u64>> {
     let mut result = Vec::new();
@@ -54,11 +56,21 @@ fn parse_sequences(input: &str) -> eyre::Result<Vec<u64>> {
             if start > end {
                 eyre::bail!("invalid sequence range: {start}..{end}");
             }
+            let len = usize::try_from(end - start)
+                .ok()
+                .and_then(|n| n.checked_add(1))
+                .filter(|n| result.len() + n <= MAX_SEQUENCES);
+            if len.is_none() {
+                eyre::bail!("too many sequences: at most {MAX_SEQUENCES} per run");
+            }
             result.extend(start..=end);
         } else {
             let seq: u64 = part
                 .parse()
                 .map_err(|e| eyre::eyre!("invalid sequence '{part}': {e}"))?;
+            if result.len() >= MAX_SEQUENCES {
+                eyre::bail!("too many sequences: at most {MAX_SEQUENCES} per run");
+            }
             result.push(seq);
         }
     }
@@ -150,6 +162,22 @@ mod tests {
             err_string(parse_sequences("5..3")),
             "invalid sequence range: 5..3"
         );
+    }
+
+    #[test]
+    fn rejects_more_sequences_than_the_cap() {
+        let at_cap = format!("1..{MAX_SEQUENCES}");
+        assert_eq!(parse_sequences(&at_cap).unwrap().len(), MAX_SEQUENCES);
+        let over = format!("0..{MAX_SEQUENCES}");
+        assert!(err_string(parse_sequences(&over)).contains("too many sequences"));
+        let split = format!("1..{MAX_SEQUENCES},0");
+        assert!(err_string(parse_sequences(&split)).contains("too many sequences"));
+    }
+
+    #[test]
+    fn rejects_full_u64_range_without_allocating_it() {
+        let err = err_string(parse_sequences(&format!("0..{}", u64::MAX)));
+        assert!(err.contains("too many sequences"), "{err}");
     }
 
     #[test]

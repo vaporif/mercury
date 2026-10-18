@@ -160,9 +160,7 @@ fn build_chunked_packet_message(
                 chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
             }
             for ix in ixs {
-                chunk_messages.push(SolanaMessage {
-                    instructions: vec![ix],
-                });
+                chunk_messages.push(chunk_upload_message(ix));
             }
         } else {
             payload_chunk_counts.push(0);
@@ -176,9 +174,7 @@ fn build_chunked_packet_message(
         chunk_account_metas.push(solana_sdk::instruction::AccountMeta::new(*pda, false));
     }
     for ix in proof_ixs {
-        chunk_messages.push(SolanaMessage {
-            instructions: vec![ix],
-        });
+        chunk_messages.push(chunk_upload_message(ix));
     }
 
     let proof = mercury_solana::ibc_types::MsgProof {
@@ -204,6 +200,14 @@ fn build_chunked_packet_message(
         packet_message,
         cleanup_message,
     })
+}
+
+/// One chunk upload per transaction: two chunks exceed the packet size limit.
+/// The compute budget prefix is also what `send_messages` splits on.
+fn chunk_upload_message(ix: solana_sdk::instruction::Instruction) -> SolanaMessage {
+    SolanaMessage {
+        instructions: instructions::with_compute_budget(ix),
+    }
 }
 
 /// Wrap cleanup instructions with a compute budget prefix.
@@ -1158,8 +1162,8 @@ mod builder_tests {
         .await
         .unwrap();
 
-        // proof upload, then [budget, budget, recv], then [budget, budget, cleanup]
-        assert_eq!(msg.instructions.len(), 7);
+        // [budget, budget, x] for the proof upload, recv, then cleanup
+        assert_eq!(msg.instructions.len(), 9);
         let recv = find(&msg, "recv_packet");
         assert_eq!(recv.len(), 1);
         let decoded: MsgRecvPacket = decode(recv[0], "recv_packet");
@@ -1311,19 +1315,25 @@ mod builder_tests {
             .iter()
             .position(|ix| is_method(ix, "cleanup_chunks"))
             .unwrap();
-        assert_eq!(recv_pos, 6 + 2, "six uploads, then the compute budget");
+        assert_eq!(recv_pos, 6 * 3 + 2, "six budgeted uploads, then the budget");
         assert!(cleanup_pos > recv_pos);
     }
 
     use solana_packet::PACKET_DATA_SIZE;
 
     async fn sent_tx_sizes(payload_len: usize, proof_len: usize) -> Vec<usize> {
-        let (d, rpc) = deployed(DEST_CLIENT);
+        sent_tx_sizes_for(DEST_CLIENT, payload_len, proof_len).await
+    }
+
+    async fn sent_tx_sizes_for(client: &str, payload_len: usize, proof_len: usize) -> Vec<usize> {
+        let (d, rpc) = deployed(client);
         let sent = rpc.sent_txs.clone();
         let a = adapter(&d, rpc);
+        let mut packet = cosmos_packet(vec![payload(payload_len)]);
+        packet.dest_client_id = RawClientId(client.into());
         let msg = PacketMessageBuilder::<Cosmos>::build_receive_packet_message(
             &a,
-            &cosmos_packet(vec![payload(payload_len)]),
+            &packet,
             proof(proof_len),
             height(PROOF_HEIGHT),
             0,
@@ -1344,11 +1354,7 @@ mod builder_tests {
         assert!(sizes.iter().all(|&s| s <= PACKET_DATA_SIZE), "{sizes:?}");
     }
 
-    // Chunk uploads carry no compute-budget prefix, so `send_messages` (which
-    // splits only at SetComputeUnitLimit) packs every upload into one
-    // transaction: a 1801-byte proof yields a single ~2.3 KB transaction.
     #[tokio::test]
-    #[ignore = "bug: consecutive chunk uploads are sent as one oversized transaction"]
     async fn each_chunk_upload_is_sent_as_its_own_transaction() {
         // three proof uploads, recv, cleanup
         let sizes = sent_tx_sizes(10, 1801).await;
@@ -1362,7 +1368,6 @@ mod builder_tests {
     // Two chunks carry 2 * CHUNK_DATA_SIZE = 1800 data bytes, so they cannot
     // share a transaction whatever the account encoding (ALT or not).
     #[tokio::test]
-    #[ignore = "bug: two chunk uploads share one transaction larger than PACKET_DATA_SIZE"]
     async fn chunked_recv_transactions_fit_in_a_packet() {
         let two_proof_chunks = sent_tx_sizes(10, 1801).await;
         let payload_and_proof_chunk = sent_tx_sizes(400, 600).await;
@@ -1374,6 +1379,16 @@ mod builder_tests {
             "limit {PACKET_DATA_SIZE}: two proof chunks {two_proof_chunks:?}, \
              payload+proof chunk {payload_and_proof_chunk:?}"
         );
+    }
+
+    // The relayer may run without an address lookup table, and client ids go
+    // up to 32 bytes (MAX_CLIENT_ID_LENGTH), so a full chunk must fit regardless.
+    #[tokio::test]
+    async fn full_chunks_fit_without_alt_for_longest_client_id() {
+        let client = "07-tendermint-123456789012345678";
+        assert_eq!(client.len(), 32);
+        let sizes = sent_tx_sizes_for(client, 3000, 3000).await;
+        assert!(sizes.iter().all(|&s| s <= PACKET_DATA_SIZE), "{sizes:?}");
     }
 
     #[tokio::test]

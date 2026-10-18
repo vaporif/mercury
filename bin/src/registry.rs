@@ -92,7 +92,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "bug: https grpc_addr panics in the shipped binary, ring and aws-lc-rs both enabled"]
     async fn cosmos_connect_with_https_grpc_errors_instead_of_panicking() {
         let rpc = status_rpc().await;
         let dir = tempfile::tempdir().unwrap();

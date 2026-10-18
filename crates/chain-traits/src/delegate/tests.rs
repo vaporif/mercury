@@ -156,6 +156,11 @@ impl<T: Flavor> ChainStatusQuery for Mock<T> {
             timestamp: 9000,
         })
     }
+
+    async fn query_latest_height(&self) -> Result<u64> {
+        self.hit("query_latest_height");
+        Ok(42)
+    }
 }
 
 fn proof_for(tag: &str, client: &str, seq: PacketSequence, height: u64) -> Vec<u8> {
@@ -950,6 +955,7 @@ where
     assert_eq!(wrapper.update_payload_proof_height(&payload), Some(11));
     assert_eq!(wrapper.update_payload_message_height(&payload), Some(22));
     assert_eq!(wrapper.required_dst_timestamp_secs(&payload), Some(45));
+    assert_eq!(wrapper.proof_height_without_update(&50, &40), 40);
     assert_eq!(
         wrapper
             .build_upgrade_client_payload()
@@ -970,6 +976,7 @@ const FORWARDED: &[&str] = &[
     "chain_label",
     "send_messages",
     "query_chain_status",
+    "query_latest_height",
     "query_packet_commitment",
     "query_packet_receipt",
     "query_packet_acknowledgement",
@@ -1054,33 +1061,14 @@ fn skip_cpb_wrapper_still_forwards_base_traits() {
 fn generic_wrapper_forwards_client_payload_builder() {
     let wrapper = GenericWrap::<Other>(Mock::new("chain-a"));
     block_on(check_payload_builder::<_, Mock<Plain>>(&wrapper));
-    assert_eq!(
-        ClientPayloadBuilder::<Mock<Plain>>::proof_height_without_update(&wrapper, &50, &40),
-        40
-    );
     assert_reached(&wrapper.0.calls(), FORWARDED_CPB);
 }
 
 #[test]
-fn plain_wrapper_forwards_client_payload_builder_except_proof_height() {
+fn plain_wrapper_forwards_client_payload_builder() {
     let wrapper = PlainWrap(Mock::new("chain-a"));
     block_on(check_payload_builder::<_, Mock<Other>>(&wrapper));
-    let without_proof_height: Vec<_> = FORWARDED_CPB
-        .iter()
-        .copied()
-        .filter(|m| *m != "proof_height_without_update")
-        .collect();
-    assert_reached(&wrapper.0.calls(), &without_proof_height);
-}
-
-#[test]
-#[ignore = "bug: the `impl[]` arm of delegate_chain! does not forward proof_height_without_update, so SolanaAdapter drops SolanaChain's attested override"]
-fn plain_wrapper_forwards_proof_height_without_update() {
-    let wrapper = PlainWrap(Mock::new("chain-a"));
-    assert_eq!(
-        ClientPayloadBuilder::<Mock<Other>>::proof_height_without_update(&wrapper, &50, &40),
-        40
-    );
+    assert_reached(&wrapper.0.calls(), FORWARDED_CPB);
 }
 
 #[test]

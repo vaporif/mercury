@@ -276,7 +276,10 @@ async fn paginated_packet_sequences<S: CosmosSigner>(
 
         sequences.extend(matched);
 
-        if response.txs.len() < usize::from(per_page) {
+        // CometBFT rejects a page past the last one, so stop on total_count.
+        let seen = u64::from(page) * u64::from(per_page);
+        if response.txs.len() < usize::from(per_page) || seen >= u64::from(response.total_count)
+        {
             break;
         }
         page += 1;
@@ -1209,18 +1212,7 @@ mod tests {
 
         #[tokio::test]
         async fn sequences_follow_full_pages_until_a_short_one() {
-            let ours = "07-tendermint-3";
-            let rpc = spawn_rpc(move |call| {
-                let page: u64 = call.params["page"].as_str().unwrap().parse().unwrap();
-                let count = if page == 1 { 100 } else { 3 };
-                let base = (page - 1) * 100;
-                tx_search_reply(
-                    (1..=count)
-                        .map(|i| packet_tx("send_packet", base + i, ours, "x"))
-                        .collect(),
-                )
-            })
-            .await;
+            let rpc = spawn_rpc(|call| cometbft_tx_search(103, call)).await;
             let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
             let seqs = chain
                 .query_commitment_sequences(&client_id(), &height(1))
@@ -1260,7 +1252,6 @@ mod tests {
         }
 
         #[tokio::test]
-        #[ignore = "bug: tx_search requests page N+1 after an exactly-full page; CometBFT rejects it"]
         async fn sequences_exactly_one_full_page_against_cometbft_pagination() {
             let rpc = spawn_rpc(|call| cometbft_tx_search(100, call)).await;
             let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);

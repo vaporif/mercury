@@ -4,7 +4,13 @@ use solana_sdk::pubkey::Pubkey;
 
 use crate::accounts::{self, AccessManager, Ics26Router};
 
+/// Largest chunk the on-chain programs accept.
 pub const CHUNK_DATA_SIZE: usize = 900;
+
+/// Payload/proof chunk size the relayer uploads. A full `CHUNK_DATA_SIZE`
+/// upload with its compute budget prefix and a 32-byte client id is ~1350
+/// bytes, over the 1232-byte transaction limit unless an ALT shortens it.
+pub const PACKET_CHUNK_SIZE: usize = 768;
 
 pub struct ChunkContext<'a> {
     pub ics26_program_id: &'a Pubkey,
@@ -120,12 +126,16 @@ fn upload_proof_chunk(
     })
 }
 
+fn chunk_packet_data(data: &[u8]) -> Vec<Vec<u8>> {
+    data.chunks(PACKET_CHUNK_SIZE).map(<[u8]>::to_vec).collect()
+}
+
 pub fn chunk_payload(
     ctx: &ChunkContext<'_>,
     payload_index: u8,
     payload_data: &[u8],
 ) -> eyre::Result<(Vec<Instruction>, Vec<Pubkey>)> {
-    let chunks = chunk_data(payload_data);
+    let chunks = chunk_packet_data(payload_data);
     let mut instructions = Vec::with_capacity(chunks.len());
     let mut pdas = Vec::with_capacity(chunks.len());
 
@@ -156,7 +166,7 @@ pub fn chunk_proof(
     ctx: &ChunkContext<'_>,
     proof_data: &[u8],
 ) -> eyre::Result<(Vec<Instruction>, Vec<Pubkey>)> {
-    let chunks = chunk_data(proof_data);
+    let chunks = chunk_packet_data(proof_data);
     let mut instructions = Vec::with_capacity(chunks.len());
     let mut pdas = Vec::with_capacity(chunks.len());
 
@@ -406,11 +416,11 @@ mod tests {
     #[test]
     fn chunk_index_limit_is_u8() {
         let k = Keys::new();
-        let max = vec![0u8; MAX_CHUNKS * CHUNK_DATA_SIZE];
+        let max = vec![0u8; MAX_CHUNKS * PACKET_CHUNK_SIZE];
         let (ixs, _) = chunk_payload(&k.ctx(), 0, &max).unwrap();
         assert_eq!(ixs.len(), MAX_CHUNKS);
 
-        let over = vec![0u8; MAX_CHUNKS * CHUNK_DATA_SIZE + 1];
+        let over = vec![0u8; MAX_CHUNKS * PACKET_CHUNK_SIZE + 1];
         let err = chunk_payload(&k.ctx(), 0, &over).unwrap_err();
         assert!(err.to_string().contains("exceeds u8::MAX"), "{err}");
         assert!(chunk_proof(&k.ctx(), &over).is_err());

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use ibc::core::client::types::Height;
 use ibc::core::host::types::identifiers::ClientId;
 use ibc_client_tendermint::types::{
-    ConsensusState as TendermintConsensusState, Header as TmIbcHeader,
+    Header as TmIbcHeader,
     Misbehaviour as TmMisbehaviour,
 };
 use ibc_proto::google::protobuf::Any;

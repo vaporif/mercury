@@ -636,6 +636,7 @@ impl<S: CosmosSigner> CosmosChain<S> {
 
         let mut responses = Vec::new();
         let mut failed: Vec<(usize, Vec<CosmosMessage>)> = Vec::new();
+        let mut unconfirmed = None;
 
         for (i, batch, result) in results {
             match result {
@@ -643,9 +644,11 @@ impl<S: CosmosSigner> CosmosChain<S> {
                     info!(batch = i, "batch submitted: {tx_hash}");
                     match self.poll_tx_response(&tx_hash).await {
                         Ok(resp) => responses.push(resp),
+                        // Accepted into the mempool, so it may still be included:
+                        // re-sending would double-submit its messages.
                         Err(e) => {
-                            warn!(batch = i, error = %e, "batch poll failed");
-                            failed.push((i, batch));
+                            warn!(batch = i, error = %e, "batch poll failed, not retrying");
+                            unconfirmed.get_or_insert(e);
                         }
                     }
                 }
@@ -678,6 +681,9 @@ impl<S: CosmosSigner> CosmosChain<S> {
             }
         }
 
+        if let Some(e) = unconfirmed {
+            return Err(e);
+        }
         Ok(responses)
     }
 }
@@ -1664,7 +1670,6 @@ mod tests {
         }
 
         #[tokio::test(start_paused = true)]
-        #[ignore = "bug: batch accepted but not seen within poll window is re-broadcast with a fresh nonce"]
         async fn send_messages_parallel_unconfirmed_batch_is_not_double_included() {
             keep_clock_ticking();
             let node = Node::spawn(NodeState {
@@ -1676,6 +1681,7 @@ mod tests {
                 .chain(1)
                 .send_messages(vec![make_msg(1), make_msg(2), make_msg(3)])
                 .await;
+            assert!(result.is_err(), "unconfirmed batch must be reported");
             let included = node.state.lock().unwrap().included_txs.clone();
             // (sequence, message value lengths) of every tx the node accepted
             assert_eq!(
@@ -1685,7 +1691,7 @@ mod tests {
                     (START_SEQ + 1, vec![2]),
                     (START_SEQ + 2, vec![3])
                 ],
-                "broadcast sequences {:?}, send result {result:?}",
+                "broadcast sequences {:?}",
                 node.broadcast_sequences()
             );
         }
