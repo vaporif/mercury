@@ -18,6 +18,10 @@ check-toml:
 fmt:
     cargo fmt --all -- --check
 
+# Type-check all targets
+cargo-check:
+    cargo check --workspace --all-targets
+
 # Clippy
 clippy:
     cargo clippy --workspace -- -D warnings
