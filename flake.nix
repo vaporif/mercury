@@ -201,7 +201,12 @@
         fenixPkgs.targets.wasm32-unknown-unknown.stable.rust-std
       ];
     in {
-      packages.default = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts meta;});
+      # Tests run in the CI Test and Coverage jobs; skip crane's default `cargo test`.
+      packages.default = craneLib.buildPackage (commonArgs
+        // {
+          inherit cargoArtifacts meta;
+          doCheck = false;
+        });
 
       checks = {
         fmt = craneLib.cargoFmt {inherit src;};
