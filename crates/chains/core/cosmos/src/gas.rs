@@ -135,6 +135,10 @@ const LEGACY_DEC_SCALE: f64 = 1e18;
 /// `LegacyDec` fields are marshalled by gogoproto as the 10^18-scaled integer
 /// (`0.03` is sent as `"30000000000000000"`). A decimal point means the value
 /// is already unscaled.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "gas prices tolerate f64 rounding"
+)]
 fn parse_legacy_dec(s: &str) -> Result<f64> {
     if s.contains('.') {
         return parse_decimal_price(s);
@@ -142,7 +146,6 @@ fn parse_legacy_dec(s: &str) -> Result<f64> {
     let scaled: u128 = s
         .parse()
         .map_err(|e| eyre::eyre!("failed to parse gas price '{s}': {e}"))?;
-    #[allow(clippy::cast_precision_loss)]
     Ok(scaled as f64 / LEGACY_DEC_SCALE)
 }
 

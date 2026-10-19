@@ -489,11 +489,17 @@ mod tests {
         let err = attested_config(r#"["http://a1:8080"]"#, 1)
             .validate()
             .unwrap_err();
-        assert!(format!("{err:#}").contains("invalid attestor address"), "{err:#}");
+        assert!(
+            format!("{err:#}").contains("invalid attestor address"),
+            "{err:#}"
+        );
 
         let one = r#"["0x0000000000000000000000000000000000000001"]"#;
         let err = attested_config(one, 2).validate().unwrap_err();
-        assert!(format!("{err:#}").contains("exceeds the 1 attestor_addresses"), "{err:#}");
+        assert!(
+            format!("{err:#}").contains("exceeds the 1 attestor_addresses"),
+            "{err:#}"
+        );
     }
 
     #[test]

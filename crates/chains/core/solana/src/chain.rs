@@ -433,15 +433,11 @@ impl PacketStateQuery for SolanaChain {
         client_id: &Self::ClientId,
         _height: &Self::Height,
     ) -> Result<Vec<PacketSequence>> {
-        self.scan_sequences(
-            client_id,
-            |cid, seq, prog| Ics26Router::packet_commitment_pda(cid, seq, prog),
-            |event| {
-                events::try_decode_send_packet(event)
-                    .filter(|e| e.packet.source_client_id == client_id.0)
-                    .map(|e| e.packet.sequence.0)
-            },
-        )
+        self.scan_sequences(client_id, Ics26Router::packet_commitment_pda, |event| {
+            events::try_decode_send_packet(event)
+                .filter(|e| e.packet.source_client_id == client_id.0)
+                .map(|e| e.packet.sequence.0)
+        })
         .await
     }
 
@@ -450,15 +446,11 @@ impl PacketStateQuery for SolanaChain {
         client_id: &Self::ClientId,
         _height: &Self::Height,
     ) -> Result<Vec<PacketSequence>> {
-        self.scan_sequences(
-            client_id,
-            |cid, seq, prog| Ics26Router::packet_ack_pda(cid, seq, prog),
-            |event| {
-                events::try_decode_write_ack(event)
-                    .filter(|e| e.packet.dest_client_id == client_id.0)
-                    .map(|e| e.packet.sequence.0)
-            },
-        )
+        self.scan_sequences(client_id, Ics26Router::packet_ack_pda, |event| {
+            events::try_decode_write_ack(event)
+                .filter(|e| e.packet.dest_client_id == client_id.0)
+                .map(|e| e.packet.sequence.0)
+        })
         .await
     }
 }
@@ -1483,10 +1475,22 @@ mod tests {
         let other = "07-tendermint-9";
         let live = anchor_account("Commitment", &[0xC0u8; 32]);
         let mut rpc = seed_zeroed_commitments(FakeRpc::default(), &ics26, &[600])
-            .with_account(Ics26Router::packet_commitment_pda(CLIENT, 500, &ics26).0, live.clone())
-            .with_account(Ics26Router::packet_commitment_pda(CLIENT, 700, &ics26).0, live.clone())
-            .with_account(Ics26Router::packet_commitment_pda(CLIENT, 800, &ics26).0, live.clone())
-            .with_account(Ics26Router::packet_commitment_pda(other, 500, &ics26).0, live)
+            .with_account(
+                Ics26Router::packet_commitment_pda(CLIENT, 500, &ics26).0,
+                live.clone(),
+            )
+            .with_account(
+                Ics26Router::packet_commitment_pda(CLIENT, 700, &ics26).0,
+                live.clone(),
+            )
+            .with_account(
+                Ics26Router::packet_commitment_pda(CLIENT, 800, &ics26).0,
+                live.clone(),
+            )
+            .with_account(
+                Ics26Router::packet_commitment_pda(other, 500, &ics26).0,
+                live,
+            )
             .with_account(
                 Ics26Router::packet_ack_pda(COUNTERPARTY_CLIENT, 800, &ics26).0,
                 anchor_account("Commitment", &[0xA0u8; 32]),
@@ -1501,13 +1505,20 @@ mod tests {
             history_tx(&ics26, vec![ack_log(800)]),
         ];
         let c = chain_with(ics26, rpc);
-        let commitments = |client: &str| {
+        let commitments = async |client: &str| {
             c.query_commitment_sequences(&SolanaClientId(client.into()), &SolanaHeight(0))
+                .await
         };
-        assert_eq!(commitments(CLIENT).await.unwrap(), vec![PacketSequence(500)]);
+        assert_eq!(
+            commitments(CLIENT).await.unwrap(),
+            vec![PacketSequence(500)]
+        );
         assert_eq!(commitments(other).await.unwrap(), vec![]);
         let acks = c
-            .query_ack_sequences(&SolanaClientId(COUNTERPARTY_CLIENT.into()), &SolanaHeight(0))
+            .query_ack_sequences(
+                &SolanaClientId(COUNTERPARTY_CLIENT.into()),
+                &SolanaHeight(0),
+            )
             .await
             .unwrap();
         assert_eq!(acks, vec![PacketSequence(800)]);
@@ -1613,7 +1624,10 @@ mod tests {
         json!({ "transaction": ["", "base64"], "meta": meta })
     }
 
-    fn history_tx(program: &Pubkey, logs: Vec<String>) -> (solana_sdk::signature::Signature, Value) {
+    fn history_tx(
+        program: &Pubkey,
+        logs: Vec<String>,
+    ) -> (solana_sdk::signature::Signature, Value) {
         let mut entry = tx(program, Some(logs), false);
         entry["slot"] = json!(1);
         (solana_sdk::signature::Signature::new_unique(), entry)

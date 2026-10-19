@@ -220,7 +220,7 @@ fn signing_hash(data: &[u8], kind: AttestationKind) -> B256 {
 }
 
 /// Recovers the signer and re-encodes the signature as low-s with v in
-/// {27, 28}, the only form every verifier accepts (OpenZeppelin `ECDSA`
+/// {27, 28}, the only form every verifier accepts (`OpenZeppelin` `ECDSA`
 /// rejects high-s; ibc-go and Solana reject EIP-155 style v).
 fn recover_signer(att: &Attestation, kind: AttestationKind) -> Result<(Address, Vec<u8>)> {
     let sig = Signature::from_raw(&att.signature)?;

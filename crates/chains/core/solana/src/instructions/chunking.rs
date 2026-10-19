@@ -7,8 +7,9 @@ use crate::accounts::{self, AccessManager, Ics26Router};
 /// Largest chunk the on-chain programs accept.
 pub const CHUNK_DATA_SIZE: usize = 900;
 
-/// Payload/proof chunk size the relayer uploads. A full `CHUNK_DATA_SIZE`
-/// upload with its compute budget prefix and a 32-byte client id is ~1350
+/// Payload/proof chunk size the relayer uploads.
+///
+/// A full `CHUNK_DATA_SIZE` upload with its compute budget prefix and a 32-byte client id is ~1350
 /// bytes, over the 1232-byte transaction limit unless an ALT shortens it.
 pub const PACKET_CHUNK_SIZE: usize = 768;
 

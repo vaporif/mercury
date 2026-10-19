@@ -278,8 +278,7 @@ async fn paginated_packet_sequences<S: CosmosSigner>(
 
         // CometBFT rejects a page past the last one, so stop on total_count.
         let seen = u64::from(page) * u64::from(per_page);
-        if response.txs.len() < usize::from(per_page) || seen >= u64::from(response.total_count)
-        {
+        if response.txs.len() < usize::from(per_page) || seen >= u64::from(response.total_count) {
             break;
         }
         page += 1;

@@ -1,10 +1,7 @@
 use async_trait::async_trait;
 use ibc::core::client::types::Height;
 use ibc::core::host::types::identifiers::ClientId;
-use ibc_client_tendermint::types::{
-    Header as TmIbcHeader,
-    Misbehaviour as TmMisbehaviour,
-};
+use ibc_client_tendermint::types::{Header as TmIbcHeader, Misbehaviour as TmMisbehaviour};
 use ibc_proto::google::protobuf::Any;
 use ibc_proto::ibc::core::client::v1::{
     MsgUpdateClient, QueryConsensusStateHeightsRequest,

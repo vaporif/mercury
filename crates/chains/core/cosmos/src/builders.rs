@@ -293,9 +293,15 @@ pub(crate) async fn fetch_trusted_state<S: CosmosSigner>(
     let header = trusted_commit_response.signed_header.header;
     // The trusted block's proposer is only a best guess for the next set;
     // proposer does not affect the set hash.
-    let proposer = find_proposer(&next_validators_response.validators, &header.proposer_address);
+    let proposer = find_proposer(
+        &next_validators_response.validators,
+        &header.proposer_address,
+    );
     let next_validator_set = ValidatorSet::new(next_validators_response.validators, proposer);
-    Ok((Some(TendermintConsensusState::from(header)), next_validator_set))
+    Ok((
+        Some(TendermintConsensusState::from(header)),
+        next_validator_set,
+    ))
 }
 
 pub(crate) fn find_proposer(
