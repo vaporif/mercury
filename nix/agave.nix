@@ -12,6 +12,7 @@
   hidapi,
   udev,
   llvmPackages,
+  rocksdb,
   solanaPkgs ? [
     "solana"
     "solana-faucet"
@@ -32,66 +33,70 @@ in
   (rustPlatform.buildRustPackage.override {
     rustc = rustForAgave;
     cargo = rustForAgave;
-  }) {
-    pname = "agave";
-    inherit version;
+  }) ({
+      pname = "agave";
+      inherit version;
 
-    src = fetchFromGitHub {
-      owner = "anza-xyz";
-      repo = "agave";
-      rev = "v${version}";
-      hash = "sha256-pIvShCRy1OQcFwSkXZ/lLF+2LoAd2wyAQfyyUtj9La0=";
-      fetchSubmodules = true;
-    };
+      src = fetchFromGitHub {
+        owner = "anza-xyz";
+        repo = "agave";
+        rev = "v${version}";
+        hash = "sha256-pIvShCRy1OQcFwSkXZ/lLF+2LoAd2wyAQfyyUtj9La0=";
+        fetchSubmodules = true;
+      };
 
-    cargoHash = "sha256-eendPKd1oZmVqWAGWxm+AayLDm5w9J6/gSEPUXJZj88=";
+      cargoHash = "sha256-eendPKd1oZmVqWAGWxm+AayLDm5w9J6/gSEPUXJZj88=";
 
-    cargoBuildFlags = map (n: "--bin=${n}") solanaPkgs;
+      cargoBuildFlags = map (n: "--bin=${n}") solanaPkgs;
 
-    nativeBuildInputs = [
-      pkg-config
-      protobuf
-      perl
-      llvmPackages.clang
-    ];
-
-    buildInputs =
-      [
-        openssl
-        zlib
-        llvmPackages.libclang.lib
-      ]
-      ++ optionals isLinux [
-        hidapi
-        udev
+      nativeBuildInputs = [
+        pkg-config
+        protobuf
+        perl
+        llvmPackages.clang
       ];
 
-    LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
+      buildInputs =
+        [
+          openssl
+          zlib
+          llvmPackages.libclang.lib
+        ]
+        ++ optionals isLinux [
+          hidapi
+          udev
+        ];
 
-    BINDGEN_EXTRA_CLANG_ARGS = toString (
-      [
-        "-isystem ${llvmPackages.libclang.lib}/lib/clang/${lib.getVersion llvmPackages.clang}/include"
-      ]
-      ++ optionals isLinux [
-        "-isystem ${stdenv.cc.libc.dev}/include"
-      ]
-      ++ optionals hostPlatform.isDarwin [
-        "-isystem ${stdenv.cc.libc}/include"
-      ]
-    );
+      LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
 
-    postPatch = ''
-      substituteInPlace scripts/cargo-install-all.sh \
-        --replace-fail './fetch-perf-libs.sh' 'echo "Skipping fetch-perf-libs in Nix build"' \
-        --replace-fail '"$cargo" $maybeRustVersion install' 'echo "Skipping cargo install"'
-    '';
+      BINDGEN_EXTRA_CLANG_ARGS = toString (
+        [
+          "-isystem ${llvmPackages.libclang.lib}/lib/clang/${lib.getVersion llvmPackages.clang}/include"
+        ]
+        ++ optionals isLinux [
+          "-isystem ${stdenv.cc.libc.dev}/include"
+        ]
+        ++ optionals hostPlatform.isDarwin [
+          "-isystem ${stdenv.cc.libc}/include"
+        ]
+      );
 
-    doCheck = false;
+      postPatch = ''
+        substituteInPlace scripts/cargo-install-all.sh \
+          --replace-fail './fetch-perf-libs.sh' 'echo "Skipping fetch-perf-libs in Nix build"' \
+          --replace-fail '"$cargo" $maybeRustVersion install' 'echo "Skipping cargo install"'
+      '';
 
-    meta = with lib; {
-      description = "Agave Solana validator and CLI tools";
-      homepage = "https://github.com/anza-xyz/agave";
-      license = licenses.asl20;
-      platforms = platforms.unix;
-    };
-  }
+      doCheck = false;
+
+      meta = with lib; {
+        description = "Agave Solana validator and CLI tools";
+        homepage = "https://github.com/anza-xyz/agave";
+        license = licenses.asl20;
+        platforms = platforms.unix;
+      };
+    }
+    # Bundled RocksDB 9.9 fails to compile with GCC 15; link nixpkgs' build instead (as nixpkgs' solana-cli does).
+    // lib.optionalAttrs isLinux {
+      ROCKSDB_LIB_DIR = "${rocksdb}/lib";
+    })

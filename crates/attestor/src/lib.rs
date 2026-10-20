@@ -5,6 +5,12 @@ pub mod aggregator;
 pub mod client;
 pub mod packet;
 pub mod proto;
+#[cfg(test)]
+#[expect(
+    clippy::result_large_err,
+    reason = "mock attestor handlers return tonic::Status"
+)]
+mod test_support;
 
 pub use aggregator::{AggregatedAttestation, Aggregator, AttestationKind, wait_for_height};
 pub use client::{AttestorClient, CommitmentType};

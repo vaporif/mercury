@@ -325,3 +325,281 @@ impl<R: Relay> Worker for EventWatcher<R> {
         result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet, VecDeque};
+
+    use mercury_chain_traits::types::Port;
+
+    use super::*;
+    use crate::filter::{FilterPolicy, PacketFilterConfig};
+    use crate::testhelpers::*;
+
+    type Events = mpsc::Receiver<Vec<IbcEvent<MockRelay>>>;
+
+    fn watcher(
+        src: MockState,
+        start_height: Option<u64>,
+    ) -> (EventWatcher<MockRelay>, Events, SharedState) {
+        let (relay, src_state, _) = mock_relay(src, MockState::default());
+        let (sender, rx) = mpsc::channel(8);
+        let watcher = EventWatcher {
+            relay,
+            sender,
+            token: CancellationToken::new(),
+            start_height,
+            packet_filter: None,
+            metrics: EventMetrics::new(&mock_label()),
+        };
+        (watcher, rx, src_state)
+    }
+
+    fn transfer_only() -> PacketFilter {
+        PacketFilter::new(&PacketFilterConfig {
+            policy: FilterPolicy::Allow,
+            source_ports: vec![Port("transfer".into())],
+        })
+        .unwrap()
+    }
+
+    fn send(seq: u64) -> MockEvent {
+        MockEvent::Send(MockPacket::new(seq))
+    }
+
+    fn stream(blocks: Vec<MockBlock>, keep_open: bool) -> Subscription {
+        Subscription::Stream { blocks, keep_open }
+    }
+
+    fn spawn(
+        watcher: EventWatcher<MockRelay>,
+    ) -> (CancellationToken, tokio::task::JoinHandle<Result<()>>) {
+        let token = watcher.token.clone();
+        (token, tokio::spawn(watcher.run()))
+    }
+
+    async fn stop(token: CancellationToken, handle: tokio::task::JoinHandle<Result<()>>) {
+        token.cancel();
+        handle.await.unwrap().unwrap();
+    }
+
+    #[test]
+    fn extract_keeps_send_and_ack_events_and_drops_others() {
+        let (watcher, _rx, _) = watcher(MockState::default(), None);
+        let events = vec![
+            send(1),
+            MockEvent::Other,
+            MockEvent::Ack(MockPacket::new(2)),
+            send(3),
+        ];
+        assert_eq!(
+            event_seqs(watcher.extract_and_filter(&events)),
+            (vec![1, 3], vec![2])
+        );
+    }
+
+    #[test]
+    fn extract_applies_packet_filter_to_sends_and_acks() {
+        let (mut watcher, _rx, _) = watcher(MockState::default(), None);
+        watcher.packet_filter = Some(transfer_only());
+        let events = vec![
+            MockEvent::Send(MockPacket::on_port(1, "transfer")),
+            MockEvent::Send(MockPacket::on_port(2, "icahost")),
+            MockEvent::Ack(MockPacket::on_port(3, "transfer")),
+            MockEvent::Ack(MockPacket::on_port(4, "icahost")),
+        ];
+        assert_eq!(
+            event_seqs(watcher.extract_and_filter(&events)),
+            (vec![1], vec![3])
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn polling_forwards_events_up_to_but_excluding_latest() {
+        let src = MockState {
+            latest_height: 13,
+            block_events: HashMap::from([(11, vec![send(1)]), (12, vec![MockEvent::Other])]),
+            ..Default::default()
+        };
+        let (watcher, mut rx, src_state) = watcher(src, Some(10));
+        let (token, handle) = spawn(watcher);
+
+        assert_eq!(event_seqs(recv(&mut rx).await), (vec![1], vec![]));
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        stop(token, handle).await;
+
+        // Empty block 12 is queried but produces no channel message.
+        assert!(rx.try_recv().is_err());
+        assert_eq!(src_state.lock().unwrap().queried_blocks, vec![11, 12]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn polling_starts_from_latest_height_when_unset() {
+        let (watcher, _rx, src_state) = watcher(MockState::default(), None);
+        let (token, handle) = spawn(watcher);
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        src_state.lock().unwrap().latest_height = 102;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        stop(token, handle).await;
+
+        assert_eq!(src_state.lock().unwrap().queried_blocks, vec![101]);
+    }
+
+    #[tokio::test]
+    async fn run_fails_when_start_height_unavailable() {
+        let src = MockState {
+            status_error: true,
+            ..Default::default()
+        };
+        let (watcher, _rx, _) = watcher(src, None);
+        assert!(watcher.run().await.is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn polling_retries_from_failed_height() {
+        let src = MockState {
+            latest_height: 14,
+            block_query_errors: HashSet::from([12]),
+            ..Default::default()
+        };
+        let (watcher, _rx, src_state) = watcher(src, Some(10));
+        let (token, handle) = spawn(watcher);
+
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        src_state.lock().unwrap().block_query_errors.clear();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        stop(token, handle).await;
+
+        assert_eq!(
+            src_state.lock().unwrap().queried_blocks,
+            vec![11, 12, 12, 13]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn polling_survives_height_query_failure() {
+        let (watcher, _rx, src_state) = watcher(MockState::default(), Some(100));
+        src_state.lock().unwrap().status_error = true;
+        let (token, handle) = spawn(watcher);
+
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        {
+            let mut state = src_state.lock().unwrap();
+            state.status_error = false;
+            state.latest_height = 102;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        stop(token, handle).await;
+
+        assert_eq!(src_state.lock().unwrap().queried_blocks, vec![101]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn polling_cancels_relay_when_channel_closed() {
+        let src = MockState {
+            latest_height: 12,
+            block_events: HashMap::from([(11, vec![send(1)])]),
+            ..Default::default()
+        };
+        let (watcher, rx, _) = watcher(src, Some(10));
+        drop(rx);
+        let token = watcher.token.clone();
+        watcher.run().await.unwrap();
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn websocket_events_are_forwarded_without_polling() {
+        let src = MockState {
+            latest_height: 200,
+            subscriptions: VecDeque::from([stream(
+                vec![Ok((101, vec![send(1)])), Ok((102, vec![send(2)]))],
+                true,
+            )]),
+            ..Default::default()
+        };
+        let (watcher, mut rx, src_state) = watcher(src, Some(100));
+        let (token, handle) = spawn(watcher);
+
+        assert_eq!(event_seqs(recv(&mut rx).await).0, vec![1]);
+        assert_eq!(event_seqs(recv(&mut rx).await).0, vec![2]);
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        stop(token, handle).await;
+
+        assert_eq!(src_state.lock().unwrap().queried_blocks, Vec::<u64>::new());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn websocket_cancels_relay_when_channel_closed() {
+        let src = MockState {
+            subscriptions: VecDeque::from([stream(vec![Ok((101, vec![send(1)]))], true)]),
+            ..Default::default()
+        };
+        let (watcher, rx, _) = watcher(src, Some(100));
+        drop(rx);
+        let token = watcher.token.clone();
+        watcher.run().await.unwrap();
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stream_error_falls_back_and_reconnects() {
+        let src = MockState {
+            subscriptions: VecDeque::from([
+                stream(vec![Err("boom")], false),
+                stream(vec![Ok((150, vec![send(5)]))], true),
+            ]),
+            ..Default::default()
+        };
+        let (watcher, mut rx, src_state) = watcher(src, Some(100));
+        let (token, handle) = spawn(watcher);
+
+        assert_eq!(event_seqs(recv(&mut rx).await).0, vec![5]);
+        stop(token, handle).await;
+
+        assert_eq!(src_state.lock().unwrap().subscribe_calls, 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn initial_connect_failure_reconnects_with_backoff() {
+        let src = MockState {
+            subscriptions: VecDeque::from([
+                Subscription::Err,
+                Subscription::Err,
+                Subscription::Err,
+                stream(vec![Ok((150, vec![send(9)]))], true),
+            ]),
+            ..Default::default()
+        };
+        let (watcher, mut rx, src_state) = watcher(src, Some(100));
+        let (token, handle) = spawn(watcher);
+        let start = tokio::time::Instant::now();
+
+        assert_eq!(event_seqs(recv(&mut rx).await).0, vec![9]);
+        // Reconnect attempts at +0s, +1s, +3s; switched over on the next poll tick.
+        assert!(start.elapsed() >= Duration::from_secs(3));
+        stop(token, handle).await;
+
+        assert_eq!(src_state.lock().unwrap().subscribe_calls, 4);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn ended_stream_without_reconnect_keeps_polling() {
+        let src = MockState {
+            latest_height: 100,
+            subscriptions: VecDeque::from([stream(vec![], false), Subscription::Unavailable]),
+            ..Default::default()
+        };
+        let (watcher, _rx, src_state) = watcher(src, Some(100));
+        let (token, handle) = spawn(watcher);
+
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        src_state.lock().unwrap().latest_height = 103;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        stop(token, handle).await;
+
+        let state = src_state.lock().unwrap();
+        assert_eq!(state.subscribe_calls, 2);
+        assert_eq!(state.queried_blocks, vec![101, 102]);
+    }
+}

@@ -142,6 +142,7 @@ impl ChainPlugin for EthereumPlugin {
             );
         }
 
+        #[cfg(feature = "cosmos-sp1")]
         if let Some(cosmos_payload) =
             payload.downcast_ref::<mercury_cosmos::builders::CosmosCreateClientPayload>()
         {
@@ -160,6 +161,8 @@ impl ChainPlugin for EthereumPlugin {
             return extract_evm_client_id(&responses).map(|id| id.to_string());
         }
 
+        #[cfg(not(feature = "cosmos-sp1"))]
+        let _ = payload;
         eyre::bail!("unsupported reference chain payload type for ethereum host")
     }
 
@@ -231,15 +234,16 @@ impl ChainPlugin for EthereumPlugin {
         client_id: &str,
         payload: Box<dyn Any + Send + Sync>,
     ) -> eyre::Result<()> {
-        use mercury_chain_traits::builders::ClientMessageBuilder;
-        use mercury_chain_traits::types::MessageSender;
-
         let c = downcast_eth(chain)?;
-        let parsed_id = EvmClientId(client_id.to_string());
 
+        #[cfg(feature = "cosmos-sp1")]
         if let Some(cosmos_payload) =
             payload.downcast_ref::<mercury_cosmos::builders::CosmosUpdateClientPayload>()
         {
+            use mercury_chain_traits::builders::ClientMessageBuilder;
+            use mercury_chain_traits::types::MessageSender;
+
+            let parsed_id = EvmClientId(client_id.to_string());
             let output = ClientMessageBuilder::<
                 mercury_cosmos::chain::CosmosChain<mercury_cosmos::keys::Secp256k1KeyPair>,
             >::build_update_client_message(
@@ -255,6 +259,8 @@ impl ChainPlugin for EthereumPlugin {
             return Ok(());
         }
 
+        #[cfg(not(feature = "cosmos-sp1"))]
+        let _ = (c, client_id, payload);
         eyre::bail!("unsupported reference chain payload type for ethereum host");
     }
 }
@@ -277,4 +283,419 @@ pub fn extract_evm_client_id(responses: &[EvmTxResponse]) -> eyre::Result<EvmCli
 
 pub fn register(registry: &mut ChainRegistry) {
     registry.register_chain(EthereumPlugin);
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::{B256, Bytes, U256};
+    use mercury_core::plugin::ChainPlugin;
+    use serde_json::{Value, json};
+
+    use super::*;
+    use crate::builders::{CreateClientPayload, UpdateClientPayload};
+    use crate::contracts::{IICS02ClientMsgs, sp1_ics07};
+    use crate::queries::{ClientStateReturn, encode_client_state};
+    use crate::test_support::{
+        CHAIN_ID, LIGHT_CLIENT, ROUTER, RpcResult, adapter, adapter_with, call_target, config,
+        no_rpc, spawn_node,
+    };
+    use crate::types::EvmEvent;
+
+    fn table(toml_src: &str) -> toml::Table {
+        toml::from_str(toml_src).unwrap()
+    }
+
+    fn valid_table(rpc: &str) -> toml::Table {
+        table(&format!(
+            r#"
+            chain_id = {CHAIN_ID}
+            rpc_addr = "{rpc}"
+            ics26_router = "{ROUTER}"
+            key_file = "eth.key"
+            [client_payload_mode]
+            type = "mock"
+            "#
+        ))
+    }
+
+    fn any_chain(a: EthereumAdapter) -> AnyChain {
+        Arc::new(CachedChain::new(a)) as AnyChain
+    }
+
+    fn block_json(number: u64, timestamp: u64) -> Value {
+        let mut block = alloy::rpc::types::Block::<alloy::rpc::types::Transaction>::default();
+        block.header.inner.number = number;
+        block.header.inner.timestamp = timestamp;
+        serde_json::to_value(block).unwrap()
+    }
+
+    fn status_rpc(method: &str, _: &Value) -> RpcResult {
+        match method {
+            "eth_blockNumber" => Ok(json!("0x2a")),
+            "eth_getBlockByNumber" => Ok(block_json(42, 1_700_000_000)),
+            other => Err(format!("unexpected {other}")),
+        }
+    }
+
+    fn client_added_event(client_id: &str) -> EvmEvent {
+        let data = ICS26Router::ICS02ClientAdded {
+            clientId: client_id.to_string(),
+            counterpartyInfo: IICS02ClientMsgs::CounterpartyInfo {
+                clientId: String::new(),
+                merklePrefix: vec![],
+            },
+            client: LIGHT_CLIENT,
+        }
+        .encode_log_data();
+        EvmEvent {
+            address: ROUTER,
+            topics: data.topics().to_vec(),
+            data: data.data.to_vec(),
+            block_number: crate::types::BlockNumber(1),
+            tx_hash: B256::ZERO,
+            log_index: crate::types::LogIndex(0),
+        }
+    }
+
+    fn other_event() -> EvmEvent {
+        EvmEvent {
+            address: ROUTER,
+            topics: vec![B256::repeat_byte(0x01)],
+            data: vec![1, 2, 3],
+            block_number: crate::types::BlockNumber(1),
+            tx_hash: B256::ZERO,
+            log_index: crate::types::LogIndex(0),
+        }
+    }
+
+    fn response(logs: Vec<EvmEvent>) -> EvmTxResponse {
+        EvmTxResponse {
+            tx_hash: B256::ZERO,
+            block_number: crate::types::BlockNumber(1),
+            gas_used: crate::types::GasUsed(0),
+            logs,
+        }
+    }
+
+    fn sp1_client_state(height: u64) -> ClientStateReturn {
+        ClientStateReturn {
+            chainId: "cosmoshub-4".to_string(),
+            trustLevel: sp1_ics07::IICS07TendermintMsgs::TrustThreshold {
+                numerator: 1,
+                denominator: 3,
+            },
+            latestHeight: sp1_ics07::IICS02ClientMsgs::Height {
+                revisionNumber: 4,
+                revisionHeight: height,
+            },
+            trustingPeriod: 7200,
+            unbondingPeriod: 14400,
+            isFrozen: false,
+            zkAlgorithm: 0,
+        }
+    }
+
+    #[test]
+    fn extract_client_id_finds_client_added_event() {
+        let responses = vec![
+            response(vec![other_event()]),
+            response(vec![other_event(), client_added_event("client-5")]),
+        ];
+        assert_eq!(
+            extract_evm_client_id(&responses).unwrap(),
+            EvmClientId("client-5".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_client_id_errors_without_event() {
+        assert!(extract_evm_client_id(&[]).is_err());
+        let err = extract_evm_client_id(&[response(vec![other_event()])]).unwrap_err();
+        assert!(err.to_string().contains("ICS02ClientAdded"), "{err}");
+    }
+
+    #[test]
+    fn registers_as_ethereum() {
+        let mut registry = ChainRegistry::new();
+        register(&mut registry);
+        assert_eq!(registry.chain("ethereum").unwrap().chain_type(), "ethereum");
+        assert_eq!(EthereumPlugin.chain_type(), "ethereum");
+    }
+
+    #[test]
+    fn validate_config_accepts_valid_and_rejects_invalid() {
+        EthereumPlugin
+            .validate_config(&valid_table("http://localhost:8545"))
+            .unwrap();
+
+        let err = EthereumPlugin
+            .validate_config(&table("chain_id = 1"))
+            .unwrap_err();
+        assert!(err.to_string().contains("invalid ethereum config"), "{err}");
+
+        let err = EthereumPlugin
+            .validate_config(&valid_table("not a url"))
+            .unwrap_err();
+        assert!(format!("{err:#}").contains("rpc_addr"), "{err:#}");
+    }
+
+    #[test]
+    fn chain_id_and_rpc_addr_from_config() {
+        let raw = valid_table("http://node:8545");
+        assert_eq!(
+            EthereumPlugin.chain_id_from_config(&raw).unwrap(),
+            ChainId::from(CHAIN_ID.to_string())
+        );
+        assert_eq!(
+            EthereumPlugin.rpc_addr_from_config(&raw).unwrap(),
+            "http://node:8545"
+        );
+
+        let wrong_types = table("chain_id = \"1\"\nrpc_addr = 5");
+        assert!(EthereumPlugin.chain_id_from_config(&wrong_types).is_err());
+        assert!(EthereumPlugin.rpc_addr_from_config(&wrong_types).is_err());
+        assert!(
+            EthereumPlugin
+                .chain_id_from_config(&toml::Table::new())
+                .is_err()
+        );
+        assert!(
+            EthereumPlugin
+                .rpc_addr_from_config(&toml::Table::new())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn parse_client_id_wraps_raw_string() {
+        let id = EthereumPlugin.parse_client_id("client-0").unwrap();
+        assert_eq!(
+            id.downcast_ref::<EvmClientId>(),
+            Some(&EvmClientId("client-0".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn non_ethereum_handle_is_rejected() {
+        let chain: AnyChain = Arc::new(42u32);
+        let err = EthereumPlugin.query_status(&chain).await.unwrap_err();
+        assert!(
+            err.to_string().contains("expected ethereum chain handle"),
+            "{err}"
+        );
+        assert!(
+            EthereumPlugin
+                .build_create_client_payload(&chain)
+                .await
+                .is_err()
+        );
+    }
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("mercury-eth-plugin-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[tokio::test]
+    async fn connect_loads_key_and_reports_status() {
+        let url = spawn_node(status_rpc).await;
+        let dir = temp_dir("connect");
+        std::fs::write(dir.join("eth.key"), format!("0x{}", "01".repeat(32))).unwrap();
+
+        let chain = EthereumPlugin
+            .connect(&valid_table(&url), &dir)
+            .await
+            .unwrap();
+        let status = EthereumPlugin.query_status(&chain).await.unwrap();
+        assert_eq!(status.chain_id, ChainId::from(CHAIN_ID.to_string()));
+        assert_eq!(status.height, 42);
+        assert_eq!(status.timestamp, "1700000000");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn connect_fails_without_key_file() {
+        let url = spawn_node(no_rpc).await;
+        let dir = temp_dir("nokey");
+        let err = EthereumPlugin
+            .connect(&valid_table(&url), &dir)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("loading signer"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn connect_fails_on_chain_id_mismatch() {
+        let url = spawn_node(no_rpc).await;
+        let dir = temp_dir("mismatch");
+        std::fs::write(dir.join("eth.key"), "01".repeat(32)).unwrap();
+        let mut raw = valid_table(&url);
+        raw.insert("chain_id".to_string(), toml::Value::Integer(1));
+        let err = EthereumPlugin.connect(&raw, &dir).await.unwrap_err();
+        assert!(err.to_string().contains("connecting to chain 1"), "{err}");
+        assert!(err.to_string().contains("mismatch"), "{err}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn connect_rejects_invalid_config() {
+        let err = EthereumPlugin
+            .connect(&table("chain_id = 1"), Path::new("."))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("invalid ethereum config"), "{err}");
+    }
+
+    fn client_state_rpc(method: &str, params: &Value) -> RpcResult {
+        match method {
+            "eth_blockNumber" => Ok(json!("0x64")),
+            "eth_getBlockByNumber" => Ok(block_json(100, 1)),
+            "eth_call" => {
+                let (to, _) = call_target(params);
+                if to == ROUTER {
+                    Ok(json!(B256::left_padding_from(LIGHT_CLIENT.as_slice())))
+                } else {
+                    Ok(json!(Bytes::from(encode_client_state(&sp1_client_state(
+                        77
+                    )))))
+                }
+            }
+            other => Err(format!("unexpected {other}")),
+        }
+    }
+
+    #[tokio::test]
+    async fn client_state_info_decodes_sp1_state() {
+        let chain = any_chain(adapter(client_state_rpc).await);
+        for height in [None, Some(5)] {
+            let info = EthereumPlugin
+                .query_client_state_info(&chain, "client-0", height)
+                .await
+                .unwrap();
+            assert_eq!(info.client_id, "client-0");
+            assert_eq!(info.latest_height, 77);
+            assert_eq!(
+                info.trusting_period,
+                Some(std::time::Duration::from_secs(7200))
+            );
+            assert_eq!(info.client_type, "sp1-tendermint");
+            assert_eq!(info.chain_id, "cosmoshub-4");
+            assert!(!info.frozen);
+        }
+    }
+
+    #[tokio::test]
+    async fn client_state_info_propagates_malformed_contract_response() {
+        let chain = any_chain(
+            adapter(|method, params| match method {
+                "eth_call" if call_target(params).0 == LIGHT_CLIENT => {
+                    Ok(json!(Bytes::from_static(&[1, 2, 3])))
+                }
+                _ => client_state_rpc(method, params),
+            })
+            .await,
+        );
+        let err = EthereumPlugin
+            .query_client_state_info(&chain, "client-0", Some(1))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("clientState() failed"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn commitment_sequences_returns_raw_numbers() {
+        let log = |seq: u64| {
+            let data = ICS26Router::SendPacket {
+                clientId: alloy::primitives::keccak256("client-0"),
+                sequence: U256::from(seq),
+                packet: crate::contracts::IICS26RouterMsgs::Packet {
+                    sequence: seq,
+                    sourceClient: "client-0".to_string(),
+                    destClient: "dst".to_string(),
+                    timeoutTimestamp: 0,
+                    payloads: vec![],
+                },
+            }
+            .encode_log_data();
+            serde_json::to_value(alloy::rpc::types::Log {
+                inner: alloy::primitives::Log {
+                    address: ROUTER,
+                    data,
+                },
+                block_number: Some(1),
+                ..Default::default()
+            })
+            .unwrap()
+        };
+        let logs = json!([log(3), log(1)]);
+        let chain = any_chain(
+            adapter(move |method, params| match method {
+                "eth_getLogs" => {
+                    assert_eq!(params[0]["toBlock"], json!("0x9"));
+                    Ok(logs.clone())
+                }
+                other => Err(format!("unexpected {other}")),
+            })
+            .await,
+        );
+        let seqs = EthereumPlugin
+            .query_commitment_sequences(&chain, "client-0", Some(9))
+            .await
+            .unwrap();
+        assert_eq!(seqs, vec![1, 3]);
+    }
+
+    #[tokio::test]
+    async fn create_and_update_payloads_in_mock_mode() {
+        let chain = any_chain(adapter(no_rpc).await);
+        let create = EthereumPlugin
+            .build_create_client_payload(&chain)
+            .await
+            .unwrap();
+        assert!(create.downcast_ref::<CreateClientPayload>().is_some());
+
+        let update = EthereumPlugin
+            .build_update_client_payload(&chain, 10, 11, None)
+            .await
+            .unwrap();
+        let update = update.downcast_ref::<UpdateClientPayload>().unwrap();
+        assert_eq!(update.headers.len(), 1);
+
+        let err = EthereumPlugin
+            .build_update_client_payload(&chain, 11, 11, None)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("must be greater"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn create_client_requires_light_client_address() {
+        let url = spawn_node(no_rpc).await;
+        let mut cfg = config(&url);
+        cfg.light_client_address = None;
+        let chain = any_chain(adapter_with(cfg).await);
+        let err = EthereumPlugin
+            .create_client(&chain, Box::new(()))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("light_client_address"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn create_and_update_client_reject_unknown_payloads() {
+        let chain = any_chain(adapter(no_rpc).await);
+        let err = EthereumPlugin
+            .create_client(&chain, Box::new(42u8))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("unsupported"), "{err}");
+
+        let err = EthereumPlugin
+            .update_client(&chain, "client-0", Box::new(42u8))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("unsupported"), "{err}");
+    }
 }

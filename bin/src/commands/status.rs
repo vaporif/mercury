@@ -47,3 +47,35 @@ async fn run_status(config_path: &Path, chain_id: &str) -> eyre::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{HUB, err_string, example_config};
+
+    #[tokio::test]
+    async fn unknown_chain_is_reported() {
+        let cfg = example_config();
+        let err = err_string(
+            StatusCmd {
+                config: cfg.path.clone(),
+                chain: "juno-1".into(),
+            }
+            .run()
+            .await,
+        );
+        assert_eq!(err, "chain 'juno-1' not found in config");
+    }
+
+    #[tokio::test]
+    async fn connect_failure_is_an_error_not_an_unreachable_status() {
+        // Pins current behaviour: only query_status failures print
+        // "unreachable"; failures inside connect abort the command.
+        let cfg = example_config();
+        let err = err_string(run_status(&cfg.path, HUB).await);
+        assert!(
+            err.starts_with(&format!("loading signer for '{HUB}'")),
+            "{err}"
+        );
+    }
+}

@@ -1,0 +1,49 @@
+id: no-doc-comment-on-test
+valid:
+  - |
+    #[test]
+    fn plain() {
+        // inline comments inside the body are fine
+    }
+  - |
+    /// Docs on production code are fine.
+    fn helper() {}
+  - |
+    #[test]
+    fn a() {}
+    // a regular comment between tests is fine
+    #[test]
+    fn b() {}
+  - |
+    #[test]
+    fn a() {}
+
+    /// Belongs to the helper, not the test above.
+    fn helper() {}
+invalid:
+  - |
+    /// Explains the test.
+    #[test]
+    fn documented() {}
+  - |
+    /// Explains the async test.
+    #[tokio::test]
+    async fn documented() {}
+  - |
+    /** Block doc. */
+    #[test]
+    fn documented() {}
+  - |
+    #[test]
+    /// Doc after the attribute.
+    fn documented() {}
+  - |
+    /// Doc above other attributes.
+    #[tokio::test(start_paused = true)]
+    #[ignore = "slow"]
+    async fn documented() {}
+  - |
+    /// Multi-line docs
+    /// on a test.
+    #[test]
+    fn documented() {}

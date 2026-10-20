@@ -165,3 +165,87 @@ pub fn register(registry: &mut ChainRegistry) {
     registry.register_pair(CosmosToSolanaRelay);
     registry.register_pair(SolanaToCosmosRelay);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ibc::core::host::types::identifiers::ClientId;
+
+    fn not_a_chain() -> AnyChain {
+        Arc::new(())
+    }
+
+    fn cosmos_client_id() -> AnyClientId {
+        Box::new(ClientId::new("08-wasm", 1).unwrap())
+    }
+
+    fn solana_client_id() -> AnyClientId {
+        Box::new(SolanaClientId("07-tendermint-2".to_string()))
+    }
+
+    #[test]
+    fn registers_both_directions() {
+        let mut registry = ChainRegistry::new();
+        register(&mut registry);
+        for (src, dst) in [("cosmos", "solana"), ("solana", "cosmos")] {
+            let pair = registry.pair(src, dst).unwrap();
+            assert_eq!((pair.src_type(), pair.dst_type()), (src, dst));
+        }
+        assert!(registry.pair("solana", "solana").is_err());
+        assert!(registry.pair("cosmos", "cosmos").is_err());
+    }
+
+    #[test]
+    fn cosmos_to_solana_checks_source_is_cosmos() {
+        let err = CosmosToSolanaRelay
+            .build_relay(
+                &not_a_chain(),
+                &not_a_chain(),
+                &cosmos_client_id(),
+                &solana_client_id(),
+            )
+            .err()
+            .unwrap();
+        assert_eq!(err.to_string(), "expected cosmos chain handle");
+    }
+
+    #[test]
+    fn solana_to_cosmos_checks_source_is_solana() {
+        let err = SolanaToCosmosRelay
+            .build_relay(
+                &not_a_chain(),
+                &not_a_chain(),
+                &solana_client_id(),
+                &cosmos_client_id(),
+            )
+            .err()
+            .unwrap();
+        assert_eq!(err.to_string(), "expected solana chain handle");
+    }
+
+    #[test]
+    fn client_id_downcasts_reject_the_other_chains_id() {
+        assert_eq!(
+            downcast_cosmos_client_id(&cosmos_client_id())
+                .unwrap()
+                .as_str(),
+            "08-wasm-1"
+        );
+        assert_eq!(
+            downcast_solana_client_id(&solana_client_id()).unwrap().0,
+            "07-tendermint-2"
+        );
+        assert_eq!(
+            downcast_cosmos_client_id(&solana_client_id())
+                .unwrap_err()
+                .to_string(),
+            "expected cosmos client ID"
+        );
+        assert_eq!(
+            downcast_solana_client_id(&cosmos_client_id())
+                .unwrap_err()
+                .to_string(),
+            "expected solana client ID"
+        );
+    }
+}

@@ -1,0 +1,26 @@
+output:
+  - summary
+  - failure
+
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.rs"
+      run: just fmt
+    taplo:
+      glob: "*.toml"
+      run: just check-toml
+
+pre-push:
+  piped: true
+  commands:
+    check:
+      priority: 1
+      run: just cargo-check
+    clippy:
+      priority: 2
+      run: just clippy
+    test:
+      priority: 3
+      run: just test

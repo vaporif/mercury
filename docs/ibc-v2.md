@@ -40,6 +40,6 @@ If the destination doesn't receive the packet before the timeout, the source cha
 
 ## Why v2 now
 
-IBC v2 is actively being deployed. The [solidity-ibc-eureka](https://github.com/cosmos/solidity-ibc-eureka) contracts implement it for EVM chains, and Cosmos SDK chains are adding support. Writing a new relayer against v1 at this point would be targeting a protocol that's being replaced.
+IBC v2 is actively being deployed. The [ibc-contracts](https://github.com/cosmos/ibc-contracts) repo (formerly solidity-ibc-eureka) implements it for EVM chains, and Cosmos SDK chains are adding support. Writing a new relayer against v1 at this point would be targeting a protocol that's being replaced.
 
 Mercury doesn't carry any v1 baggage. No connection types, no channel types, no handshake state machines.

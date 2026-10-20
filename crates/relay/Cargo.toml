@@ -28,6 +28,7 @@ globset = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 toml = { workspace = true }
 mercury-cosmos-counterparties = { workspace = true, features = ["ethereum-beacon"] }
 mercury-ethereum-counterparties = { workspace = true, features = ["cosmos-sp1"] }

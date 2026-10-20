@@ -404,24 +404,6 @@ impl<S: CosmosSigner> PacketMessageBuilder<CosmosChain<S>> for EthereumAdapter {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use mercury_chain_traits::builders::ClientPayloadBuilder;
-    use mercury_chain_traits::types::IbcTypes;
-
-    /// Compile-time verification that cross-chain trait bounds are satisfied.
-    fn _assert_cross_chain_traits<S: CosmosSigner>()
-    where
-        EthereumAdapter: IbcTypes
-            + ClientQuery<CosmosChain<S>>
-            + ClientMessageBuilder<CosmosChain<S>>
-            + ClientPayloadBuilder<CosmosChain<S>>,
-        CosmosChain<S>: ClientPayloadBuilder<EthereumAdapter>,
-    {
-    }
-}
-
 #[async_trait]
 impl<S: CosmosSigner> MisbehaviourDetector<CosmosChain<S>> for EthereumAdapter {
     type UpdateHeader = ();
@@ -717,5 +699,741 @@ impl EthereumAdapter {
             calldata: alloy::sol_types::SolCall::abi_encode(&call),
             value: alloy::primitives::U256::ZERO,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mercury_chain_traits::builders::ClientPayloadBuilder;
+    use mercury_chain_traits::types::IbcTypes;
+
+    /// Compile-time verification that cross-chain trait bounds are satisfied.
+    fn _assert_cross_chain_traits<S: CosmosSigner>()
+    where
+        EthereumAdapter: IbcTypes
+            + ClientQuery<CosmosChain<S>>
+            + ClientMessageBuilder<CosmosChain<S>>
+            + ClientPayloadBuilder<CosmosChain<S>>,
+        CosmosChain<S>: ClientPayloadBuilder<EthereumAdapter>,
+    {
+    }
+
+    use alloy::primitives::{Address, B256, Bytes, TxKind};
+    use alloy::sol_types::{SolEvent, SolType};
+    use ibc_eureka_solidity_types::msgs::{
+        IICS02ClientMsgs as SolIcs02, IICS07TendermintMsgs, ISP1Msgs, IUpdateClientMsgs,
+    };
+    use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+    use mercury_cosmos::keys::Secp256k1KeyPair;
+    use mercury_cosmos::types::{PacketPayload, RawClientId};
+    use mercury_ethereum::contracts::sp1_ics07;
+    use mercury_ethereum::queries::ClientStateReturn;
+    use mercury_ethereum::types::EvmPayload;
+    use serde_json::{Value, json};
+
+    use crate::test_support::{LIGHT_CLIENT, ROUTER, adapter, call_target, no_rpc};
+
+    type Cosmos = CosmosChain<Secp256k1KeyPair>;
+    type CosmosClientId = <Cosmos as ChainTypes>::ClientId;
+
+    fn sp1_state(height: u64, trusting_period: u32) -> EvmClientState {
+        EvmClientState(encode_client_state(&ClientStateReturn {
+            chainId: "cosmoshub-4".to_string(),
+            trustLevel: sp1_ics07::IICS07TendermintMsgs::TrustThreshold {
+                numerator: 1,
+                denominator: 3,
+            },
+            latestHeight: sp1_ics07::IICS02ClientMsgs::Height {
+                revisionNumber: 4,
+                revisionHeight: height,
+            },
+            trustingPeriod: trusting_period,
+            unbondingPeriod: trusting_period,
+            isFrozen: false,
+            zkAlgorithm: 0,
+        }))
+    }
+
+    fn cosmos_packet() -> CosmosPacket {
+        CosmosPacket {
+            source_client_id: RawClientId("07-tendermint-0".to_string()),
+            dest_client_id: RawClientId("client-0".to_string()),
+            sequence: PacketSequence(3),
+            timeout_timestamp: TimeoutTimestamp(1_900_000_000),
+            payloads: vec![PacketPayload {
+                source_port: Port("transfer".to_string()),
+                dest_port: Port("transfer".to_string()),
+                version: "ics20-1".to_string(),
+                encoding: "application/json".to_string(),
+                data: vec![0xaa],
+            }],
+        }
+    }
+
+    fn evm_packet() -> EvmPacket {
+        EvmPacket {
+            source_client: "client-0".to_string(),
+            dest_client: "07-tendermint-0".to_string(),
+            sequence: PacketSequence(4),
+            timeout_timestamp: TimeoutTimestamp(1_800_000_000),
+            payloads: vec![EvmPayload {
+                source_port: Port("transfer".to_string()),
+                dest_port: Port("transfer".to_string()),
+                version: "ics20-1".to_string(),
+                encoding: "application/json".to_string(),
+                value: vec![0xbb],
+            }],
+        }
+    }
+
+    fn proof() -> MerkleProof {
+        MerkleProof {
+            proof_bytes: vec![1, 2, 3],
+        }
+    }
+
+    fn update_payload() -> CosmosUpdateClientPayload {
+        CosmosUpdateClientPayload {
+            headers: vec![],
+            trusted_consensus_state: None,
+            membership_proofs: mercury_core::MembershipProofs::new(),
+        }
+    }
+
+    fn proof_entry(tag: u8) -> mercury_core::MembershipProofEntry {
+        mercury_core::MembershipProofEntry {
+            path: vec![vec![tag]],
+            value: vec![tag],
+            proof: vec![tag],
+        }
+    }
+
+    async fn packet_messages(a: &EthereumAdapter) -> (EvmMessage, EvmMessage, EvmMessage) {
+        let h = TmHeight::from(7_u32);
+        let recv = PacketMessageBuilder::<Cosmos>::build_receive_packet_message(
+            a,
+            &cosmos_packet(),
+            proof(),
+            h,
+            1,
+        )
+        .await
+        .unwrap();
+        let ack = PacketMessageBuilder::<Cosmos>::build_ack_packet_message(
+            a,
+            &cosmos_packet(),
+            &PacketAcknowledgement(vec![9, 9]),
+            proof(),
+            h,
+            1,
+        )
+        .await
+        .unwrap();
+        let timeout = PacketMessageBuilder::<Cosmos>::build_timeout_packet_message(
+            a,
+            &evm_packet(),
+            proof(),
+            h,
+            1,
+        )
+        .await
+        .unwrap();
+        (recv, ack, timeout)
+    }
+
+    #[tokio::test]
+    async fn packet_messages_carry_empty_proofs() {
+        let a = adapter(no_rpc).await;
+        let (recv, ack, timeout) = packet_messages(&a).await;
+
+        let recv = ICS26Router::recvPacketCall::abi_decode(&recv.calldata).unwrap();
+        assert!(recv.msg_.proofCommitment.is_empty());
+        assert_eq!(recv.msg_.proofHeight.revisionNumber, 1);
+        assert_eq!(recv.msg_.proofHeight.revisionHeight, 7);
+        let p = &recv.msg_.packet;
+        assert_eq!(p.sequence, 3);
+        assert_eq!(p.sourceClient, "07-tendermint-0");
+        assert_eq!(p.destClient, "client-0");
+        assert_eq!(p.timeoutTimestamp, 1_900_000_000);
+        assert_eq!(p.payloads[0].sourcePort, "transfer");
+        assert_eq!(p.payloads[0].value.as_ref(), &[0xaa]);
+
+        let ack = ICS26Router::ackPacketCall::abi_decode(&ack.calldata).unwrap();
+        assert!(ack.msg_.proofAcked.is_empty());
+        assert_eq!(ack.msg_.acknowledgement.as_ref(), &[9, 9]);
+        assert_eq!(ack.msg_.packet.sequence, 3);
+
+        let timeout = ICS26Router::timeoutPacketCall::abi_decode(&timeout.calldata).unwrap();
+        assert!(timeout.msg_.proofTimeout.is_empty());
+        let p = &timeout.msg_.packet;
+        assert_eq!(p.sequence, 4);
+        assert_eq!(p.sourceClient, "client-0");
+        assert_eq!(p.destClient, "07-tendermint-0");
+        assert_eq!(p.timeoutTimestamp, 1_800_000_000);
+        assert_eq!(p.payloads[0].value.as_ref(), &[0xbb]);
+    }
+
+    #[tokio::test]
+    async fn inject_membership_proof_targets_each_packet_kind() {
+        let a = adapter(no_rpc).await;
+        let (mut recv, mut ack, mut timeout) = packet_messages(&a).await;
+        inject_membership_proof(&mut recv, &[7, 7]);
+        inject_membership_proof(&mut ack, &[8]);
+        inject_membership_proof(&mut timeout, &[9]);
+
+        let recv = ICS26Router::recvPacketCall::abi_decode(&recv.calldata).unwrap();
+        assert_eq!(recv.msg_.proofCommitment.as_ref(), &[7, 7]);
+        assert_eq!(recv.msg_.packet.sequence, 3);
+        let ack = ICS26Router::ackPacketCall::abi_decode(&ack.calldata).unwrap();
+        assert_eq!(ack.msg_.proofAcked.as_ref(), &[8]);
+        assert_eq!(ack.msg_.acknowledgement.as_ref(), &[9, 9]);
+        let timeout = ICS26Router::timeoutPacketCall::abi_decode(&timeout.calldata).unwrap();
+        assert_eq!(timeout.msg_.proofTimeout.as_ref(), &[9]);
+    }
+
+    #[test]
+    fn inject_membership_proof_leaves_unknown_calldata() {
+        let mut msg = EvmMessage {
+            to: ROUTER,
+            calldata: vec![0xde, 0xad, 0xbe, 0xef, 0x00],
+            value: U256::ZERO,
+        };
+        inject_membership_proof(&mut msg, &[1]);
+        assert_eq!(msg.calldata, vec![0xde, 0xad, 0xbe, 0xef, 0x00]);
+    }
+
+    #[tokio::test]
+    async fn finalize_batch_injects_into_first_packet_only() {
+        let a = adapter(no_rpc).await;
+        let (recv, ack, _) = packet_messages(&a).await;
+        let mut msgs = vec![recv, ack.clone()];
+        let mut output = UpdateClientOutput {
+            messages: vec![],
+            membership_proof: Some(vec![5, 5]),
+        };
+        ClientMessageBuilder::<Cosmos>::finalize_batch(&a, &mut output, &mut msgs);
+
+        assert!(output.membership_proof.is_none());
+        let first = ICS26Router::recvPacketCall::abi_decode(&msgs[0].calldata).unwrap();
+        assert_eq!(first.msg_.proofCommitment.as_ref(), &[5, 5]);
+        assert_eq!(msgs[1].calldata, ack.calldata);
+    }
+
+    #[tokio::test]
+    async fn finalize_batch_without_proof_or_packets() {
+        let a = adapter(no_rpc).await;
+        let (recv, _, _) = packet_messages(&a).await;
+        let original = recv.calldata.clone();
+        let mut msgs = vec![recv];
+        let mut output = UpdateClientOutput::messages_only(vec![]);
+        ClientMessageBuilder::<Cosmos>::finalize_batch(&a, &mut output, &mut msgs);
+        assert_eq!(msgs[0].calldata, original);
+
+        let mut output = UpdateClientOutput {
+            messages: vec![],
+            membership_proof: Some(vec![1]),
+        };
+        ClientMessageBuilder::<Cosmos>::finalize_batch(&a, &mut output, &mut []);
+        assert!(output.membership_proof.is_none());
+    }
+
+    #[tokio::test]
+    async fn enrich_update_payload_appends_proofs() {
+        let a = adapter(no_rpc).await;
+        let mut payload = update_payload();
+        payload.membership_proofs.push(proof_entry(1));
+        ClientMessageBuilder::<Cosmos>::enrich_update_payload(
+            &a,
+            &mut payload,
+            &[proof_entry(2), proof_entry(3)],
+        );
+        let tags: Vec<u8> = payload
+            .membership_proofs
+            .0
+            .iter()
+            .map(|e| e.value[0])
+            .collect();
+        assert_eq!(tags, vec![1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn update_client_message_requires_sp1() {
+        let a = adapter(no_rpc).await;
+        let err = ClientMessageBuilder::<Cosmos>::build_update_client_message(
+            &a,
+            &EvmClientId("client-0".to_string()),
+            update_payload(),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert!(
+            err.to_string().contains("SP1 prover not configured"),
+            "{err}"
+        );
+    }
+
+    fn conflicting_header(app_hash: u8) -> ibc_client_tendermint::types::Header {
+        use tendermint::block::{Commit, Header as BlockHeader, Round, signed_header};
+        use tendermint::validator::{Info, Set};
+
+        let pk = tendermint::PublicKey::from_raw_ed25519(&[1; 32]).unwrap();
+        let validator = Info::new(pk, 10u32.into());
+        let set = Set::new(vec![validator.clone()], Some(validator.clone()));
+        let header = BlockHeader {
+            version: tendermint::block::header::Version { block: 11, app: 1 },
+            chain_id: "cosmoshub-4".parse().unwrap(),
+            height: TmHeight::from(20_u32),
+            time: tendermint::Time::from_unix_timestamp(1_700_000_000, 0).unwrap(),
+            last_block_id: None,
+            last_commit_hash: None,
+            data_hash: None,
+            validators_hash: set.hash(),
+            next_validators_hash: set.hash(),
+            consensus_hash: tendermint::Hash::Sha256([3; 32]),
+            app_hash: vec![app_hash; 32].try_into().unwrap(),
+            last_results_hash: None,
+            evidence_hash: None,
+            proposer_address: validator.address,
+        };
+        let commit = Commit {
+            height: header.height,
+            round: Round::from(0u16),
+            block_id: tendermint::block::Id {
+                hash: header.hash(),
+                part_set_header: tendermint::block::parts::Header::default(),
+            },
+            signatures: vec![],
+        };
+        ibc_client_tendermint::types::Header {
+            signed_header: signed_header::SignedHeader::new(header, commit).unwrap(),
+            validator_set: set.clone(),
+            trusted_height: ibc::core::client::types::Height::new(4, 10).unwrap(),
+            trusted_next_validator_set: set,
+        }
+    }
+
+    #[tokio::test]
+    async fn misbehaviour_submission_requires_sp1_before_touching_the_chain() {
+        // `no_rpc` fails any RPC call, so reaching the SP1 check first is observable.
+        let a = adapter(no_rpc).await;
+        let misbehaviour = ibc_client_tendermint::types::Misbehaviour::new(
+            "07-tendermint-0".parse().unwrap(),
+            conflicting_header(1),
+            conflicting_header(2),
+        );
+        let err = MisbehaviourMessageBuilder::<Cosmos>::build_misbehaviour_message(
+            &a,
+            &EvmClientId("client-0".to_string()),
+            mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence::Misbehaviour {
+                misbehaviour,
+                supporting_headers: vec![],
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("required for misbehaviour proof"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn corrective_update_requires_sp1() {
+        let a = adapter(no_rpc).await;
+        let err = MisbehaviourMessageBuilder::<Cosmos>::build_misbehaviour_message(
+            &a,
+            &EvmClientId("client-0".to_string()),
+            mercury_cosmos::misbehaviour::CosmosMisbehaviourEvidence::CorrectiveUpdate {
+                payload: update_payload(),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("SP1 prover not configured"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_client_message_registers_light_client() {
+        let a = adapter(no_rpc).await;
+        let payload = CosmosCreateClientPayload {
+            client_state: ibc_proto::google::protobuf::Any::default(),
+            consensus_state: ibc_proto::google::protobuf::Any::default(),
+            counterparty_client_id: Some("ignored".to_string()),
+            counterparty_merkle_prefix: None,
+        };
+        let msg = ClientMessageBuilder::<Cosmos>::build_create_client_message(&a, payload)
+            .await
+            .unwrap();
+        assert_eq!(msg.to, ROUTER);
+        let call = ICS26Router::addClient_1Call::abi_decode(&msg.calldata).unwrap();
+        assert_eq!(call.client, LIGHT_CLIENT);
+        assert_eq!(call.counterpartyInfo.clientId, "");
+        assert_eq!(call.counterpartyInfo.merklePrefix, Vec::<Bytes>::new());
+    }
+
+    #[tokio::test]
+    async fn register_counterparty_message_uses_migrate_client() {
+        let a = adapter(no_rpc).await;
+        let cp: CosmosClientId = "08-wasm-12".parse().unwrap();
+        let msg = ClientMessageBuilder::<Cosmos>::build_register_counterparty_message(
+            &a,
+            &EvmClientId("client-0".to_string()),
+            &cp,
+            MerklePrefix::ibc_default(),
+        )
+        .await
+        .unwrap();
+        let call = ICS26Router::migrateClientCall::abi_decode(&msg.calldata).unwrap();
+        assert_eq!(call.clientId, "client-0");
+        assert_eq!(call.counterpartyInfo.clientId, "08-wasm-12");
+        assert_eq!(call.counterpartyInfo.merklePrefix.len(), 2);
+        assert_eq!(call.client, LIGHT_CLIENT);
+    }
+
+    #[test]
+    fn latest_height_and_trusting_period_from_sp1_state() {
+        let cs = sp1_state(500, 3600);
+        assert_eq!(
+            <EthereumAdapter as ClientQuery<Cosmos>>::client_latest_height(&cs),
+            TmHeight::from(500_u32)
+        );
+        assert_eq!(
+            <EthereumAdapter as ClientQuery<Cosmos>>::trusting_period(&cs),
+            Some(Duration::from_secs(3600))
+        );
+    }
+
+    #[test]
+    fn latest_height_falls_back_to_one() {
+        let garbage = EvmClientState(vec![1, 2, 3]);
+        assert_eq!(
+            <EthereumAdapter as ClientQuery<Cosmos>>::client_latest_height(&garbage),
+            TmHeight::from(1_u32)
+        );
+        assert_eq!(
+            <EthereumAdapter as ClientQuery<Cosmos>>::trusting_period(&garbage),
+            None
+        );
+        // TmHeight rejects values above i64::MAX.
+        assert_eq!(
+            <EthereumAdapter as ClientQuery<Cosmos>>::client_latest_height(&sp1_state(u64::MAX, 1)),
+            TmHeight::from(1_u32)
+        );
+    }
+
+    #[tokio::test]
+    async fn update_payload_unwraps_wasm_client_state() {
+        let a = adapter(no_rpc).await;
+        let cs = CosmosClientState::Wasm(ibc_proto::ibc::lightclients::wasm::v1::ClientState {
+            data: vec![],
+            checksum: vec![],
+            latest_height: None,
+        });
+        let payload = ClientPayloadBuilder::<Cosmos>::build_update_client_payload(
+            &a,
+            &EvmHeight(1),
+            &EvmHeight(2),
+            &cs,
+        )
+        .await
+        .unwrap();
+        assert_eq!(payload.headers.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn update_payload_rejects_non_wasm_client_state() {
+        let a = adapter(no_rpc).await;
+        let cs = attestations_client_state();
+        let err = ClientPayloadBuilder::<Cosmos>::build_update_client_payload(
+            &a,
+            &EvmHeight(1),
+            &EvmHeight(2),
+            &cs,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("got Attestations"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn payload_heights_delegate_to_inner_chain() {
+        let a = adapter(no_rpc).await;
+        let payload = EvmUpdateClientPayload {
+            headers: vec![],
+            target_execution_height: Some(EvmHeight(10)),
+            target_slot: Some(20),
+            required_dst_timestamp_secs: None,
+        };
+        assert_eq!(
+            ClientPayloadBuilder::<Cosmos>::update_payload_proof_height(&a, &payload),
+            Some(EvmHeight(10))
+        );
+        assert_eq!(
+            ClientPayloadBuilder::<Cosmos>::update_payload_message_height(&a, &payload),
+            Some(EvmHeight(20))
+        );
+    }
+
+    fn light_client_rpc(method: &str, params: &Value) -> Value {
+        assert_eq!(method, "eth_call");
+        let (to, input) = call_target(params);
+        if to == ROUTER {
+            return json!(B256::left_padding_from(LIGHT_CLIENT.as_slice()));
+        }
+        if SP1ICS07Tendermint::clientStateCall::abi_decode(&input).is_ok() {
+            return json!(Bytes::from(sp1_state(321, 60).0));
+        }
+        let call = SP1ICS07Tendermint::getConsensusStateHashCall::abi_decode(&input).unwrap();
+        assert_eq!(call.revisionHeight, 99);
+        json!(B256::repeat_byte(0x42))
+    }
+
+    #[tokio::test]
+    async fn cross_chain_client_and_consensus_state_queries() {
+        let a = adapter(|m, p| Ok(light_client_rpc(m, p))).await;
+        let id = EvmClientId("client-0".to_string());
+        let cs = ClientQuery::<Cosmos>::query_client_state(&a, &id, &EvmHeight(0))
+            .await
+            .unwrap();
+        assert_eq!(
+            decode_client_state(&cs.0)
+                .unwrap()
+                .latestHeight
+                .revisionHeight,
+            321
+        );
+
+        let cons = ClientQuery::<Cosmos>::query_consensus_state(
+            &a,
+            &id,
+            &TmHeight::from(99_u32),
+            &EvmHeight(0),
+        )
+        .await
+        .unwrap();
+        assert_eq!(cons.0, vec![0x42; 32]);
+    }
+
+    #[tokio::test]
+    async fn check_for_misbehaviour_is_noop() {
+        let a = adapter(no_rpc).await;
+        let cs = attestations_client_state();
+        let cp: CosmosClientId = "07-tendermint-0".parse().unwrap();
+        let result = MisbehaviourDetector::<Cosmos>::check_for_misbehaviour(&a, &cp, &(), &cs)
+            .await
+            .unwrap();
+        assert!(result.is_none());
+    }
+
+    #[expect(
+        clippy::default_trait_access,
+        reason = "the attestations client state type is not re-exported"
+    )]
+    fn attestations_client_state() -> CosmosClientState {
+        CosmosClientState::Attestations(Default::default())
+    }
+
+    fn sol_consensus(ts: u128, byte: u8) -> IICS07TendermintMsgs::ConsensusState {
+        IICS07TendermintMsgs::ConsensusState {
+            timestamp: ts,
+            root: B256::repeat_byte(byte),
+            nextValidatorsHash: B256::repeat_byte(byte + 1),
+        }
+    }
+
+    fn update_client_input(client_id: &str, new_height: u64, ts: u128) -> Bytes {
+        let output = IUpdateClientMsgs::UpdateClientOutput {
+            clientState: IICS07TendermintMsgs::ClientState {
+                chainId: "cosmoshub-4".to_string(),
+                trustLevel: IICS07TendermintMsgs::TrustThreshold {
+                    numerator: 1,
+                    denominator: 3,
+                },
+                latestHeight: SolIcs02::Height {
+                    revisionNumber: 4,
+                    revisionHeight: new_height,
+                },
+                trustingPeriod: 1,
+                unbondingPeriod: 2,
+                isFrozen: false,
+                zkAlgorithm: IICS07TendermintMsgs::SupportedZkAlgorithm::Groth16,
+            },
+            trustedConsensusState: sol_consensus(1, 0x01),
+            newConsensusState: sol_consensus(ts, 0x10),
+            time: 0,
+            trustedHeight: SolIcs02::Height {
+                revisionNumber: 4,
+                revisionHeight: 1,
+            },
+            newHeight: SolIcs02::Height {
+                revisionNumber: 4,
+                revisionHeight: new_height,
+            },
+        };
+        let msg = IUpdateClientMsgs::MsgUpdateClient {
+            sp1Proof: ISP1Msgs::SP1Proof {
+                vKey: B256::ZERO,
+                publicValues: <IUpdateClientMsgs::UpdateClientOutput as SolType>::abi_encode(
+                    &output,
+                )
+                .into(),
+                proof: Bytes::new(),
+            },
+        };
+        ICS26Router::updateClientCall {
+            clientId: client_id.to_string(),
+            updateMsg: <IUpdateClientMsgs::MsgUpdateClient as SolType>::abi_encode(&msg).into(),
+        }
+        .abi_encode()
+        .into()
+    }
+
+    fn rpc_tx(hash: B256, input: Bytes) -> Value {
+        use alloy::consensus::{Signed, TxEnvelope, TxLegacy};
+        let tx = TxLegacy {
+            chain_id: Some(crate::test_support::CHAIN_ID),
+            to: TxKind::Call(ROUTER),
+            gas_limit: 100_000,
+            input,
+            ..Default::default()
+        };
+        let sig = alloy::primitives::Signature::new(U256::from(1), U256::from(1), false);
+        let envelope = TxEnvelope::Legacy(Signed::new_unchecked(tx, sig, hash));
+        serde_json::to_value(alloy::rpc::types::Transaction {
+            inner: alloy::consensus::transaction::Recovered::new_unchecked(
+                envelope,
+                Address::repeat_byte(0x09),
+            ),
+            block_hash: Some(B256::repeat_byte(0x01)),
+            block_number: Some(1),
+            transaction_index: Some(0),
+            effective_gas_price: None,
+        })
+        .unwrap()
+    }
+
+    fn client_updated_log(client_id: &str, tx_hash: B256) -> Value {
+        let data = ICS26Router::ICS02ClientUpdated {
+            clientId: client_id.to_string(),
+            result: 0,
+        }
+        .encode_log_data();
+        serde_json::to_value(alloy::rpc::types::Log {
+            inner: alloy::primitives::Log {
+                address: ROUTER,
+                data,
+            },
+            block_number: Some(1),
+            transaction_hash: Some(tx_hash),
+            ..Default::default()
+        })
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn consensus_state_heights_decoded_from_update_txs_and_cached() {
+        let h = B256::repeat_byte;
+        let logs = json!([
+            client_updated_log("client-0", h(0xa1)),
+            client_updated_log("other-client", h(0xa2)),
+            client_updated_log("client-0", h(0xa3)),
+            client_updated_log("client-0", h(0xa4)),
+            client_updated_log("client-0", h(0xa5)),
+            client_updated_log("client-0", h(0xa6)),
+        ]);
+        let txs: std::collections::HashMap<B256, Value> = [
+            (
+                h(0xa1),
+                rpc_tx(h(0xa1), update_client_input("client-0", 10, 1_000)),
+            ),
+            (
+                h(0xa3),
+                rpc_tx(h(0xa3), update_client_input("client-0", 30, 3_000)),
+            ),
+            (
+                h(0xa4),
+                rpc_tx(h(0xa4), update_client_input("client-0", 10, 1_000)),
+            ),
+            // Not an updateClient call: skipped.
+            (h(0xa5), rpc_tx(h(0xa5), Bytes::from_static(&[1, 2, 3, 4]))),
+            // Height above i64::MAX is not a valid Tendermint height: skipped.
+            (
+                h(0xa6),
+                rpc_tx(h(0xa6), update_client_input("client-0", u64::MAX, 1)),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let a = adapter(move |method, params| match method {
+            "eth_getLogs" => {
+                let topic0: B256 = params[0]["topics"][0].as_str().unwrap().parse().unwrap();
+                assert_eq!(topic0, ICS26Router::ICS02ClientUpdated::SIGNATURE_HASH);
+                Ok(logs.clone())
+            }
+            "eth_getTransactionByHash" => {
+                let hash: B256 = params[0].as_str().unwrap().parse().unwrap();
+                txs.get(&hash)
+                    .cloned()
+                    .ok_or_else(|| format!("unexpected tx {hash}"))
+            }
+            other => Err(format!("unexpected {other}")),
+        })
+        .await;
+
+        let id = EvmClientId("client-0".to_string());
+        let heights = MisbehaviourQuery::<Cosmos>::query_consensus_state_heights(&a, &id)
+            .await
+            .unwrap();
+        assert_eq!(
+            heights,
+            vec![TmHeight::from(30_u32), TmHeight::from(10_u32)]
+        );
+
+        let cached = MisbehaviourQuery::<Cosmos>::query_update_client_header(
+            &a,
+            &id,
+            &TmHeight::from(30_u32),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(cached.height, TmHeight::from(30_u32));
+        assert_eq!(cached.timestamp_nanos, 3_000);
+        assert_eq!(cached.root, [0x10; 32]);
+        assert_eq!(cached.next_validators_hash, [0x11; 32]);
+
+        let missing = MisbehaviourQuery::<Cosmos>::query_update_client_header(
+            &a,
+            &id,
+            &TmHeight::from(20_u32),
+        )
+        .await
+        .unwrap();
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn consensus_state_heights_propagate_tx_fetch_errors() {
+        let logs = json!([client_updated_log("client-0", B256::repeat_byte(1))]);
+        let a = adapter(move |method, _| match method {
+            "eth_getLogs" => Ok(logs.clone()),
+            _ => Err("tx lookup failed".to_string()),
+        })
+        .await;
+        let err = MisbehaviourQuery::<Cosmos>::query_consensus_state_heights(
+            &a,
+            &EvmClientId("client-0".to_string()),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("fetching updateClient transactions"),
+            "{err:#}"
+        );
     }
 }

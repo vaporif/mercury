@@ -464,3 +464,137 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<SolanaChain> for CosmosAdapter<
         eyre::bail!("Solana misbehaviour submission not yet supported")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ibc_proto::ibc::core::client::v1::Height as ProtoHeight;
+    use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+    use mercury_cosmos::keys::Secp256k1KeyPair;
+    use mercury_solana::types::SolanaPayload;
+
+    type Adapter = CosmosAdapter<Secp256k1KeyPair>;
+
+    fn wasm(latest_height: Option<u64>) -> CosmosClientState {
+        CosmosClientState::Wasm(WasmClientState {
+            data: vec![],
+            checksum: vec![],
+            latest_height: latest_height.map(|h| ProtoHeight {
+                revision_number: 0,
+                revision_height: h,
+            }),
+        })
+    }
+
+    fn attested(latest_height: u64) -> CosmosClientState {
+        CosmosClientState::Attestations(attestations::ClientState {
+            attestor_addresses: vec![],
+            min_required_sigs: 1,
+            latest_height,
+            is_frozen: false,
+        })
+    }
+
+    fn latest(cs: &CosmosClientState) -> u64 {
+        <Adapter as ClientQuery<SolanaChain>>::client_latest_height(cs).0
+    }
+
+    fn trusting(cs: &CosmosClientState) -> Option<Duration> {
+        <Adapter as ClientQuery<SolanaChain>>::trusting_period(cs)
+    }
+
+    #[test]
+    fn extract_latest_slot_reads_little_endian_prefix() {
+        let mut bytes = 0x0102_0304_0506_0708u64.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&[0xff; 16]);
+        assert_eq!(extract_latest_slot(&bytes), 0x0102_0304_0506_0708);
+    }
+
+    #[test]
+    fn extract_latest_slot_short_input_is_zero() {
+        assert_eq!(extract_latest_slot(&[]), 0);
+        assert_eq!(extract_latest_slot(&[1, 2, 3, 4, 5, 6, 7]), 0);
+    }
+
+    #[test]
+    fn solana_packet_to_v2_maps_fields() {
+        let packet = SolanaPacket {
+            source_client_id: "solana-0".into(),
+            dest_client_id: "08-wasm-1".into(),
+            sequence: PacketSequence(9),
+            timeout_timestamp: TimeoutTimestamp(1234),
+            payloads: vec![SolanaPayload {
+                source_port: Port("src".into()),
+                dest_port: Port("dst".into()),
+                version: "ics20-1".into(),
+                encoding: "application/x-solidity-abi".into(),
+                data: vec![1, 2, 3],
+            }],
+        };
+        let v2 = solana_packet_to_v2(&packet);
+        assert_eq!(v2.sequence, 9);
+        assert_eq!(v2.source_client, "solana-0");
+        assert_eq!(v2.destination_client, "08-wasm-1");
+        assert_eq!(v2.timeout_timestamp, 1234);
+        assert_eq!(v2.payloads.len(), 1);
+        let p = &v2.payloads[0];
+        assert_eq!(p.source_port, "src");
+        assert_eq!(p.destination_port, "dst");
+        assert_eq!(p.version, "ics20-1");
+        assert_eq!(p.encoding, "application/x-solidity-abi");
+        assert_eq!(p.value, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn any_encodes_message_with_type_url() {
+        let cs = attestations::ConsensusState { timestamp: 5 };
+        let encoded = any(attestations::CONSENSUS_STATE_TYPE_URL, &cs);
+        assert_eq!(encoded.type_url, attestations::CONSENSUS_STATE_TYPE_URL);
+        assert_eq!(
+            attestations::ConsensusState::decode(encoded.value.as_slice()).unwrap(),
+            cs
+        );
+    }
+
+    #[test]
+    fn latest_height_per_client_type() {
+        assert_eq!(latest(&wasm(Some(77))), 77);
+        assert_eq!(latest(&wasm(None)), 0);
+        assert_eq!(latest(&attested(123)), 123);
+        let tm = CosmosClientState::Tendermint(tm_client_state());
+        assert_eq!(latest(&tm), 0);
+    }
+
+    #[test]
+    fn trusting_period_per_client_type() {
+        assert_eq!(trusting(&wasm(Some(1))), Some(SOLANA_TRUSTING_PERIOD));
+        assert_eq!(trusting(&attested(1)), None, "attested state never expires");
+        assert_eq!(
+            trusting(&CosmosClientState::Tendermint(tm_client_state())),
+            None
+        );
+    }
+
+    fn tm_client_state() -> ibc_client_tendermint::types::ClientState {
+        use ibc::core::client::types::Height;
+        use ibc::core::commitment_types::specs::ProofSpecs;
+        use ibc::core::host::types::identifiers::ChainId;
+        use ibc_client_tendermint::types::{AllowUpdate, ClientState, TrustThreshold};
+
+        ClientState::new(
+            ChainId::new("cosmos-1").unwrap(),
+            TrustThreshold::ONE_THIRD,
+            Duration::from_secs(10),
+            Duration::from_secs(20),
+            Duration::from_secs(1),
+            Height::new(1, 5).unwrap(),
+            ProofSpecs::cosmos(),
+            vec![],
+            AllowUpdate {
+                after_expiry: true,
+                after_misbehaviour: true,
+            },
+        )
+        .unwrap()
+    }
+}

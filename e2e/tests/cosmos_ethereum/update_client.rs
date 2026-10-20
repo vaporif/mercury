@@ -112,6 +112,15 @@ async fn eth_client_on_cosmos_advances_height_beacon() -> Result<()> {
         "beacon API must return at least one header"
     );
 
+    // The light client rejects headers signed after the Cosmos block time,
+    // so wait like the relay workers do.
+    if let Some(required_ts) = <EthereumAdapter as ClientPayloadBuilder<
+        CosmosChain<Secp256k1KeyPair>,
+    >>::required_dst_timestamp_secs(&ctx.eth_chain, &update_payload)
+    {
+        wait_for_cosmos_timestamp(&ctx.cosmos_chain, required_ts).await?;
+    }
+
     let update_output = ClientMessageBuilder::<EthereumChain>::build_update_client_message(
         &ctx.cosmos_chain,
         &ctx.client_id_on_cosmos,
@@ -142,4 +151,20 @@ async fn eth_client_on_cosmos_advances_height_beacon() -> Result<()> {
     );
 
     Ok(())
+}
+
+async fn wait_for_cosmos_timestamp<C: ChainStatusQuery>(chain: &C, required_ts: u64) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let status = chain.query_chain_status().await?;
+        let ts = C::chain_status_timestamp_secs(&status);
+        if ts >= required_ts {
+            return Ok(());
+        }
+        eyre::ensure!(
+            tokio::time::Instant::now() < deadline,
+            "cosmos timestamp {ts} did not reach {required_ts}"
+        );
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
 }

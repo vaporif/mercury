@@ -61,3 +61,7 @@ sp1 = [
     "dep:hex",
     "dep:ibc-client-tendermint",
 ]
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tokio = { workspace = true }

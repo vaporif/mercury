@@ -121,3 +121,53 @@ impl KeysBalanceCmd {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{EXAMPLE_CONFIG, HUB, err_string, missing_path};
+
+    fn all(config: &std::path::Path) -> Vec<KeysCmd> {
+        vec![
+            KeysCmd::Add(KeysAddCmd {
+                config: config.into(),
+                chain: HUB.into(),
+                key_file: "k".into(),
+                key_name: None,
+            }),
+            KeysCmd::Delete(KeysDeleteCmd {
+                config: config.into(),
+                chain: HUB.into(),
+                key_name: "k".into(),
+            }),
+            KeysCmd::List(KeysListCmd {
+                config: config.into(),
+                chain: HUB.into(),
+            }),
+            KeysCmd::Balance(KeysBalanceCmd {
+                config: config.into(),
+                chain: HUB.into(),
+                denom: None,
+            }),
+        ]
+    }
+
+    #[test]
+    fn key_commands_report_not_implemented_for_valid_config() {
+        // docs/feature-parity.md lists keys add/delete/list/balance as planned.
+        let verbs = ["add", "delete", "list", "balance"];
+        for (cmd, verb) in all(EXAMPLE_CONFIG.as_ref()).into_iter().zip(verbs) {
+            assert_eq!(
+                err_string(cmd.run()),
+                format!("keys {verb} for chain '{HUB}' is not implemented yet")
+            );
+        }
+    }
+
+    #[test]
+    fn key_commands_report_config_errors_first() {
+        for cmd in all(&missing_path()) {
+            assert!(err_string(cmd.run()).starts_with("reading config"));
+        }
+    }
+}

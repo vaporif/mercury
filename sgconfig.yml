@@ -1,0 +1,4 @@
+ruleDirs:
+  - ast-rules/rules
+testConfigs:
+  - testDir: ast-rules/tests

@@ -14,7 +14,7 @@ nix develop
 nix build
 ```
 
-The dev shell provides the stable Rust toolchain (cargo, clippy, rustfmt, rust-analyzer), plus `cargo-nextest`, `taplo`, `typos`, `just`, and `actionlint`.
+The dev shell provides the stable Rust toolchain (cargo, clippy, rustfmt, rust-analyzer), plus `cargo-nextest`, `taplo`, `typos`, `just`, `lefthook`, and `actionlint`. Entering the shell installs the git hooks.
 
 ### Without Nix
 
@@ -28,6 +28,7 @@ You'll also need these tools (provided automatically by the Nix dev shell):
 - [taplo](https://taplo.tamasfe.dev) - TOML formatter/linter
 - [typos](https://github.com/crate-ci/typos) - spell checker
 - [actionlint](https://github.com/rhysd/actionlint) - GitHub Actions linter
+- [lefthook](https://lefthook.dev) - git hooks manager (run `lefthook install` once)
 - A container runtime - required for E2E tests. Any OCI-compatible runtime works: [Docker](https://docs.docker.com/get-docker/), [Podman](https://podman.io), [OrbStack](https://orbstack.dev) (macOS), [colima](https://github.com/abiosoft/colima), [nerdctl](https://github.com/containerd/nerdctl)
 
 ## Cloning
@@ -58,6 +59,15 @@ just e2e          # Run E2E tests (requires container runtime)
 just check-typos  # Spell check
 just check-toml   # TOML lint
 ```
+
+### Git hooks
+
+Hooks are managed by [lefthook](./lefthook.yml):
+
+- `pre-commit` - `cargo fmt --check` and `taplo check` (only when matching files are staged)
+- `pre-push` - `cargo check`, `clippy`, and tests
+
+Skip once with `LEFTHOOK=0 git push`.
 
 ## Code style
 

@@ -1,5 +1,10 @@
 # Run all checks
-check: check-typos check-toml fmt clippy test
+check: check-typos check-toml check-ast fmt clippy test
+
+# Lint with ast-grep rules in ast-rules/
+check-ast:
+    ast-grep test --skip-snapshot-tests
+    ast-grep scan
 
 # Check for typos
 check-typos:
@@ -13,6 +18,10 @@ check-toml:
 fmt:
     cargo fmt --all -- --check
 
+# Type-check all targets
+cargo-check:
+    cargo check --workspace --all-targets
+
 # Clippy
 clippy:
     cargo clippy --workspace -- -D warnings
@@ -20,6 +29,18 @@ clippy:
 # Run tests
 test:
     cargo nextest run --workspace
+
+# Fuzz a bolero target with libfuzzer (run inside `nix develop .#fuzz`)
+fuzz crate target time="60s":
+    cargo bolero test -p {{crate}} --all-features --engine libfuzzer -T {{time}} {{target}}
+
+# Fuzz several targets of one crate back to back, reusing one sanitizer build
+fuzz-all crate time +targets:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for target in {{targets}}; do
+        just fuzz {{crate}} "$target" {{time}}
+    done
 
 # Run e2e tests
 e2e:

@@ -1,0 +1,22 @@
+id: no-doc-comment-on-test
+language: rust
+severity: error
+ignores:
+  - external/**
+  - target/**
+message: Test functions must not have doc comments; let the test name say what it checks.
+rule:
+  all:
+    - any:
+        - kind: line_comment
+          regex: ^///
+        - kind: block_comment
+          regex: ^/\*\*
+    - any:
+        - precedes: &test-attr
+            kind: attribute_item
+            regex: ^#\[(\w+::)*test\b
+            stopBy:
+              not:
+                kind: attribute_item
+        - follows: *test-attr

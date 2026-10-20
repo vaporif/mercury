@@ -1,0 +1,72 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      time:
+        description: "Time per target (e.g. 3m, 30m)"
+        default: "3m"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.crate }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - crate: mercury-cosmos
+            targets: >-
+              events::tests::fuzz_extract_events_arbitrary_attributes
+              events::tests::fuzz_extract_events_hex_encoded_bytes
+              events::tests::fuzz_send_packet_roundtrip
+              events::tests::fuzz_abci_event_v034_attributes
+              client_types::tests::fuzz_decode_any
+              queries::tests::proofs::fuzz_extract_proof
+          - crate: mercury-solana
+            targets: >-
+              events::tests::fuzz_decode_events
+              events::tests::fuzz_extract_events_from_logs
+              accounts::tests::fuzz_deserialize_anchor_account
+          - crate: mercury-ethereum
+            targets: >-
+              events::tests::fuzz_extract_events
+              queries::tests::fuzz_decode_client_state
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - uses: actions/cache@v5
+        with:
+          path: |
+            target/fuzz
+            crates/**/__fuzz__/*/corpus
+          key: fuzz-${{ matrix.crate }}-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-${{ matrix.crate }}-${{ hashFiles('Cargo.lock') }}-
+            fuzz-${{ matrix.crate }}-
+
+      - name: Fuzz
+        run: nix develop .#fuzz -c just fuzz-all ${{ matrix.crate }} ${{ inputs.time || '3m' }} ${{ matrix.targets }}
+
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-crashes-${{ matrix.crate }}
+          path: crates/**/__fuzz__/*/crashes
+          if-no-files-found: ignore

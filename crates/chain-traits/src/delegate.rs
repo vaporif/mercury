@@ -117,6 +117,12 @@ macro_rules! delegate_chain {
             ) -> $crate::_mercury_core::error::Result<Self::ChainStatus> {
                 self.0.query_chain_status().await
             }
+
+            async fn query_latest_height(
+                &self,
+            ) -> $crate::_mercury_core::error::Result<Self::Height> {
+                self.0.query_latest_height().await
+            }
         }
 
         #[$crate::_async_trait::async_trait]
@@ -477,9 +483,10 @@ macro_rules! delegate_chain {
         }
     };
 
-    (@cpb [$($gen:tt)+] $Wrapper:ty, $Inner:ty) => {
+    (@cpb [$($gen:tt)*] $Wrapper:ty, $Inner:ty) => {
         #[$crate::_async_trait::async_trait]
-        impl<$($gen)+, __MerC: $crate::ChainTypes> $crate::builders::ClientPayloadBuilder<__MerC>
+        // __MerC goes first so an empty generic list still parses.
+        impl<__MerC: $crate::ChainTypes, $($gen)*> $crate::builders::ClientPayloadBuilder<__MerC>
             for $Wrapper
         where
             $Inner: $crate::builders::ClientPayloadBuilder<__MerC>,
@@ -551,70 +558,7 @@ macro_rules! delegate_chain {
             }
         }
     };
-    (@cpb [] $Wrapper:ty, $Inner:ty) => {
-        #[$crate::_async_trait::async_trait]
-        impl<__MerC: $crate::ChainTypes> $crate::builders::ClientPayloadBuilder<__MerC>
-            for $Wrapper
-        where
-            $Inner: $crate::builders::ClientPayloadBuilder<__MerC>,
-        {
-            type CreateClientPayload =
-                <$Inner as $crate::builders::ClientPayloadBuilder<__MerC>>::CreateClientPayload;
-            type UpdateClientPayload =
-                <$Inner as $crate::builders::ClientPayloadBuilder<__MerC>>::UpdateClientPayload;
-
-            async fn build_create_client_payload(
-                &self,
-            ) -> $crate::_mercury_core::error::Result<Self::CreateClientPayload> {
-                self.0.build_create_client_payload().await
-            }
-
-            async fn build_update_client_payload(
-                &self,
-                trusted_height: &Self::Height,
-                target_height: &Self::Height,
-                counterparty_client_state: &<__MerC as $crate::IbcTypes>::ClientState,
-            ) -> $crate::_mercury_core::error::Result<Self::UpdateClientPayload>
-            where
-                __MerC: $crate::IbcTypes,
-            {
-                self.0
-                    .build_update_client_payload(
-                        trusted_height,
-                        target_height,
-                        counterparty_client_state,
-                    )
-                    .await
-            }
-
-            fn update_payload_proof_height(
-                &self,
-                payload: &Self::UpdateClientPayload,
-            ) -> Option<Self::Height> {
-                self.0.update_payload_proof_height(payload)
-            }
-
-            fn update_payload_message_height(
-                &self,
-                payload: &Self::UpdateClientPayload,
-            ) -> Option<Self::Height> {
-                self.0.update_payload_message_height(payload)
-            }
-
-            fn required_dst_timestamp_secs(
-                &self,
-                payload: &Self::UpdateClientPayload,
-            ) -> Option<u64> {
-                self.0.required_dst_timestamp_secs(payload)
-            }
-
-            async fn build_upgrade_client_payload(
-                &self,
-            ) -> $crate::_mercury_core::error::Result<
-                Option<$crate::builders::UpgradeClientPayload>,
-            > {
-                self.0.build_upgrade_client_payload().await
-            }
-        }
-    };
 }
+
+#[cfg(test)]
+mod tests;

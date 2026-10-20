@@ -193,3 +193,70 @@ impl QueryPacketPendingCmd {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::test_support::{HUB, OSMO, err_string, example_config};
+
+    fn client_state(config: &Path, chain: &str) -> QueryCmd {
+        QueryCmd::Client(QueryClientCmd::State(QueryClientStateCmd {
+            config: config.into(),
+            chain: chain.into(),
+            client: "07-tendermint-0".into(),
+            height: None,
+        }))
+    }
+
+    fn commitments(config: &Path, chain: &str) -> QueryCmd {
+        QueryCmd::Packet(QueryPacketCmd::Commitments(QueryPacketCommitmentsCmd {
+            config: config.into(),
+            chain: chain.into(),
+            client: "07-tendermint-0".into(),
+        }))
+    }
+
+    fn pending(config: &Path, chain: &str, counterparty: &str) -> QueryCmd {
+        QueryCmd::Packet(QueryPacketCmd::Pending(QueryPacketPendingCmd {
+            config: config.into(),
+            chain: chain.into(),
+            client: "07-tendermint-0".into(),
+            counterparty_chain: counterparty.into(),
+            counterparty_client: "07-tendermint-0".into(),
+        }))
+    }
+
+    #[tokio::test]
+    async fn unknown_chain_is_reported_by_every_query() {
+        let cfg = example_config();
+        for cmd in [
+            client_state(&cfg.path, "juno-1"),
+            commitments(&cfg.path, "juno-1"),
+            pending(&cfg.path, "juno-1", OSMO),
+            pending(&cfg.path, HUB, "juno-1"),
+        ] {
+            assert_eq!(
+                err_string(cmd.run().await),
+                "chain 'juno-1' not found in config"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn connect_failure_is_reported_by_every_query() {
+        let cfg = example_config();
+        for cmd in [
+            client_state(&cfg.path, HUB),
+            commitments(&cfg.path, HUB),
+            pending(&cfg.path, HUB, OSMO),
+        ] {
+            let err = err_string(cmd.run().await);
+            assert!(
+                err.starts_with(&format!("loading signer for '{HUB}'")),
+                "{err}"
+            );
+        }
+    }
+}

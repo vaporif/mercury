@@ -37,6 +37,9 @@ jobs:
       - name: Checks
         run: nix flake check
 
+      - name: AST lint
+        run: nix develop -c just check-ast
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest

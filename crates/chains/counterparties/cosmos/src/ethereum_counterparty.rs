@@ -392,3 +392,133 @@ impl<S: CosmosSigner> MisbehaviourMessageBuilder<EthereumChain> for CosmosAdapte
         eyre::bail!("beacon chain misbehaviour not yet supported")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::{B256, U256};
+    use mercury_chain_traits::types::{PacketSequence, Port, TimeoutTimestamp};
+    use mercury_cosmos::keys::Secp256k1KeyPair;
+    use mercury_ethereum::types::{EvmPayload, ProofHeight};
+
+    type Adapter = CosmosAdapter<Secp256k1KeyPair>;
+
+    fn wasm(latest_height: Option<u64>) -> CosmosClientState {
+        CosmosClientState::Wasm(WasmClientState {
+            data: vec![],
+            checksum: vec![],
+            latest_height: latest_height.map(|h| ProtoHeight {
+                revision_number: 0,
+                revision_height: h,
+            }),
+        })
+    }
+
+    fn attestations() -> CosmosClientState {
+        let any = ibc_proto::google::protobuf::Any {
+            type_url: "/ibc.lightclients.attestations.v1.ClientState".into(),
+            value: vec![],
+        };
+        CosmosClientState::decode_any(&any).unwrap()
+    }
+
+    fn latest(cs: &CosmosClientState) -> u64 {
+        <Adapter as ClientQuery<EthereumChain>>::client_latest_height(cs).0
+    }
+
+    fn trusting(cs: &CosmosClientState) -> Option<Duration> {
+        <Adapter as ClientQuery<EthereumChain>>::trusting_period(cs)
+    }
+
+    #[test]
+    fn latest_height_from_wasm_client_state() {
+        assert_eq!(latest(&wasm(Some(8_000_000))), 8_000_000);
+        assert_eq!(latest(&wasm(None)), 0);
+    }
+
+    #[test]
+    fn latest_height_non_wasm_defaults_to_zero() {
+        assert_eq!(latest(&attestations()), 0);
+    }
+
+    #[test]
+    fn trusting_period_only_for_wasm() {
+        assert_eq!(trusting(&wasm(Some(1))), Some(BEACON_TRUSTING_PERIOD));
+        assert_eq!(trusting(&attestations()), None);
+    }
+
+    #[test]
+    fn evm_packet_to_v2_maps_fields() {
+        let packet = EvmPacket {
+            source_client: "client-0".into(),
+            dest_client: "08-wasm-0".into(),
+            sequence: PacketSequence(3),
+            timeout_timestamp: TimeoutTimestamp(777),
+            payloads: vec![EvmPayload {
+                source_port: Port("transfer".into()),
+                dest_port: Port("dest-port".into()),
+                version: "ics20-1".into(),
+                encoding: "application/x-solidity-abi".into(),
+                value: vec![9, 8],
+            }],
+        };
+        let v2 = evm_packet_to_v2(&packet);
+        assert_eq!(v2.sequence, 3);
+        assert_eq!(v2.source_client, "client-0");
+        assert_eq!(v2.destination_client, "08-wasm-0");
+        assert_eq!(v2.timeout_timestamp, 777);
+        let p = &v2.payloads[0];
+        assert_eq!(p.source_port, "transfer");
+        assert_eq!(p.destination_port, "dest-port");
+        assert_eq!(p.version, "ics20-1");
+        assert_eq!(p.encoding, "application/x-solidity-abi");
+        assert_eq!(p.value, vec![9, 8]);
+    }
+
+    #[test]
+    fn evm_proof_json_round_trips_into_membership_proof() {
+        let proof = EvmCommitmentProof {
+            proof_height: ProofHeight(10),
+            storage_root: B256::repeat_byte(0x11),
+            account_proof: vec![vec![1, 2], vec![3]],
+            storage_key: B256::repeat_byte(0x22),
+            storage_value: U256::from(42u64),
+            storage_proof: vec![vec![4, 5, 6]],
+        };
+        let json = encode_evm_proof_json(&proof).unwrap();
+        let decoded: MembershipProof = serde_json::from_slice(&json).unwrap();
+
+        assert_eq!(decoded.account_proof.storage_root, B256::repeat_byte(0x11));
+        let account: Vec<Vec<u8>> = decoded
+            .account_proof
+            .proof
+            .iter()
+            .map(|b| b.to_vec())
+            .collect();
+        assert_eq!(account, vec![vec![1, 2], vec![3]]);
+        assert_eq!(decoded.storage_proof.key, B256::repeat_byte(0x22));
+        assert_eq!(decoded.storage_proof.value, U256::from(42u64));
+        let storage: Vec<Vec<u8>> = decoded
+            .storage_proof
+            .proof
+            .iter()
+            .map(|b| b.to_vec())
+            .collect();
+        assert_eq!(storage, vec![vec![4, 5, 6]]);
+    }
+
+    #[test]
+    fn evm_proof_json_empty_proofs() {
+        let proof = EvmCommitmentProof {
+            proof_height: ProofHeight(0),
+            storage_root: B256::ZERO,
+            account_proof: vec![],
+            storage_key: B256::ZERO,
+            storage_value: U256::ZERO,
+            storage_proof: vec![],
+        };
+        let decoded: MembershipProof =
+            serde_json::from_slice(&encode_evm_proof_json(&proof).unwrap()).unwrap();
+        assert_eq!(decoded, MembershipProof::default());
+    }
+}

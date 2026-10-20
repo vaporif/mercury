@@ -184,4 +184,96 @@ mod tests {
         > = guard.otel_layer();
         assert!(layer.is_none());
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn init_with_endpoint_enables_metrics_and_tracing() {
+        let config = TelemetryConfig {
+            // Exporters connect lazily, so an unreachable endpoint still builds.
+            otlp_endpoint: Some("http://127.0.0.1:9".to_string()),
+        };
+        let (harness_provider, _) = crate::recorder::tests::harness();
+        let guard = init(&config).unwrap();
+        // init() replaces the global meter provider; hand it back so recorder
+        // tests sharing this process under `cargo test` keep their exporter.
+        global::set_meter_provider(harness_provider.clone());
+        assert!(guard.is_enabled());
+        let layer: Option<
+            tracing_opentelemetry::OpenTelemetryLayer<
+                tracing_subscriber::Registry,
+                opentelemetry_sdk::trace::Tracer,
+            >,
+        > = guard.otel_layer();
+        assert!(layer.is_some());
+        drop(guard);
+    }
+
+    fn boundaries_for(instrument: &str) -> Vec<f64> {
+        use opentelemetry_sdk::metrics::data::{
+            AggregatedMetrics, MetricData, ResourceMetrics, ScopeMetrics,
+        };
+        use opentelemetry_sdk::metrics::{InMemoryMetricExporter, SdkMeterProvider};
+
+        let exporter = InMemoryMetricExporter::default();
+        let provider = SdkMeterProvider::builder()
+            .with_periodic_exporter(exporter.clone())
+            .with_view(histogram_view)
+            .build();
+        provider
+            .meter("view-test")
+            .f64_histogram(instrument.to_string())
+            .build()
+            .record(1.0, &[]);
+        provider.force_flush().unwrap();
+
+        let exports = exporter.get_finished_metrics().unwrap();
+        let metric = exports
+            .iter()
+            .flat_map(ResourceMetrics::scope_metrics)
+            .flat_map(ScopeMetrics::metrics)
+            .find(|m| m.name() == instrument)
+            .unwrap();
+        let AggregatedMetrics::F64(MetricData::Histogram(hist)) = metric.data() else {
+            panic!("{instrument} is not an f64 histogram");
+        };
+        let point = hist.data_points().next().unwrap();
+        point.bounds().collect()
+    }
+
+    #[test]
+    fn histogram_view_applies_metric_specific_buckets() {
+        let cases: [(&str, &[f64]); 5] = [
+            (
+                metric::tx::TX_LATENCY_SUBMITTED_MS,
+                &metric::tx::TX_LATENCY_SUBMITTED_BUCKETS,
+            ),
+            (
+                metric::tx::TX_LATENCY_CONFIRMED_MS,
+                &metric::tx::TX_LATENCY_CONFIRMED_BUCKETS,
+            ),
+            (metric::tx::GAS_PAID, &metric::tx::GAS_PAID_BUCKETS),
+            (
+                metric::query::QUERY_LATENCY_MS,
+                &metric::query::QUERY_LATENCY_BUCKETS,
+            ),
+            (
+                metric::gas::GAS_PRICE_GWEI,
+                &metric::gas::GAS_PRICE_GWEI_BUCKETS,
+            ),
+        ];
+        for (name, buckets) in cases {
+            assert_eq!(boundaries_for(name), buckets, "{name}");
+            // Matching is by suffix, so prefixed names get the same buckets.
+            let prefixed = format!("mercury_{name}");
+            assert_eq!(boundaries_for(&prefixed), buckets, "{prefixed}");
+        }
+    }
+
+    #[test]
+    fn histogram_view_leaves_other_histograms_on_sdk_defaults() {
+        let sdk_default = [
+            0.0, 5.0, 10.0, 25.0, 50.0, 75.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 2500.0, 5000.0,
+            7500.0, 10000.0,
+        ];
+        assert_eq!(boundaries_for("sweep_scan_duration_seconds"), sdk_default);
+    }
 }

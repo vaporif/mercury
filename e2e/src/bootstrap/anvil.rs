@@ -60,6 +60,8 @@ pub async fn start_anvil() -> Result<AnvilHandle> {
             &chain_id.to_string(),
             "--block-time",
             "1",
+            // forge's 130% gas multiplier can push a deploy tx past the block gas limit
+            "--disable-block-gas-limit",
             "--silent",
         ])
         .stdout(Stdio::null())

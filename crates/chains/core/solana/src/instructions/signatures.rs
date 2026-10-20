@@ -1,4 +1,5 @@
 use borsh::BorshSerialize;
+#[cfg(feature = "cosmos")]
 use sha2::{Digest, Sha256};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_sdk::instruction::{AccountMeta, Instruction};
@@ -272,13 +273,13 @@ pub fn extract_signatures_from_header(
     sig_data.into_iter().map(|(_, s)| s).collect()
 }
 
-/// Picks enough signatures to exceed 2/3 voting power.
-#[must_use]
+/// Picks enough signatures to exceed 2/3 voting power, or errors if the
+/// given signatures cannot reach that threshold.
 #[cfg(feature = "cosmos")]
 pub fn select_minimal_signatures(
     header: &ibc_client_tendermint::types::Header,
     signatures: &[crate::ibc_types::SignatureData],
-) -> Vec<crate::ibc_types::SignatureData> {
+) -> eyre::Result<Vec<crate::ibc_types::SignatureData>> {
     let total_power: u64 = header
         .validator_set
         .validators()
@@ -308,7 +309,11 @@ pub fn select_minimal_signatures(
         }
     }
 
-    selected
+    eyre::ensure!(
+        accumulated >= threshold,
+        "signatures carry {accumulated} of {total_power} voting power, need {threshold}"
+    );
+    Ok(selected)
 }
 
 /// Close header chunk and sig-verify PDAs via `cleanup_incomplete_upload`.
@@ -327,47 +332,6 @@ pub fn cleanup_incomplete_upload(
     Ok(Instruction {
         program_id: *ics07_program_id,
         accounts: account_metas,
-        data,
-    })
-}
-
-pub fn initialize_ics07(
-    ics07_program_id: &Pubkey,
-    payer: &Pubkey,
-    client_state: &crate::ibc_types::ClientState,
-    consensus_state: &crate::ibc_types::ConsensusState,
-    access_manager_program_id: &Pubkey,
-) -> eyre::Result<Instruction> {
-    #[derive(BorshSerialize)]
-    struct InitializeArgs {
-        client_state: crate::ibc_types::ClientState,
-        consensus_state: crate::ibc_types::ConsensusState,
-        access_manager: Pubkey,
-    }
-
-    let args = InitializeArgs {
-        client_state: client_state.clone(),
-        consensus_state: consensus_state.clone(),
-        access_manager: *access_manager_program_id,
-    };
-    let data = accounts::encode_anchor_instruction("initialize", &args)?;
-
-    let (client_state_pda, _) = Ics07Tendermint::client_state_pda(ics07_program_id);
-    let (consensus_state_pda, _) = Ics07Tendermint::consensus_state_pda(
-        client_state.latest_height.revision_height,
-        ics07_program_id,
-    );
-    let (app_state_pda, _) = Ics07Tendermint::app_state_pda(ics07_program_id);
-
-    Ok(Instruction {
-        program_id: *ics07_program_id,
-        accounts: vec![
-            AccountMeta::new(client_state_pda, false),
-            AccountMeta::new(consensus_state_pda, false),
-            AccountMeta::new(app_state_pda, false),
-            AccountMeta::new(*payer, true),
-            AccountMeta::new_readonly(solana_system_interface::program::ID, false),
-        ],
         data,
     })
 }
@@ -421,5 +385,368 @@ mod tests {
             signature: [0u8; 64],
         };
         let _ = build_ed25519_instruction(&sig);
+    }
+
+    use crate::accounts::{
+        ANCHOR_DISCRIMINATOR_LEN, AccessManager, anchor_instruction_discriminator,
+    };
+    use crate::ibc_types::SignatureData;
+
+    fn decode<T: borsh::BorshDeserialize>(ix: &Instruction, method: &str) -> T {
+        let (disc, body) = ix.data.split_at(ANCHOR_DISCRIMINATOR_LEN);
+        assert_eq!(disc, anchor_instruction_discriminator(method));
+        borsh::from_slice(body).unwrap()
+    }
+
+    fn sample_sig() -> SignatureData {
+        SignatureData {
+            signature_hash: [3u8; 32],
+            pubkey: [4u8; 32],
+            msg: b"vote".to_vec(),
+            signature: [5u8; 64],
+        }
+    }
+
+    #[test]
+    fn upload_header_chunk_targets_per_submitter_chunk_pda() {
+        let (ics07, payer, am) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let ix = upload_header_chunk(&ics07, &payer, 1_234, 2, vec![7; 10], &am).unwrap();
+
+        let (height, idx, chunk): (u64, u8, Vec<u8>) = decode(&ix, "upload_header_chunk");
+        assert_eq!((height, idx, chunk), (1_234, 2, vec![7; 10]));
+        assert_eq!(ix.program_id, ics07);
+        assert_eq!(
+            ix.accounts,
+            vec![
+                AccountMeta::new(
+                    Ics07Tendermint::header_chunk_pda(&payer, 1_234, 2, &ics07).0,
+                    false
+                ),
+                AccountMeta::new_readonly(Ics07Tendermint::client_state_pda(&ics07).0, false),
+                AccountMeta::new_readonly(Ics07Tendermint::app_state_pda(&ics07).0, false),
+                AccountMeta::new_readonly(AccessManager::pda(&am).0, false),
+                AccountMeta::new(payer, true),
+                AccountMeta::new_readonly(sysvar::instructions::ID, false),
+                AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn assemble_and_update_client_layout() {
+        let (ics07, payer, am) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let chunks = [Pubkey::new_unique(), Pubkey::new_unique()];
+        let sigs = [Pubkey::new_unique()];
+        let ixs = assemble_and_update_client(&ics07, &payer, 10, 20, &chunks, &sigs, &am).unwrap();
+
+        assert_eq!(
+            ixs[..3],
+            [
+                ComputeBudgetInstruction::set_compute_unit_limit(COMPUTE_UNIT_LIMIT),
+                ComputeBudgetInstruction::set_compute_unit_price(COMPUTE_UNIT_PRICE),
+                ComputeBudgetInstruction::request_heap_frame(256 * 1024),
+            ]
+        );
+        let ix = &ixs[3];
+        assert_eq!(ixs.len(), 4);
+        let (target, count, trusted): (u64, u8, u64) = decode(ix, "assemble_and_update_client");
+        assert_eq!((target, count, trusted), (20, 2, 10));
+
+        assert_eq!(ix.program_id, ics07);
+        assert_eq!(
+            ix.accounts,
+            vec![
+                AccountMeta::new(Ics07Tendermint::client_state_pda(&ics07).0, false),
+                AccountMeta::new_readonly(Ics07Tendermint::app_state_pda(&ics07).0, false),
+                AccountMeta::new_readonly(AccessManager::pda(&am).0, false),
+                AccountMeta::new_readonly(
+                    Ics07Tendermint::consensus_state_pda(10, &ics07).0,
+                    false
+                ),
+                AccountMeta::new(Ics07Tendermint::consensus_state_pda(20, &ics07).0, false),
+                AccountMeta::new(payer, true),
+                AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+                AccountMeta::new_readonly(sysvar::instructions::ID, false),
+                // Header chunks are closed by the program, sig-verify PDAs only read.
+                AccountMeta::new(chunks[0], false),
+                AccountMeta::new(chunks[1], false),
+                AccountMeta::new_readonly(sigs[0], false),
+            ]
+        );
+    }
+
+    #[test]
+    fn assemble_and_update_client_caps_chunk_count_at_u8() {
+        let (ics07, payer, am) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let max = vec![Pubkey::new_unique(); usize::from(u8::MAX)];
+        let ixs = assemble_and_update_client(&ics07, &payer, 1, 2, &max, &[], &am).unwrap();
+        let (_, count, _): (u64, u8, u64) = decode(&ixs[3], "assemble_and_update_client");
+        assert_eq!(count, u8::MAX);
+
+        let over = vec![Pubkey::new_unique(); usize::from(u8::MAX) + 1];
+        let err = assemble_and_update_client(&ics07, &payer, 1, 2, &over, &[], &am).unwrap_err();
+        assert!(
+            err.to_string().contains("too many header chunks: 256"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn pre_verify_signature_records_at_signature_hash_pda() {
+        let (ics07, payer, am) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let sig = sample_sig();
+        let ix = pre_verify_signature(&ics07, &payer, &sig, &am).unwrap();
+
+        let decoded: SignatureData = decode(&ix, "pre_verify_signature");
+        assert_eq!(decoded.signature_hash, sig.signature_hash);
+        assert_eq!(decoded.pubkey, sig.pubkey);
+        assert_eq!(decoded.msg, sig.msg);
+        assert_eq!(decoded.signature, sig.signature);
+        assert_eq!(
+            ix.accounts,
+            vec![
+                AccountMeta::new_readonly(sysvar::instructions::ID, false),
+                AccountMeta::new(
+                    Ics07Tendermint::sig_verify_pda(&sig.signature_hash, &ics07).0,
+                    false
+                ),
+                AccountMeta::new_readonly(Ics07Tendermint::app_state_pda(&ics07).0, false),
+                AccountMeta::new_readonly(AccessManager::pda(&am).0, false),
+                AccountMeta::new(payer, true),
+                AccountMeta::new_readonly(solana_system_interface::program::ID, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn pre_verify_signature_instructions_place_precompile_before_verify() {
+        // The program introspects the instruction right before it, so the
+        // ed25519 precompile must immediately precede `pre_verify_signature`.
+        let (ics07, payer, am) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let sig = sample_sig();
+        let ixs = pre_verify_signature_instructions(&ics07, &payer, &sig, &am).unwrap();
+        assert_eq!(
+            ixs,
+            vec![
+                ComputeBudgetInstruction::set_compute_unit_limit(COMPUTE_UNIT_LIMIT),
+                ComputeBudgetInstruction::set_compute_unit_price(COMPUTE_UNIT_PRICE),
+                build_ed25519_instruction(&sig),
+                pre_verify_signature(&ics07, &payer, &sig, &am).unwrap(),
+            ]
+        );
+    }
+
+    #[test]
+    fn cleanup_incomplete_upload_closes_every_pda_to_payer() {
+        let (ics07, payer) = (Pubkey::new_unique(), Pubkey::new_unique());
+        let pdas = [Pubkey::new_unique(), Pubkey::new_unique()];
+        let ix = cleanup_incomplete_upload(&ics07, &payer, &pdas).unwrap();
+
+        assert_eq!(ix.program_id, ics07);
+        assert_eq!(
+            ix.data,
+            anchor_instruction_discriminator("cleanup_incomplete_upload")
+        );
+        assert_eq!(
+            ix.accounts,
+            vec![
+                AccountMeta::new(payer, true),
+                AccountMeta::new(pdas[0], false),
+                AccountMeta::new(pdas[1], false),
+            ]
+        );
+
+        let empty = cleanup_incomplete_upload(&ics07, &payer, &[]).unwrap();
+        assert_eq!(empty.accounts, vec![AccountMeta::new(payer, true)]);
+    }
+
+    #[cfg(feature = "cosmos")]
+    mod cosmos {
+        use ibc_client_tendermint::types::Header;
+        use ibc_core_client_types::Height as IbcHeight;
+        use tendermint::account::Id as AccountId;
+        use tendermint::block::commit_sig::CommitSig;
+        use tendermint::block::header::{Header as TmHeader, Version};
+        use tendermint::block::parts::Header as PartSetHeader;
+        use tendermint::block::signed_header::SignedHeader;
+        use tendermint::block::{Commit, Height, Id as BlockId, Round};
+        use tendermint::chain::Id as ChainId;
+        use tendermint::hash::{Algorithm, Hash};
+        use tendermint::validator::{Info as ValidatorInfo, Set as ValidatorSet};
+        use tendermint::{PublicKey, Time};
+
+        use super::*;
+
+        fn validator(key: u8, power: u32) -> ValidatorInfo {
+            let pk = PublicKey::from_raw_ed25519(&[key; 32]).unwrap();
+            ValidatorInfo {
+                address: AccountId::from(pk),
+                pub_key: pk,
+                power: power.into(),
+                name: None,
+                proposer_priority: 0.into(),
+            }
+        }
+
+        fn hash(byte: u8) -> Hash {
+            Hash::from_bytes(Algorithm::Sha256, &[byte; 32]).unwrap()
+        }
+
+        fn time() -> Time {
+            Time::from_unix_timestamp(1_700_000_000, 0).unwrap()
+        }
+
+        fn commit_sig(key: u8, flag: &str) -> CommitSig {
+            let addr = AccountId::from(PublicKey::from_raw_ed25519(&[key; 32]).unwrap());
+            let sig = Some(tendermint::Signature::try_from([key; 64].as_slice()).unwrap());
+            match flag {
+                "commit" => CommitSig::BlockIdFlagCommit {
+                    validator_address: addr,
+                    timestamp: time(),
+                    signature: sig,
+                },
+                "unsigned" => CommitSig::BlockIdFlagCommit {
+                    validator_address: addr,
+                    timestamp: time(),
+                    signature: None,
+                },
+                "nil" => CommitSig::BlockIdFlagNil {
+                    validator_address: addr,
+                    timestamp: time(),
+                    signature: sig,
+                },
+                _ => CommitSig::BlockIdFlagAbsent,
+            }
+        }
+
+        fn header(validators: &[(u8, u32)], sigs: Vec<CommitSig>) -> Header {
+            let vals: Vec<_> = validators.iter().map(|&(k, p)| validator(k, p)).collect();
+            let set = ValidatorSet::new(vals.clone(), Some(vals[0].clone()));
+            let block_id = BlockId {
+                hash: hash(0xAA),
+                part_set_header: PartSetHeader::new(1, hash(0xBB)).unwrap(),
+            };
+            let tm_header = TmHeader {
+                version: Version { block: 11, app: 1 },
+                chain_id: ChainId::try_from("test-chain-1".to_string()).unwrap(),
+                height: Height::try_from(100u64).unwrap(),
+                time: time(),
+                last_block_id: Some(block_id),
+                last_commit_hash: Some(hash(1)),
+                data_hash: Some(hash(2)),
+                validators_hash: hash(3),
+                next_validators_hash: hash(4),
+                consensus_hash: hash(5),
+                app_hash: vec![6; 32].try_into().unwrap(),
+                last_results_hash: Some(hash(7)),
+                evidence_hash: Some(hash(8)),
+                proposer_address: vals[0].address,
+            };
+            let commit = Commit {
+                height: Height::try_from(100u64).unwrap(),
+                round: Round::from(0u16),
+                block_id,
+                signatures: sigs,
+            };
+            Header {
+                signed_header: SignedHeader::new(tm_header, commit).unwrap(),
+                validator_set: set.clone(),
+                trusted_height: IbcHeight::new(0, 99).unwrap(),
+                trusted_next_validator_set: set,
+            }
+        }
+
+        fn sig_for(key: u8) -> SignatureData {
+            SignatureData {
+                signature_hash: [0; 32],
+                pubkey: [key; 32],
+                msg: vec![],
+                signature: [key; 64],
+            }
+        }
+
+        #[test]
+        fn extracts_only_committed_known_signatures_by_power_desc() {
+            let h = header(
+                &[(1, 10), (2, 20), (3, 30), (4, 5)],
+                vec![
+                    commit_sig(1, "commit"),
+                    commit_sig(2, "nil"),
+                    commit_sig(0, "absent"),
+                    commit_sig(3, "commit"),
+                    commit_sig(4, "unsigned"),
+                    commit_sig(9, "commit"), // not in the validator set
+                ],
+            );
+            let sigs = extract_signatures_from_header(&h);
+
+            let pubkeys: Vec<_> = sigs.iter().map(|s| s.pubkey).collect();
+            assert_eq!(pubkeys, vec![[3; 32], [1; 32]]);
+            for s in &sigs {
+                assert_eq!(s.signature, [s.pubkey[0]; 64]);
+                let expected: [u8; 32] = Sha256::digest(s.signature).into();
+                assert_eq!(s.signature_hash, expected);
+                assert!(
+                    s.msg.windows(12).any(|w| w == b"test-chain-1"),
+                    "sign bytes must commit to the chain id"
+                );
+            }
+        }
+
+        #[test]
+        fn selects_until_strictly_above_two_thirds() {
+            // Total 60 -> threshold 41.
+            let h = header(&[(1, 10), (2, 20), (3, 30)], vec![]);
+            let selected =
+                select_minimal_signatures(&h, &[sig_for(3), sig_for(2), sig_for(1)]).unwrap();
+            let keys: Vec<_> = selected.iter().map(|s| s.pubkey[0]).collect();
+            assert_eq!(keys, vec![3, 2]);
+        }
+
+        #[test]
+        fn exactly_two_thirds_is_not_enough() {
+            // Total 3 -> threshold 3; two of three equal validators is exactly 2/3.
+            let h = header(&[(1, 1), (2, 1), (3, 1)], vec![]);
+            let selected =
+                select_minimal_signatures(&h, &[sig_for(1), sig_for(2), sig_for(3)]).unwrap();
+            assert_eq!(selected.len(), 3);
+            assert!(select_minimal_signatures(&h, &[sig_for(1), sig_for(2)]).is_err());
+        }
+
+        #[test]
+        fn skips_signatures_from_unknown_validators() {
+            let h = header(&[(1, 10), (2, 20)], vec![]);
+            let selected =
+                select_minimal_signatures(&h, &[sig_for(9), sig_for(2), sig_for(1)]).unwrap();
+            let keys: Vec<_> = selected.iter().map(|s| s.pubkey[0]).collect();
+            assert_eq!(keys, vec![2, 1]);
+        }
+
+        #[test]
+        fn errors_when_quorum_unreachable() {
+            let h = header(&[(1, 10), (2, 20), (3, 30)], vec![]);
+            let err = select_minimal_signatures(&h, &[sig_for(3), sig_for(1)]).unwrap_err();
+            assert!(err.to_string().contains("40 of 60"), "{err}");
+        }
     }
 }

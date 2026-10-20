@@ -126,11 +126,11 @@ async fn packet_timeout() {
     relay.stop();
 }
 
-/// A 15s timeout falls inside the default 40s clock-drift buffer, so the
-/// relayer treats the packet as already timed-out instead of trying to deliver.
 #[tokio::test]
 #[ignore = "requires Docker"]
 async fn near_expiry_packet_timeout() {
+    // A 15s timeout falls inside the default 40s clock-drift buffer, so the
+    // relayer treats the packet as already timed-out instead of trying to deliver.
     super::init_tracing();
 
     let ctx = setup_context().await.expect("IBC setup");

@@ -44,14 +44,19 @@ The core insight behind CGP - Inversion of Control to decouple cross-chain trait
 
 See [architecture](./architecture.md) for the full trait hierarchy, cross-chain design, and code examples.
 
-## Eureka relayer: different layer
+## Cosmos Labs relayer: request-driven and no longer open
 
-The [Eureka relayer](https://github.com/cosmos/solidity-ibc-eureka/tree/main/programs/relayer) is a stateless gRPC service that generates unsigned transactions for cross-chain IBC operations. Its `RelayerService` exposes `RelayByTx(source_tx_ids)` - an external system must discover IBC transactions and call this RPC with specific tx hashes. No event watching, no packet recovery, no continuous relaying. It doesn't even submit transactions - it returns raw tx bytes to the caller.
+Cosmos Labs splits IBC v2 relaying into two services. The [proof API](https://github.com/cosmos/ibc-contracts/tree/main/programs/proof-api) (renamed from `programs/relayer` in [#1030](https://github.com/cosmos/ibc-contracts/pull/1030)) is a stateless gRPC service. Given source tx hashes, it returns unsigned relay transactions with proofs. It doesn't watch chains or submit anything.
 
-Each chain direction is a separate crate (`eth-to-cosmos`, `cosmos-to-eth`, `solana-to-cosmos`, etc. - 7 modules today). Bidirectional relay requires two independent module instances sharing no state. Module config is `serde_json::Value` parsed at runtime.
+The [IBC v2 Relayer](https://github.com/cosmos/ibc-relayer) is a Go service on top of it, backed by Postgres. A client calls its `Relay(tx_hash, chain_id)` endpoint. The relayer stores the packets from that transaction, gets the relay transactions from the proof API, signs them, and submits them. It covers many production concerns: retries after reorgs and gas failures, batching, remote signing, address blacklists (for OFAC), and gas and latency metrics. Its README lists Cosmos and EVM chains.
+
+The public repo was archived in August 2026. Cosmos Labs now licenses the relayer through [Cosmos Enterprise](https://cosmos.network/blog/flexible-and-secure-interoperability-for-financial-institutions), so Cosmos Labs no longer maintains an open-source IBC v2 relayer.
 
 Where Mercury differs:
 
-- Shared relay logic. All workers (`EventWatcher`, `PacketWorker`, `TxWorker`, `PacketSweeper`) are generic over the `Relay` trait - the same code handles every chain pair. Eureka duplicates relay logic per direction. Mercury still has per-pair counterparty wrappers (~600 lines each for orphan rule compliance), but the relay pipeline itself is written once.
-- Autonomous operation. Mercury polls blocks, recovers missed packets, manages client refresh, and submits transactions. Eureka requires an external orchestrator for all of this.
-- Compile-time type safety. `RelayContext<Src, Dst>` enforces payload type matching through associated type constraints. Eureka's modules receive opaque `serde_json::Value` config and discover type errors at runtime.
+- Autonomous operation. The Cosmos Labs relayer only relays transactions that a client reports to its API, so a packet nobody reports stays unrelayed. Mercury watches blocks, sweeps for missed packets, refreshes clients, and submits transactions on its own.
+- Fewer moving parts. Their stack needs Postgres, a proof API instance, and a client that feeds it tx hashes. Mercury builds and submits transactions itself, with no database or proof service to run.
+- Shared relay logic. The proof API has a separate module per direction (`eth-to-cosmos`, `cosmos-to-eth`, `solana-to-cosmos`, and so on), and each module parses its config from `serde_json::Value` at runtime. Mercury's workers (`EventWatcher`, `PacketWorker`, `TxWorker`, `PacketSweeper`) are generic over the `Relay` trait, so one pipeline serves every chain pair. `RelayContext<Src, Dst>` checks payload types at compile time. Mercury still needs a counterparty wrapper per chain pair (~600 lines each) because of the orphan rule.
+- Open source under MIT/Apache-2.0.
+
+Mercury lacks what the Cosmos Labs relayer has from running in production: remote signing, address filtering, tested retry handling, and live deployments.

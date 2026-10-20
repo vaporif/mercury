@@ -33,10 +33,12 @@ pub struct ClearPacketsCmd {
     /// Counterparty client ID
     #[arg(long)]
     counterparty_client: String,
-    /// Specific sequences to clear (e.g. "1,5,10..20")
+    /// Specific sequences to clear (e.g. "1,5,10..20"), at most 10000
     #[arg(long)]
     sequences: Option<String>,
 }
+
+const MAX_SEQUENCES: usize = 10_000;
 
 fn parse_sequences(input: &str) -> eyre::Result<Vec<u64>> {
     let mut result = Vec::new();
@@ -54,11 +56,21 @@ fn parse_sequences(input: &str) -> eyre::Result<Vec<u64>> {
             if start > end {
                 eyre::bail!("invalid sequence range: {start}..{end}");
             }
+            let len = usize::try_from(end - start)
+                .ok()
+                .and_then(|n| n.checked_add(1))
+                .filter(|n| result.len() + n <= MAX_SEQUENCES);
+            if len.is_none() {
+                eyre::bail!("too many sequences: at most {MAX_SEQUENCES} per run");
+            }
             result.extend(start..=end);
         } else {
             let seq: u64 = part
                 .parse()
                 .map_err(|e| eyre::eyre!("invalid sequence '{part}': {e}"))?;
+            if result.len() >= MAX_SEQUENCES {
+                eyre::bail!("too many sequences: at most {MAX_SEQUENCES} per run");
+            }
             result.push(seq);
         }
     }
@@ -117,5 +129,109 @@ impl ClearPacketsCmd {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{HUB, OSMO, err_string, example_config};
+
+    #[test]
+    fn parses_documented_sequence_syntax() {
+        // Matches the `--sequences` help text example: "1,5,10..20".
+        let mut expected = vec![1, 5];
+        expected.extend(10..=20);
+        assert_eq!(parse_sequences("1,5,10..20").unwrap(), expected);
+    }
+
+    #[test]
+    fn range_bounds_are_inclusive_and_whitespace_tolerant() {
+        assert_eq!(parse_sequences(" 3 .. 5 , 9 ").unwrap(), vec![3, 4, 5, 9]);
+        assert_eq!(parse_sequences("7..7").unwrap(), vec![7]);
+    }
+
+    #[test]
+    fn keeps_input_order_and_duplicates() {
+        assert_eq!(parse_sequences("5,1,1,2..3").unwrap(), vec![5, 1, 1, 2, 3]);
+    }
+
+    #[test]
+    fn rejects_reversed_range() {
+        assert_eq!(
+            err_string(parse_sequences("5..3")),
+            "invalid sequence range: 5..3"
+        );
+    }
+
+    #[test]
+    fn rejects_more_sequences_than_the_cap() {
+        let at_cap = format!("1..{MAX_SEQUENCES}");
+        assert_eq!(parse_sequences(&at_cap).unwrap().len(), MAX_SEQUENCES);
+        let over = format!("0..{MAX_SEQUENCES}");
+        assert!(err_string(parse_sequences(&over)).contains("too many sequences"));
+        let split = format!("1..{MAX_SEQUENCES},0");
+        assert!(err_string(parse_sequences(&split)).contains("too many sequences"));
+    }
+
+    #[test]
+    fn rejects_full_u64_range_without_allocating_it() {
+        let err = err_string(parse_sequences(&format!("0..{}", u64::MAX)));
+        assert!(err.contains("too many sequences"), "{err}");
+    }
+
+    #[test]
+    fn rejects_malformed_entries() {
+        for (input, prefix) in [
+            ("abc", "invalid sequence 'abc'"),
+            ("1,", "invalid sequence ''"),
+            ("", "invalid sequence ''"),
+            ("-1", "invalid sequence '-1'"),
+            ("x..3", "invalid sequence range start 'x'"),
+            ("1..", "invalid sequence range end ''"),
+            ("1..=3", "invalid sequence range end '=3'"),
+        ] {
+            let err = err_string(parse_sequences(input));
+            assert!(err.starts_with(prefix), "{input:?}: {err}");
+        }
+    }
+
+    fn cmd(config: &std::path::Path, chain: &str, counterparty: &str) -> ClearPacketsCmd {
+        ClearPacketsCmd {
+            config: config.to_path_buf(),
+            chain: chain.into(),
+            client: "07-tendermint-0".into(),
+            counterparty_chain: counterparty.into(),
+            counterparty_client: "07-tendermint-0".into(),
+            sequences: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_source_chain_is_reported() {
+        let cfg = example_config();
+        let err = err_string(
+            ClearCmd::Packets(cmd(&cfg.path, "juno-1", OSMO))
+                .run()
+                .await,
+        );
+        assert_eq!(err, "chain 'juno-1' not found in config");
+    }
+
+    #[tokio::test]
+    async fn unknown_counterparty_chain_is_reported() {
+        let cfg = example_config();
+        let err = err_string(cmd(&cfg.path, HUB, "juno-1").run().await);
+        assert_eq!(err, "chain 'juno-1' not found in config");
+    }
+
+    #[tokio::test]
+    async fn connect_failure_is_reported_before_any_clearing() {
+        let cfg = example_config();
+        let err = err_string(cmd(&cfg.path, HUB, OSMO).run().await);
+        assert!(
+            err.starts_with(&format!("loading signer for '{HUB}'")),
+            "{err}"
+        );
     }
 }

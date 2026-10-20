@@ -52,6 +52,9 @@ pub enum ClientPayloadMode {
     },
     Attested {
         attestor_endpoints: Vec<String>,
+        /// Ethereum addresses of the attestor signing keys, written into the
+        /// client state for light clients to check signatures against.
+        attestor_addresses: Vec<String>,
         #[serde(default = "default_quorum")]
         quorum_threshold: usize,
     },
@@ -135,11 +138,21 @@ impl EthereumChainConfig {
             }
             ClientPayloadMode::Attested {
                 attestor_endpoints,
+                attestor_addresses,
                 quorum_threshold,
             } => {
                 eyre::ensure!(
                     !attestor_endpoints.is_empty(),
                     "attestor_endpoints must not be empty"
+                );
+                for addr in attestor_addresses {
+                    addr.parse::<Address>()
+                        .map_err(|e| eyre::eyre!("invalid attestor address '{addr}': {e}"))?;
+                }
+                eyre::ensure!(
+                    *quorum_threshold <= attestor_addresses.len(),
+                    "quorum_threshold {quorum_threshold} exceeds the {} attestor_addresses",
+                    attestor_addresses.len()
                 );
                 eyre::ensure!(
                     *quorum_threshold >= 1 && *quorum_threshold <= attestor_endpoints.len(),
@@ -394,6 +407,10 @@ mod tests {
             [client_payload_mode]
             type = "attested"
             attestor_endpoints = ["http://attestor1:8080", "http://attestor2:8080"]
+            attestor_addresses = [
+                "0x0000000000000000000000000000000000000001",
+                "0x0000000000000000000000000000000000000002",
+            ]
             quorum_threshold = 2
             "#,
         )
@@ -438,11 +455,51 @@ mod tests {
             [client_payload_mode]
             type = "attested"
             attestor_endpoints = []
+            attestor_addresses = []
             quorum_threshold = 0
             "#,
         )
         .unwrap();
         assert!(config.validate().is_err());
+    }
+
+    fn attested_config(addresses: &str, quorum: usize) -> EthereumChainConfig {
+        toml::from_str(&format!(
+            r#"
+            chain_id = 1
+            rpc_addr = "http://localhost:8545"
+            ics26_router = "0x0000000000000000000000000000000000000001"
+            key_file = "key.hex"
+
+            [client_payload_mode]
+            type = "attested"
+            attestor_endpoints = ["http://a1:8080", "http://a2:8080"]
+            attestor_addresses = {addresses}
+            quorum_threshold = {quorum}
+            "#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn validate_attestor_addresses() {
+        let two = r#"["0x0000000000000000000000000000000000000001", "0x0000000000000000000000000000000000000002"]"#;
+        attested_config(two, 2).validate().unwrap();
+
+        let err = attested_config(r#"["http://a1:8080"]"#, 1)
+            .validate()
+            .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("invalid attestor address"),
+            "{err:#}"
+        );
+
+        let one = r#"["0x0000000000000000000000000000000000000001"]"#;
+        let err = attested_config(one, 2).validate().unwrap_err();
+        assert!(
+            format!("{err:#}").contains("exceeds the 1 attestor_addresses"),
+            "{err:#}"
+        );
     }
 
     #[test]

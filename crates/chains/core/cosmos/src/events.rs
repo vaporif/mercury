@@ -539,4 +539,529 @@ mod tests {
         assert_eq!(write_ack.packet.sequence, PacketSequence(3));
         assert_eq!(write_ack.ack.0, ack.encode_to_vec());
     }
+
+    fn send_event(attrs: Vec<(&str, &str)>) -> CosmosEvent {
+        CosmosEvent {
+            kind: "send_packet".to_string(),
+            attributes: attrs
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    fn valid_packet_hex() -> String {
+        hex::encode(test_packet(1, 1, vec![]).encode_to_vec())
+    }
+
+    #[test]
+    fn v2_packet_to_cosmos_keeps_source_and_dest_ports_distinct() {
+        let pkt = test_packet(
+            1,
+            0,
+            vec![
+                Payload {
+                    source_port: "src-a".into(),
+                    destination_port: "dst-a".into(),
+                    version: "v1".into(),
+                    encoding: "proto".into(),
+                    value: vec![1],
+                },
+                Payload {
+                    source_port: "src-b".into(),
+                    destination_port: "dst-b".into(),
+                    version: "v2".into(),
+                    encoding: "json".into(),
+                    value: vec![2],
+                },
+            ],
+        );
+        let result = v2_packet_to_cosmos(pkt);
+        assert_eq!(result.payloads.len(), 2);
+        assert_eq!(result.payloads[0].source_port, Port("src-a".into()));
+        assert_eq!(result.payloads[0].dest_port, Port("dst-a".into()));
+        assert_eq!(result.payloads[0].version, "v1");
+        assert_eq!(result.payloads[0].encoding, "proto");
+        assert_eq!(result.payloads[1].source_port, Port("src-b".into()));
+        assert_eq!(result.payloads[1].dest_port, Port("dst-b".into()));
+        assert_eq!(result.payloads[1].data, vec![2]);
+    }
+
+    #[test]
+    fn try_extract_send_packet_event_invalid_hex() {
+        let event = send_event(vec![(ENCODED_PACKET_HEX, "zz-not-hex")]);
+        assert!(TestChain::try_extract_send_packet_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_send_packet_event_invalid_proto() {
+        // valid hex, but 0xFF is not a valid protobuf tag/wire type
+        let event = send_event(vec![(ENCODED_PACKET_HEX, "ffffffff")]);
+        assert!(TestChain::try_extract_send_packet_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_send_packet_event_ignores_unrelated_attrs() {
+        let hex = valid_packet_hex();
+        let event = send_event(vec![
+            ("packet_sequence", "1"),
+            ("msg_index", "0"),
+            (ENCODED_PACKET_HEX, &hex),
+        ]);
+        let send = TestChain::try_extract_send_packet_event(&event).unwrap();
+        assert_eq!(
+            TestChain::packet_from_send_event(&send).sequence,
+            PacketSequence(1)
+        );
+    }
+
+    fn write_ack_event(attrs: Vec<(&str, &str)>) -> CosmosEvent {
+        CosmosEvent {
+            kind: "write_acknowledgement".to_string(),
+            ..send_event(attrs)
+        }
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_missing_ack_attr() {
+        let hex = valid_packet_hex();
+        let event = write_ack_event(vec![(ENCODED_PACKET_HEX, &hex)]);
+        assert!(TestChain::try_extract_write_ack_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_missing_packet_attr() {
+        let event = write_ack_event(vec![("encoded_acknowledgement_hex", "01")]);
+        assert!(TestChain::try_extract_write_ack_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_invalid_ack_hex() {
+        let hex = valid_packet_hex();
+        let event = write_ack_event(vec![
+            (ENCODED_PACKET_HEX, &hex),
+            ("encoded_acknowledgement_hex", "xyz"),
+        ]);
+        assert!(TestChain::try_extract_write_ack_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_invalid_packet_proto() {
+        let event = write_ack_event(vec![
+            (ENCODED_PACKET_HEX, "ffffffff"),
+            ("encoded_acknowledgement_hex", "01"),
+        ]);
+        assert!(TestChain::try_extract_write_ack_event(&event).is_none());
+    }
+
+    #[test]
+    fn try_extract_write_ack_event_keeps_ack_bytes_raw() {
+        // ack bytes are passed through verbatim, not proto-decoded
+        let hex = valid_packet_hex();
+        let event = write_ack_event(vec![
+            (ENCODED_PACKET_HEX, &hex),
+            ("encoded_acknowledgement_hex", "deadbeef"),
+        ]);
+        let write_ack = TestChain::try_extract_write_ack_event(&event).unwrap();
+        let (packet, ack) = TestChain::packet_from_write_ack_event(&write_ack);
+        assert_eq!(packet.sequence, PacketSequence(1));
+        assert_eq!(ack.0, vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn abci_event_to_cosmos_event_converts_v037_attributes() {
+        let event = tendermint::abci::Event::new(
+            "send_packet",
+            [("packet_sequence", "5"), (ENCODED_PACKET_HEX, "abcd")],
+        );
+        let converted = abci_event_to_cosmos_event(&event);
+        assert_eq!(converted.kind, "send_packet");
+        assert_eq!(
+            converted.attributes,
+            vec![
+                ("packet_sequence".to_string(), "5".to_string()),
+                (ENCODED_PACKET_HEX.to_string(), "abcd".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn abci_event_to_cosmos_event_drops_non_utf8_v034_attributes() {
+        use tendermint::abci::{EventAttribute, v0_34};
+
+        let attr = |key: &[u8], value: &[u8]| {
+            EventAttribute::V034(v0_34::EventAttribute {
+                key: key.to_vec(),
+                value: value.to_vec(),
+                index: true,
+            })
+        };
+        let event = tendermint::abci::Event {
+            kind: "write_acknowledgement".to_string(),
+            attributes: vec![
+                attr(b"good", b"value"),
+                attr(&[0xff, 0xfe], b"bad-key"),
+                attr(b"bad-value", &[0xc3, 0x28]),
+            ],
+        };
+        let converted = abci_event_to_cosmos_event(&event);
+        assert_eq!(
+            converted.attributes,
+            vec![("good".to_string(), "value".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn subscribe_block_events_without_ws_addr_returns_none() {
+        let chain = crate::chain::test_support::test_chain();
+        assert!(chain.config.ws_addr.is_none());
+        assert!(chain.subscribe_block_events().await.unwrap().is_none());
+    }
+
+    fn fuzz_kind(selector: u8) -> String {
+        match selector % 3 {
+            0 => "send_packet".to_string(),
+            1 => "write_acknowledgement".to_string(),
+            _ => "other".to_string(),
+        }
+    }
+
+    #[test]
+    fn fuzz_extract_events_arbitrary_attributes() {
+        bolero::check!()
+            .with_type::<(u8, Vec<(String, String)>)>()
+            .for_each(|(selector, attributes)| {
+                let event = CosmosEvent {
+                    kind: fuzz_kind(*selector),
+                    attributes: attributes.clone(),
+                };
+                let _ = TestChain::try_extract_send_packet_event(&event);
+                let _ = TestChain::try_extract_write_ack_event(&event);
+            });
+    }
+
+    #[test]
+    fn fuzz_extract_events_hex_encoded_bytes() {
+        bolero::check!()
+            .with_type::<(u8, Vec<u8>, Vec<u8>)>()
+            .for_each(|(selector, packet, ack)| {
+                let event = CosmosEvent {
+                    kind: fuzz_kind(*selector),
+                    attributes: vec![
+                        (ENCODED_PACKET_HEX.to_string(), hex::encode(packet)),
+                        ("encoded_acknowledgement_hex".to_string(), hex::encode(ack)),
+                    ],
+                };
+                let _ = TestChain::try_extract_send_packet_event(&event);
+                if let Some(ev) = TestChain::try_extract_write_ack_event(&event) {
+                    assert_eq!(&ev.ack.0, ack);
+                }
+            });
+    }
+
+    #[test]
+    fn fuzz_send_packet_roundtrip() {
+        bolero::check!()
+            .with_type::<(u64, u64, String, String, Vec<(String, Vec<u8>)>)>()
+            .for_each(|(seq, timeout, src, dst, payloads)| {
+                let pkt = Packet {
+                    sequence: *seq,
+                    source_client: src.clone(),
+                    destination_client: dst.clone(),
+                    timeout_timestamp: *timeout,
+                    payloads: payloads
+                        .iter()
+                        .map(|(port, data)| test_payload(port, "v1", "json", data))
+                        .collect(),
+                };
+                let event = CosmosEvent {
+                    kind: "send_packet".to_string(),
+                    attributes: vec![(
+                        ENCODED_PACKET_HEX.to_string(),
+                        hex::encode(pkt.encode_to_vec()),
+                    )],
+                };
+                let ev = TestChain::try_extract_send_packet_event(&event).unwrap();
+                assert_eq!(ev.packet.sequence.0, *seq);
+                assert_eq!(ev.packet.timeout_timestamp.0, *timeout);
+                assert_eq!(ev.packet.payloads.len(), payloads.len());
+            });
+    }
+
+    #[test]
+    fn fuzz_abci_event_v034_attributes() {
+        use tendermint::abci::{EventAttribute, v0_34};
+
+        bolero::check!()
+            .with_type::<(u8, Vec<(Vec<u8>, Vec<u8>)>)>()
+            .for_each(|(selector, attrs)| {
+                let event = tendermint::abci::Event {
+                    kind: fuzz_kind(*selector),
+                    attributes: attrs
+                        .iter()
+                        .map(|(key, value)| {
+                            EventAttribute::V034(v0_34::EventAttribute {
+                                key: key.clone(),
+                                value: value.clone(),
+                                index: true,
+                            })
+                        })
+                        .collect(),
+                };
+                let converted = abci_event_to_cosmos_event(&event);
+                assert!(converted.attributes.len() <= attrs.len());
+                let _ = TestChain::try_extract_send_packet_event(&converted);
+                let _ = TestChain::try_extract_write_ack_event(&converted);
+            });
+    }
+
+    mod mocked {
+        use super::*;
+        use crate::chain::test_support::rpc::{MockRpc, Reply, ok, spawn_rpc};
+        use crate::chain::test_support::tm::{event, exec_result, tx_entry, tx_search_reply};
+        use crate::chain::test_support::{UNREACHABLE_ADDR, mock_chain};
+        use ibc::core::host::types::identifiers::ClientId;
+        use serde_json::Value;
+        use tendermint_rpc::endpoint::block_results;
+
+        fn client_id() -> ClientId {
+            "07-tendermint-3".parse().unwrap()
+        }
+
+        fn kinds(events: &[CosmosEvent]) -> Vec<&str> {
+            events.iter().map(|e| e.kind.as_str()).collect()
+        }
+
+        #[tokio::test]
+        async fn block_events_merge_block_level_and_tx_events_in_order() {
+            let results = block_results::Response {
+                height: tendermint::block::Height::from(15u32),
+                txs_results: Some(vec![
+                    exec_result(
+                        0,
+                        "",
+                        vec![event("send_packet", &[("packet_sequence", "1")])],
+                    ),
+                    exec_result(5, "failed", vec![event("tx_failed", &[])]),
+                ]),
+                finalize_block_events: vec![event("finalize", &[("k", "v")])],
+                begin_block_events: Some(vec![event("begin", &[])]),
+                end_block_events: Some(vec![event("end", &[])]),
+                validator_updates: vec![],
+                consensus_param_updates: None,
+                app_hash: tendermint::AppHash::default(),
+            };
+            let rpc = spawn_rpc(move |_| ok(&results)).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let events = chain
+                .query_block_events(&tendermint::block::Height::from(15u32))
+                .await
+                .unwrap();
+            assert_eq!(
+                kinds(&events),
+                vec!["finalize", "begin", "end", "send_packet", "tx_failed"]
+            );
+            assert_eq!(
+                events[3].attributes,
+                vec![("packet_sequence".to_string(), "1".to_string())]
+            );
+            assert_eq!(rpc.calls_to("block_results")[0]["height"], "15");
+        }
+
+        #[tokio::test]
+        async fn block_events_tolerate_null_sections() {
+            let rpc = spawn_rpc(|_| {
+                Reply::Result(serde_json::json!({
+                    "height": "3",
+                    "txs_results": null,
+                    "begin_block_events": null,
+                    "end_block_events": null,
+                    "validator_updates": null,
+                    "consensus_param_updates": null,
+                    "app_hash": ""
+                }))
+            })
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let events = chain
+                .query_block_events(&tendermint::block::Height::from(3u32))
+                .await
+                .unwrap();
+            assert!(events.is_empty());
+        }
+
+        #[tokio::test]
+        async fn block_events_rpc_error_propagates() {
+            let rpc = spawn_rpc(|_| Reply::Error("height 99 is not available".into())).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            assert!(
+                chain
+                    .query_block_events(&tendermint::block::Height::from(99u32))
+                    .await
+                    .is_err()
+            );
+        }
+
+        fn packet_hex(seq: u64, source: &str, dest: &str) -> String {
+            hex::encode(test_packet_between(seq, source, dest).encode_to_vec())
+        }
+
+        fn test_packet_between(seq: u64, source: &str, dest: &str) -> Packet {
+            Packet {
+                source_client: source.into(),
+                destination_client: dest.into(),
+                ..test_packet(
+                    seq,
+                    1_700_000_000,
+                    vec![test_payload("transfer", "ics20-1", "json", b"{}")],
+                )
+            }
+        }
+
+        fn tx(events: Vec<tendermint::abci::Event>) -> Value {
+            tx_entry(
+                tendermint::Hash::Sha256([9; 32]),
+                20,
+                exec_result(0, "", events),
+            )
+        }
+
+        async fn search(txs: Vec<Value>) -> MockRpc {
+            spawn_rpc(move |_| tx_search_reply(txs.clone())).await
+        }
+
+        #[tokio::test]
+        async fn send_packet_event_matches_sequence_and_source_client() {
+            let rpc = search(vec![
+                tx(vec![event(
+                    "send_packet",
+                    &[(ENCODED_PACKET_HEX, &packet_hex(5, "07-tendermint-8", "x"))],
+                )]),
+                tx(vec![
+                    event("message", &[("action", "send")]),
+                    event(
+                        "send_packet",
+                        &[(
+                            ENCODED_PACKET_HEX,
+                            &packet_hex(5, "07-tendermint-3", "07-tendermint-0"),
+                        )],
+                    ),
+                ]),
+            ])
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let found = chain
+                .query_send_packet_event(&client_id(), PacketSequence(5))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(found.packet.sequence, PacketSequence(5));
+            assert_eq!(found.packet.source_client_id.0, "07-tendermint-3");
+            assert_eq!(found.packet.dest_client_id.0, "07-tendermint-0");
+            assert_eq!(found.packet.payloads[0].source_port.0, "transfer");
+
+            let params = &rpc.calls_to("tx_search")[0];
+            assert_eq!(
+                params["query"],
+                "tm.event = 'Tx' AND send_packet.packet_sequence = '5'"
+            );
+            assert_eq!(params["page"], "1");
+            assert_eq!(params["per_page"], "100");
+            assert_eq!(params["order_by"], "desc");
+        }
+
+        #[tokio::test]
+        async fn send_packet_event_none_for_other_clients_or_pruned_index() {
+            let rpc = search(vec![tx(vec![event(
+                "send_packet",
+                &[(ENCODED_PACKET_HEX, &packet_hex(5, "07-tendermint-8", "x"))],
+            )])])
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            assert!(
+                chain
+                    .query_send_packet_event(&client_id(), PacketSequence(5))
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+
+            let rpc = search(vec![]).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            assert!(
+                chain
+                    .query_send_packet_event(&client_id(), PacketSequence(5))
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        }
+
+        fn write_ack(seq: u64, source: &str, dest: &str, ack: &[u8]) -> tendermint::abci::Event {
+            event(
+                "write_acknowledgement",
+                &[
+                    (ENCODED_PACKET_HEX, &packet_hex(seq, source, dest)),
+                    ("encoded_acknowledgement_hex", &hex::encode(ack)),
+                ],
+            )
+        }
+
+        #[tokio::test]
+        async fn write_ack_event_matches_destination_client() {
+            let rpc = search(vec![tx(vec![
+                write_ack(6, "07-tendermint-3", "07-tendermint-9", b"wrong"),
+                write_ack(6, "07-tendermint-0", "07-tendermint-3", b"right"),
+            ])])
+            .await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            let found = chain
+                .query_write_ack_event(&client_id(), PacketSequence(6))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(found.ack.0, b"right");
+            assert_eq!(found.packet.dest_client_id.0, "07-tendermint-3");
+            assert_eq!(
+                rpc.calls_to("tx_search")[0]["query"],
+                "tm.event = 'Tx' AND write_acknowledgement.packet_sequence = '6'"
+            );
+        }
+
+        #[tokio::test]
+        async fn write_ack_event_none_when_missing() {
+            for txs in [
+                vec![],
+                vec![tx(vec![write_ack(6, "a", "07-tendermint-9", b"x")])],
+            ] {
+                let rpc = search(txs).await;
+                let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+                assert!(
+                    chain
+                        .query_write_ack_event(&client_id(), PacketSequence(6))
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn packet_event_queries_propagate_rpc_errors() {
+            let rpc = spawn_rpc(|_| Reply::Error("tx indexing is disabled".into())).await;
+            let chain = mock_chain(&rpc.url, UNREACHABLE_ADDR);
+            assert!(
+                chain
+                    .query_send_packet_event(&client_id(), PacketSequence(1))
+                    .await
+                    .is_err()
+            );
+            assert!(
+                chain
+                    .query_write_ack_event(&client_id(), PacketSequence(1))
+                    .await
+                    .is_err()
+            );
+        }
+    }
 }

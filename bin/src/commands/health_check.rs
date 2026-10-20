@@ -60,3 +60,38 @@ impl HealthCheckCmd {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{HUB, err_string, example_config, write_config};
+
+    fn cmd(config: &Path, chain: Option<&str>) -> HealthCheckCmd {
+        HealthCheckCmd {
+            config: config.into(),
+            chain: chain.map(Into::into),
+        }
+    }
+
+    #[tokio::test]
+    async fn config_without_chains_is_healthy() {
+        let file = write_config("");
+        cmd(&file.path, None).run().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unknown_target_chain_is_reported() {
+        let cfg = example_config();
+        let err = err_string(cmd(&cfg.path, Some("juno-1")).run().await);
+        assert_eq!(err, "chain 'juno-1' not found in config");
+    }
+
+    #[tokio::test]
+    async fn unreachable_chains_make_check_fail() {
+        let cfg = example_config();
+        for target in [None, Some(HUB)] {
+            let err = err_string(cmd(&cfg.path, target).run().await);
+            assert_eq!(err, "one or more chains are unhealthy", "{target:?}");
+        }
+    }
+}

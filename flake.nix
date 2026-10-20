@@ -201,7 +201,12 @@
         fenixPkgs.targets.wasm32-unknown-unknown.stable.rust-std
       ];
     in {
-      packages.default = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts meta;});
+      # Tests run in the CI Test and Coverage jobs; skip crane's default `cargo test`.
+      packages.default = craneLib.buildPackage (commonArgs
+        // {
+          inherit cargoArtifacts meta;
+          doCheck = false;
+        });
 
       checks = {
         fmt = craneLib.cargoFmt {inherit src;};
@@ -224,9 +229,11 @@
           [
             toolchain
             pkgs.just
+            pkgs.lefthook
             pkgs.taplo
             pkgs.typos
             pkgs.actionlint
+            pkgs.ast-grep
             pkgs.cargo-nextest
             pkgs.cargo-deny
             pkgs.cargo-llvm-cov
@@ -253,10 +260,28 @@
             (pkgs.writeShellScriptBin "docker" ''exec podman "$@"'')
           ];
 
+        shellHook = ''
+          lefthook install >/dev/null
+        '';
+
         env = {
           RUST_BACKTRACE = "1";
           RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
         };
+      };
+
+      # libfuzzer needs nightly (-Zsanitizer); kept separate so the default shell stays on stable.
+      devShells.fuzz = pkgs.mkShell {
+        packages =
+          [
+            (fenixPkgs.latest.withComponents ["cargo" "rustc" "rust-src" "llvm-tools-preview"])
+            pkgs.cargo-bolero
+            pkgs.just
+            pkgs.protobuf
+          ]
+          ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.apple-sdk_15
+          ];
       };
     });
   in {
