@@ -34,5 +34,5 @@ tendermint = { workspace = true }
 
 [dev-dependencies]
 mercury-solana = { workspace = true, features = ["cosmos", "testing"] }
-solana-packet = "3"
+solana-packet = "4"
 tokio = { workspace = true }
